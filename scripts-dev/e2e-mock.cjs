@@ -19,6 +19,20 @@ async function settingsWindow(app, closed) {
   return null
 }
 
+// 等引擎后台补录结束：发送按钮非停止 + (消息数:补录徽标数) 连续两轮稳定
+async function waitEngineSettled(win, timeout) {
+  const t0 = Date.now()
+  let prev = null
+  while (Date.now() - t0 < (timeout || 12000)) {
+    const busy = await win.evaluate(() => document.querySelector('#btn-send').classList.contains('stop'))
+    const snap = await win.evaluate(() => document.querySelectorAll('.msg.assistant').length + ':' + document.querySelectorAll('.msg-pending-chip').length)
+    if (!busy && snap === prev) return true
+    prev = snap
+    await new Promise((r) => setTimeout(r, 300))
+  }
+  return false
+}
+
 function startMock() {
   let imageMode = 'b64' // b64 | url
   let chatCalls = 0
@@ -381,6 +395,7 @@ async function main() {
   check('copy-toast-shown', (await win.locator('.toast.ok').count()) >= 1)
 
   // ---- 重新生成上一回合（REGEN）----
+  await waitEngineSettled(win) // 等上一回合的后台补录结束（条款 17 重试不占用 UI 状态）
   // 取最后一条 assistant 的 REGEN 按钮触发
   const lastMsg = win.locator('.msg.assistant').last()
   await lastMsg.hover()
@@ -389,10 +404,12 @@ async function main() {
   check('regen-btn-visible', (await regenBtn.count()) === 1)
   const assistantBefore = await win.locator('.msg.assistant').count()
   await regenBtn.click()
-  // 等待重新生成完成
+  // 等待重新生成完成：按钮复位 且 消息数恢复（重试补录期间消息尚未回推，数量差 1）
   ok = false
-  for (let i = 0; i < 20; i++) {
-    if (!(await win.evaluate(() => document.querySelector('#btn-send').classList.contains('stop')))) { ok = true; break }
+  for (let i = 0; i < 30; i++) {
+    const n = await win.locator('.msg.assistant').count()
+    const busyNow = await win.evaluate(() => document.querySelector('#btn-send').classList.contains('stop'))
+    if (!busyNow && n === assistantBefore) { ok = true; break }
     await win.waitForTimeout(400)
   }
   check('regen-completes', ok)
@@ -401,6 +418,7 @@ async function main() {
   check('regen-keeps-count', assistantAfter === assistantBefore, 'before=' + assistantBefore + ' after=' + assistantAfter)
 
   // ---- 多会话：新建 → 空态 → 切回 → 删除 ----
+  await waitEngineSettled(win) // 等 regen 的后台补录结束，避免 engineBusy 拦截
   await win.click('#btn-new')
   await win.waitForTimeout(300)
   check('new-session-empty', (await win.locator('.empty').count()) === 1)

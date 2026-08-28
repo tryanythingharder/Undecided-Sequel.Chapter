@@ -91,8 +91,16 @@
       <div class="messages" id="messages"></div>
 
       <div class="choices" id="choices"></div>
-      <!-- 选项区收起时的展开按钮（上滑查阅历史时选项自动收起，回到底部自动展开） -->
-      <button id="choices-expand" class="choices-expand hidden"><svg class="ic ic-sm" viewBox="0 0 16 16"><path d="M6 3.5 10.5 8 6 12.5"/></svg> 展开选项</button>
+      <!-- 选项区收起时的展开钮（上滑查阅历史时选项自动收起，回到底部自动展开）——不透明正三角，紧贴输入框上缘 -->
+      <button id="choices-expand" class="choices-expand hidden" title="展开选项" aria-label="展开选项"><svg viewBox="0 0 26 12" aria-hidden="true"><path d="M13 0 26 12H0Z"/></svg></button>
+
+      <!-- Pending Commit 横幅（条款 26/30）：不悄悄假装“这一轮已经正常完成并保存” -->
+      <div id="pending-banner" class="pending-banner hidden">
+        <span class="pending-ico">⚠</span>
+        <span id="pending-count" class="pending-text"></span>
+        <button id="btn-pending-resolve" class="pending-btn">补录状态</button>
+        <button id="btn-pending-dismiss" class="pending-btn ghost" title="仅隐藏提示，待补录记录保留">忽略</button>
+      </div>
 
       <div class="composer">
         <div class="composer-box">
@@ -105,7 +113,6 @@
               <button class="model-chip img" id="chip-img-model" title="当前插图模型 · 点击查看用量" hidden></button>
               <!-- 模型用量下拉面板（点击模型芯片展开，锚定配置簇上方） -->
               <div class="model-pop hidden" id="model-pop"></div>
-              <span class="hint" id="hint"></span>
               <select class="foot-select" id="sel-model" title="切换同一提供商下的模型（在设置中配置可选清单）"></select>
               <select class="foot-select" id="sel-think" title="思考程度（提供商不支持时自动使用默认）">
                 <option value="default">思考 · 默认</option>
@@ -197,8 +204,9 @@
         </div>
         <div class="set-group">
           <h3>更多</h3>
-          <div class="guide-row"><span class="guide-num">8</span><span>左侧会话栏：<strong>拖动右缘伸缩</strong>、拖到最窄或按 <kbd>Ctrl</kbd><kbd>B</kbd> 收起；收起后左侧出现<strong>故事进度条</strong>，悬停节点可预览该幕（有插图的节点显示图片小窗），点击跳转到那一幕。选项按钮在向上翻阅历史时会<strong>自动收起</strong>（点「展开选项」或回到置底自动展开）</span></div>
+          <div class="guide-row"><span class="guide-num">8</span><span>左侧会话栏：<strong>拖动右缘伸缩</strong>、拖到最窄或按 <kbd>Ctrl</kbd><kbd>B</kbd> 收起；收起后左侧出现<strong>故事进度条</strong>，悬停节点可预览该幕（有插图的节点显示图片小窗），点击跳转到那一幕。选项按钮在向上翻阅历史时会<strong>自动收起</strong>（点输入框上方浮现的小箭头，或回到置底自动展开）</span></div>
           <div class="guide-row"><span class="guide-num">9</span><span><kbd>Ctrl</kbd><kbd>N</kbd> 新建世界线 · <kbd>Ctrl</kbd><kbd>G</kbd> 打开<strong>画廊</strong>查看全部插图 · <kbd>Ctrl</kbd><kbd>F</kbd> 搜索当前世界线 · <kbd>Ctrl</kbd><kbd>,</kbd> 设置（模型/插图/外观）· 输入框为空时按 <kbd>↑</kbd> 召回上一条行动 · <kbd>Ctrl</kbd><kbd>/</kbd> 快捷键表</span></div>
+          <div class="guide-row"><span class="guide-num">10</span><span>世界拥有<strong>结构化长期记忆</strong>：重要决定、承诺、事实、伏笔会被引擎记住并持续影响剧情（关掉应用也不会忘）。按 <kbd>Ctrl</kbd><kbd>Alt</kbd><kbd>I</kbd> 打开<strong>状态检查器</strong>查看世界记忆、创建/恢复快照、检视每回合记录</span></div>
         </div>
         </div>
         <div class="help-panel hidden" id="guide-keys">
@@ -214,6 +222,7 @@
           <div class="sc-row"><span>搜索当前世界线</span><span class="keys"><kbd>Ctrl</kbd><kbd>F</kbd></span></div>
           <div class="sc-row"><span>打开设置</span><span class="keys"><kbd>Ctrl</kbd><kbd>,</kbd></span></div>
           <div class="sc-row"><span>打开画廊</span><span class="keys"><kbd>Ctrl</kbd><kbd>G</kbd></span></div>
+          <div class="sc-row"><span>状态检查器（世界记忆/快照/日志）</span><span class="keys"><kbd>Ctrl</kbd><kbd>Alt</kbd><kbd>I</kbd></span></div>
           <div class="sc-row"><span>快捷键面板</span><span class="keys"><kbd>Ctrl</kbd><kbd>/</kbd></span></div>
           <div class="sc-row"><span>字号 放大 / 缩小 / 复位</span><span class="keys"><kbd>Ctrl</kbd><kbd>=</kbd><kbd>Ctrl</kbd><kbd>-</kbd><kbd>Ctrl</kbd><kbd>0</kbd></span></div>
           <h3>大图查看</h3>
@@ -221,6 +230,30 @@
           <div class="sc-row"><span>关闭</span><span class="keys"><kbd>Esc</kbd></span></div>
         </div>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ 状态检查器（故事状态引擎 · 调试视图；Ctrl+Alt+I） ============ -->
+  <div class="modal-mask" id="inspector-mask" hidden>
+    <div class="modal guide" id="inspector" hidden role="dialog" aria-modal="true" aria-labelledby="inspector-title">
+      <div class="modal-head">
+        <span class="modal-title" id="inspector-title">状态检查器</span>
+        <div class="modal-head-actions">
+          <button class="modal-close" id="btn-inspector-close" title="关闭"><svg class="ic" viewBox="0 0 16 16"><path d="M4 4l8 8M12 4l-8 8"/></svg></button>
+        </div>
+      </div>
+      <div class="help-tabs" role="tablist">
+        <button class="insp-tab active" id="insp-tab-overview" role="tab" aria-selected="true">总览</button>
+        <button class="insp-tab" id="insp-tab-ledgers" role="tab" aria-selected="false">记忆账本</button>
+        <button class="insp-tab" id="insp-tab-snaps" role="tab" aria-selected="false">快照</button>
+        <button class="insp-tab" id="insp-tab-logs" role="tab" aria-selected="false">回合日志</button>
+      </div>
+      <div class="modal-body">
+        <div class="help-panel" id="insp-overview"><div class="insp-empty">尚无数据：先在世界线中进行至少一回合。</div></div>
+        <div class="help-panel hidden" id="insp-ledgers"><div class="insp-empty">尚无数据。</div></div>
+        <div class="help-panel hidden" id="insp-snaps"><div class="insp-empty">尚无快照。</div></div>
+        <div class="help-panel hidden" id="insp-logs"><div class="insp-empty">尚无回合日志。</div></div>
       </div>
     </div>
   </div>

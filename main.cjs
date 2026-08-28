@@ -203,6 +203,88 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()
 })
 
+// ---- 故事状态引擎（通用结构化状态 + 长期记忆 + 检索） ----
+// 存储位于 userData/story-engine/（stories/snapshots/logs 分目录），与 localStorage 互补。
+const { createEngine } = require('./engine/index')
+let storyEngine = null
+function engineFor() {
+  if (!storyEngine) storyEngine = createEngine(path.join(app.getPath('userData'), 'story-engine'))
+  return storyEngine
+}
+const safeHandle = (ch, fn) => ipcMain.handle(ch, async (_e, payload) => {
+  try { return { ok: true, data: await fn(payload || {}) } }
+  catch (e) { return { ok: false, error: String((e && e.message) || e) } }
+})
+safeHandle('engine:ensure', (p) => {
+  const r = engineFor().ensureStory(p)
+  return { story_id: p.storyId, created: r.created, kernel_version: r.kernel_version, kernel_match: r.kernel_match, turn: r.story.counters.turn }
+})
+safeHandle('engine:context', (p) => {
+  // 条款 6/7/8：玩家 IPC 路径强制 PLAYER 级别 —— 渲染层传入的 includeSecrets/accessLevel 一律不授予秘密。
+  // DEBUG 级完整状态走 engine:overview（Inspector 开发调试路径），普通玩家调用路径永不输出。
+  if (p.accessLevel && String(p.accessLevel).toUpperCase() !== 'PLAYER') console.warn('[engine] context accessLevel 请求被钳制为 PLAYER（玩家路径）')
+  const r = engineFor().buildContext(p.storyId, { playerInput: p.playerInput, entityNames: p.entityNames, limit: p.limit, accessLevel: 'PLAYER' })
+  return { block: r.block, overview: r.overview, retrieved_ids: r.retrieved.retrieved_ids, context_size: r.block.length }
+})
+safeHandle('engine:commit', (p) => {
+  const eng = engineFor()
+  const r = eng.commitFromRaw(p.raw, {
+    storyId: p.storyId, sessionId: p.sessionId, playerInput: p.playerInput,
+    intent: p.intent, model: p.model, rawOutput: p.raw,
+    retrievedIds: p.retrievedIds, contextSize: p.contextSize
+  })
+  // 条款 15/18/19/28：未正式提交且非显式 NO_STATE_CHANGE → 落 Pending Commit（重启可恢复）
+  if (r.committed) {
+    if (p.pendingId) { try { eng.discardPending({ storyId: p.storyId, pendingId: p.pendingId }); r.pending_resolved = true } catch {} }
+    return r
+  }
+  if (r.patch_status === 'NO_STATE_CHANGE') return r
+  try {
+    if (p.pendingId) {
+      const pc = eng.getPending(p.storyId, p.pendingId)
+      if (pc) { // 重试仍未成功：更新既有 Pending（retry_count 递增，不另建）
+        pc.retry_count = (pc.retry_count || 0) + (Number(p.retryCount) || 1)
+        pc.patch_error = (r.errors && r.errors.length ? r.errors[0].message : (r.warnings[0] && r.warnings[0].message) || r.patch_status || 'unknown')
+        pc.updated_at = Date.now()
+        eng.store.savePending(pc)
+        r.pending_id = pc.pending_id; r.pending_recorded = true
+        return r
+      }
+    }
+    const pc = eng.recordPending({
+      storyId: p.storyId, sessionId: p.sessionId, playerInput: p.playerInput,
+      narrative: r.narrative || p.raw, patchError: (r.errors && r.errors.length ? r.errors[0].message : (r.warnings[0] && r.warnings[0].message) || r.patch_status || ''),
+      retryCount: Number(p.retryCount) || 0, turnId: r.turn_id, stateVersion: (eng.overview(p.storyId) || {}).engine_turn
+    })
+    r.pending_id = pc.pending_id; r.pending_recorded = true
+  } catch (e) { r.pending_error = String((e && e.message) || e) }
+  return r
+})
+// ---- Pending Commit 恢复 / 补录（条款 26/27） ----
+safeHandle('engine:pendings', (p) => engineFor().listPendings(p.storyId))
+safeHandle('engine:resolvePending', (p) => engineFor().resolvePending({ storyId: p.storyId, pendingId: p.pendingId, raw: p.raw }))
+safeHandle('engine:discardPending', (p) => engineFor().discardPending({ storyId: p.storyId, pendingId: p.pendingId }))
+safeHandle('engine:overview', (p) => engineFor().overview(p.storyId))
+safeHandle('engine:snapshot', (p) => engineFor().snapshot(p.storyId, p.label))
+safeHandle('engine:snapshots', (p) => engineFor().listSnapshots(p.storyId))
+safeHandle('engine:restore', (p) => {
+  engineFor().restoreSnapshot(p.storyId, p.snapshotId)
+  return engineFor().overview(p.storyId)
+})
+safeHandle('engine:logs', (p) => engineFor().turnLogs(p.storyId))
+safeHandle('engine:log', (p) => engineFor().turnLog(p.storyId, p.turnId))
+safeHandle('engine:protocol', () => engineFor().protocolPrompt())
+// 被抛弃的叙事留痕（重生成/IF 分歧丢弃上一版）—— 永不静默覆盖，只增不删
+safeHandle('engine:discardTurn', (p) => {
+  const story = engineFor().getStory(p.storyId)
+  if (!story) return { recorded: false }
+  story.discarded_turns.push({ at: Date.now(), reason: p.reason || 'regen', excerpt: String(p.excerpt || '').slice(0, 400) })
+  if (story.discarded_turns.length > 200) story.discarded_turns = story.discarded_turns.slice(-200)
+  story.updated_at = Date.now()
+  engineFor().store.saveStory(p.storyId)
+  return { recorded: true }
+})
+
 // ---- kernel ----
 ipcMain.handle('kernel:read', async () => {
   const candidates = [KERNEL_DEFAULT]
@@ -274,7 +356,7 @@ ipcMain.handle('chat:send', async (_evt, cfg) => {
       if (!pendingDelta) return
       const d = pendingDelta
       pendingDelta = ''
-      if (win && !win.isDestroyed()) win.webContents.send('chat:delta', d)
+      if (win && !win.isDestroyed() && !cfg.silent) win.webContents.send('chat:delta', d) // silent：State Patch 补录重试不进 UI（条款 25）
     }
     const emit = (piece) => {
       pendingDelta += piece
@@ -500,7 +582,7 @@ ipcMain.handle('image:generate', async (_evt, cfg) => {
 })
 
 // ---- 将插图（data URL）保存到磁盘 ----
-ipcMain.handle('image:save', async (_evt, opts) => {
+ipcMain.handle('image:save', async (evt, opts) => {
   try {
     const dataUrl = String((opts && opts.dataUrl) || '')
     const m = dataUrl.match(/^data:([^;]+);base64,(.*)$/)
@@ -570,7 +652,7 @@ ipcMain.handle('dialog:openFile', async (evt, opts) => {
 })
 
 // ---- 批量保存插图：让用户选一个文件夹，按「会话名-序号」写入全部图片 ----
-ipcMain.handle('image:saveAll', async (_evt, opts) => {
+ipcMain.handle('image:saveAll', async (evt, opts) => {
   try {
     const items = Array.isArray(opts && opts.items) ? opts.items : []
     if (!items.length) return { ok: false, error: '没有可保存的插图' }
@@ -662,7 +744,7 @@ ipcMain.handle('settings:changed', (_evt, payload) => {
 })
 
 // ---- 文件保存（导出配置/续玩码等）----
-ipcMain.handle('dialog:saveFile', async (_evt, opts) => {
+ipcMain.handle('dialog:saveFile', async (evt, opts) => {
   try {
     const title = String((opts && opts.title) || '保存文件')
     const defaultName = String((opts && opts.defaultName) || 'export.json')

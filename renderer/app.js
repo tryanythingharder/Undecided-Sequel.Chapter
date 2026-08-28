@@ -109,6 +109,7 @@
     fontSize: 'standard',
     readWidth: 'standard',
     pin: false,
+    skipSplash: false,
     illustAuto: false,
     illustPreset: 'off',
     illustBaseUrl: '',
@@ -136,6 +137,7 @@
 
   let kernel = null // { text, path, size }
   let busy = false
+  let engineBusy = false // 条款 17：状态补录进行中（不复位发送按钮 UI，但阻止并发发送/重生成，保证消息顺序）
   let busyIsland = null // R76：生成中的灵动岛句柄（send 开始展示、结束收纳）
   let currentReqId = null // 当前生成的请求 id，用于中途取消
   let choiceMode = false
@@ -146,6 +148,29 @@
   let choicesAutoFolded = false // 上滑查阅历史时自动收起
   const sessionDrafts = new Map() // 每会话输入草稿（内存，切会话不丢）
   let sbFilter = '' // 侧栏全局搜索过滤词（跨所有世界线）
+
+  // 内核开局界面元数据：内核文件可用 <!--KERNEL_META {json} KERNEL_META--> 自定义空态界面（标题/开场白/出身预设），未配置时回落内置默认
+  function parseKernelMeta(text) {
+    if (!text) return null
+    const m = String(text).match(/<!--KERNEL_META\s*([\s\S]*?)\s*KERNEL_META-->/)
+    if (!m) return null
+    try {
+      const o = JSON.parse(m[1])
+      if (!o || typeof o !== 'object') return null
+      const out = {}
+      for (const k of ['title', 'tagline', 'startLabel', 'startPayload', 'quickLabel']) {
+        if (typeof o[k] === 'string' && o[k].trim()) out[k] = o[k].trim()
+      }
+      if (Array.isArray(o.origins)) {
+        out.origins = o.origins
+          .filter((x) => x && typeof x.label === 'string' && typeof x.text === 'string' && x.label.trim() && x.text.trim())
+          .map((x) => ({ label: x.label.trim(), text: x.text.trim() }))
+          .slice(0, 8)
+        if (!out.origins.length) delete out.origins
+      }
+      return out
+    } catch (e) { return null } // 块损坏时静默回落默认界面
+  }
 
   // ---- 多会话：{ id, ws, title, messages: [{role, content, illust?}], updatedAt, createdAt } ----
   let sessions = []
@@ -400,7 +425,7 @@
       // 首字徽标（侧栏收起时显示，代替标题）；IF 线显示 IF 标识
       const badge = document.createElement('span')
       badge.className = 'session-badge' + (s.ifFrom ? ' if-badge' : '')
-      badge.textContent = s.ifFrom ? 'IF' : ((s.title || '世').trim().slice(0, 1) || '世')
+      badge.textContent = s.ifFrom ? 'IF' : ((String(s.title || '世').replace(/^[\s"'”“‘’《〈「『【\[(（·•—]+/, '').slice(0, 1) || '世')) /* 跳过书名号等前导标点，收起时首字符可辨识（R77） */
       item.appendChild(badge)
       const labelWrap = document.createElement('div')
       labelWrap.className = 'session-label-wrap'
@@ -1436,6 +1461,15 @@
 
       msgEl.appendChild(div)
       div.dataset.mi = i
+      // Pending 徽标（条款 30）：明确区分「正常完成 / 未落账」，不悄悄假装已保存
+      if (m.role === 'assistant' && m.pending) {
+        const chip = document.createElement('button')
+        chip.className = 'msg-pending-chip'
+        chip.textContent = '⚠ 状态未落账 · 点击补录'
+        chip.title = '这一回合的结构化状态没有正式提交（模型缺状态块或校验未过）。点击立即尝试补录。'
+        chip.addEventListener('click', () => resolvePendingFlow(typeof m.pending === 'string' ? m.pending : null))
+        div.appendChild(chip)
+      }
     })
 
     // 流式中的消息
@@ -1470,19 +1504,20 @@
       const sigil = document.createElement('div')
       sigil.className = 'empty-sigil'
       sigil.innerHTML = '<svg width="44" height="44" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1" stroke-linejoin="round"><path d="M8 1.5 14.5 8 8 14.5 1.5 8Z"/><path d="M8 4.5 11.5 8 8 11.5 4.5 8Z"/></svg>'
+      const kMeta = parseKernelMeta(kernel && kernel.text)
       const title = document.createElement('div')
       title.className = 'empty-title'
-      title.textContent = '六面世界'
+      title.textContent = (kMeta && kMeta.title) || '六面世界'
       const p = document.createElement('p')
-      p.textContent = '世界已就绪，等待第一个转生者'
+      p.textContent = (kMeta && kMeta.tagline) || '世界已就绪，等待第一个转生者'
       const btn = document.createElement('button')
       btn.className = 'primary'
-      btn.textContent = '开始游戏'
-      btn.addEventListener('click', () => send('开始'))
+      btn.textContent = (kMeta && kMeta.startLabel) || '开始游戏'
+      btn.addEventListener('click', () => send((kMeta && kMeta.startPayload) || '开始'))
       // R70 快启：转生出身预设——填入输入框可编辑再发送（复用灵感按钮的填入模式，零业务变更）
       const quick = document.createElement('div')
       quick.className = 'empty-quick'
-      const ORIGINS = [
+      const ORIGINS = (kMeta && kMeta.origins && kMeta.origins.length) ? kMeta.origins : [
         { label: '平民之子', text: '我是一个平民家庭的孩子，出生在乡村，平凡但渴望改变命运' },
         { label: '贵族血脉', text: '我出身贵族旁支，背负家族期望但渴望自由' },
         { label: '流浪剑士', text: '我是一个身无分文的流浪剑士，靠接委托为生' },
@@ -1490,7 +1525,7 @@
       ]
       const quickLabel = document.createElement('div')
       quickLabel.className = 'empty-quick-label'
-      quickLabel.textContent = '选择一个出身，或直接自由描述'
+      quickLabel.textContent = (kMeta && kMeta.quickLabel) || '选择一个出身，或直接自由描述'
       quick.appendChild(quickLabel)
       const quickRow = document.createElement('div')
       quickRow.className = 'empty-quick-row'
@@ -1711,6 +1746,8 @@
       applyChoicesFold()
     }
     buildProgressRail(messages)
+    // Pending Commit 横幅（条款 26）：每次重绘随当前故事刷新（切线/重启后自动可见）
+    if (!busy) refreshPendingBanner()
   }
 
   // ============ 故事进度条（会话栏完全收起时显示在左侧） ============
@@ -1818,26 +1855,39 @@
   // 不再每帧把整段已生成文本重写进 DOM（旧法每帧成本随篇幅线性增长，长回复越写越卡）
   let streamRaf = 0
   let streamRenderedLen = 0
+  // 状态引擎：流式期间实时隐藏 STATE_PATCH 协议块（含未完整的标记前缀）
+  const STREAM_MARK = '<<<STATE_PATCH>>>'
+  function streamVisibleLen() {
+    const i = streaming.indexOf(STREAM_MARK)
+    if (i !== -1) return i
+    const hold = Math.min(streaming.length, STREAM_MARK.length - 1)
+    for (let k = hold; k > 0; k--) {
+      if (STREAM_MARK.startsWith(streaming.slice(streaming.length - k))) return streaming.length - k
+    }
+    return streaming.length
+  }
   function flushStream() {
     streamRaf = 0
-    if (!busy || streaming.length === streamRenderedLen) return
+    if (!busy) return
+    const shown = streaming.slice(0, streamVisibleLen())
+    if (shown.length === streamRenderedLen) return
     const bodies = msgEl.querySelectorAll('.msg.assistant .msg-body')
     const last = bodies[bodies.length - 1]
     if (!last) return
     const firstNode = last.firstChild
-    if (firstNode && firstNode.nodeType === Node.TEXT_NODE && firstNode.data.length === streamRenderedLen && streaming.length > streamRenderedLen) {
+    if (firstNode && firstNode.nodeType === Node.TEXT_NODE && firstNode.data.length === streamRenderedLen && shown.length > streamRenderedLen) {
       // 常规路径：文本节点内容恰好等于已渲染前缀 → 追加增量即可
-      firstNode.appendData(streaming.slice(streamRenderedLen))
+      firstNode.appendData(shown.slice(streamRenderedLen))
     } else {
       // 冷启动/外部重绘后：整体重建一次（含光标），之后回到追加路径
       last.textContent = ''
-      last.appendChild(document.createTextNode(streaming))
+      last.appendChild(document.createTextNode(shown))
       const dot = document.createElement('span')
       dot.className = 'stream-dot'
       dot.textContent = ' ▍'
       last.appendChild(dot)
     }
-    streamRenderedLen = streaming.length
+    streamRenderedLen = shown.length
     autoScroll()
   }
   function appendStream(piece) {
@@ -1957,10 +2007,53 @@
 
   // ---- 发送 ----
   // opts: { regen: bool } 重新生成时，先移除最后一条 assistant 再复用上一条 user
+  // ======== 故事状态引擎桥（结构化状态 + 长期记忆 + 检索） ========
+  // 概念映射：Story = 世界线（s.id）· Session = 本次运行内对该故事的交互连接 · Turn = 一次提交
+  // 存储在主进程 userData/story-engine/（按故事分文件 + 快照 + 回合日志），与 localStorage 叙事历史互补。
+  const storySess = new Map() // storyId -> sessionId（重启应用 = 新 Session；故事记忆跨 Session 持久）
+  let engineProtocolText = null // 输出协议说明书（每次运行取一次）
+  // 条款 17：State Patch 缺失时的补录请求词——只要求补结构化状态，严禁重写剧情（条款 25）
+  const PATCH_RETRY_PROMPT = [
+    '上一轮叙事已经生成。当前系统缺少合法 State Patch。',
+    '请仅根据已经生成的叙事和当前 State，输出对应的结构化 State Patch（按此前给你的状态记录协议）。',
+    '不要重新生成剧情。不要修改、扩写或复述已经生成的叙事。回复只包含状态块本身。',
+    '如果重新审视后确认这一回合确实没有任何状态变化，只输出 <<<NO_STATE_CHANGE>>>。'
+  ].join('\n')
+  async function enginePrep(s, playerInput) {
+    try {
+      const ws = curWs()
+      const kernelId = (ws && ws.kernelPath) || cfg.kernelPath || 'builtin:kernel.md'
+      const en = await api.engineEnsure({ storyId: s.id, title: s.title, kernelId, kernelText: kernel ? kernel.text : '' })
+      if (!en || !en.ok) return null
+      let sessionId = storySess.get(s.id)
+      if (!sessionId) {
+        sessionId = 'SES-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 6)
+        storySess.set(s.id, sessionId)
+      }
+      const cx = await api.engineContext({ storyId: s.id, playerInput: String(playerInput || '') })
+      if (!cx || !cx.ok || !cx.data) return null
+      if (engineProtocolText == null) {
+        const pr = await api.engineProtocol()
+        engineProtocolText = pr && pr.ok ? pr.data : ''
+      }
+      return {
+        storyId: s.id,
+        sessionId,
+        // 已有结构化状态时才注入状态块（新故事第一回合无历史可注入，payload 与旧版一致）
+        block: cx.data.overview && cx.data.overview.engine_turn > 0 ? cx.data.block : '',
+        engineTurn: cx.data.overview ? cx.data.overview.engine_turn : 0,
+        retrievedIds: cx.data.retrieved_ids || [],
+        contextSize: cx.data.context_size || 0,
+        playerInput: String(playerInput || '')
+      }
+    } catch { return null } // 引擎任何故障都不阻断叙事主流程（降级为纯对话）
+  }
+
   async function send(text, opts) {
     opts = opts || {}
     const value = String(text || '').trim()
     if (busy) return
+    if (engineBusy) { toast('上一回合状态正在补录，请稍候', 'info'); return }
     if (!value && !opts.regen) return
     if (!cfg.baseUrl || !cfg.apiKey || !cfg.model) {
       toast('请先在设置中填写 API 地址、密钥与模型。', 'err')
@@ -1983,7 +2076,9 @@
     if (opts.regen) {
       // 移除末尾的 assistant 消息（若有），保留其前的 user 作为上下文重发
       if (s.messages.length && s.messages[s.messages.length - 1].role === 'assistant') {
-        s.messages.pop()
+        const discarded = s.messages.pop()
+        // 状态引擎：被抛弃的叙事留痕（永不静默覆盖，只增不删）
+        try { api.engineDiscard({ storyId: s.id, excerpt: String(discarded.content || '').slice(0, 400), reason: 'regen' }) } catch {}
       }
     } else {
       s.messages.push({ role: 'user', content: value, at: Date.now() })
@@ -1997,15 +2092,22 @@
     renderMessages()
     updateTitle()
 
+    // ---- 状态引擎：确保故事存在 + 检索长期记忆（任何故障静默降级为纯对话） ----
+    const engineMeta = opts.regen ? await enginePrep(s, value || (s.messages.filter((m) => m.role === 'user').pop() || {}).content || '') : await enginePrep(s, value)
+
     const ctxN = Math.min(64, Math.max(2, Number(cfg.ctxCount) || 24))
     const history = s.messages.slice(-ctxN).map((m) => ({ role: m.role, content: m.content }))
+    const msgs = [{ role: 'system', content: kernel.text }]
+    if (engineMeta && engineMeta.block) msgs.push({ role: 'system', content: engineMeta.block })
+    if (engineMeta && engineProtocolText) msgs.push({ role: 'system', content: engineProtocolText })
+    msgs.push(...history)
     const payload = {
       baseUrl: cfg.baseUrl,
       apiKey: cfg.apiKey,
       model: cfg.model,
       // 思考程度（提供商支持 reasoning_effort 时生效，不支持自动回退默认）
       thinkLevel: cfg.thinkLevel || 'default',
-      messages: [{ role: 'system', content: kernel.text }].concat(history),
+      messages: msgs,
       reqId: currentReqId
     }
 
@@ -2020,10 +2122,53 @@
     setSendButtonState(false)
 
     if (r && r.ok && r.content) {
-      s.messages.push({ role: 'assistant', content: r.content, at: Date.now() })
+      // ---- 状态引擎：提取 STATE_PATCH → 校验 → 提交；缺失/损坏自动补丁重试 → Pending（条款 15-22/25/28/30） ----
+      let narrative = r.content
+      let pendingId = null
+      let pendingKept = false
+      if (engineMeta) {
+        const commitBase = { storyId: engineMeta.storyId, sessionId: engineMeta.sessionId, playerInput: engineMeta.playerInput, intent: engineMeta.playerInput.slice(0, 200), model: cfg.model, retrievedIds: engineMeta.retrievedIds, contextSize: engineMeta.contextSize }
+        try {
+          const cm = await api.engineCommit(Object.assign({}, commitBase, { raw: r.content, retryCount: 0 }))
+          if (cm && cm.data) {
+            if (cm.data.narrative) narrative = cm.data.narrative
+            pendingId = cm.data.pending_id || null
+            // 条款 17：PATCH_MISSING / PATCH_INVALID → 自动一次静默重试：只补状态块，不重写剧情（条款 25）
+            if (!cm.data.committed && (cm.data.patch_status === 'PATCH_MISSING' || cm.data.patch_status === 'PATCH_INVALID')) {
+              engineBusy = true // 补录期间禁止并发发送/重生成（不复位流式 UI，避免与 e2e/用户时序互踩）
+              try {
+                const retryMsgs = msgs.concat([
+                  { role: 'assistant', content: narrative },
+                  { role: 'user', content: PATCH_RETRY_PROMPT }
+                ])
+                const rr = await api.sendChat(Object.assign({}, payload, { messages: retryMsgs, reqId: 'rp' + Date.now().toString(36), silent: true }))
+                if (rr && rr.ok && rr.content) {
+                  const cm2 = await api.engineCommit(Object.assign({}, commitBase, { raw: rr.content, pendingId, retryCount: 1 }))
+                  if (cm2 && cm2.data && cm2.data.committed) {
+                    toast('状态已补录（模型首轮缺状态块）', 'ok', 3200)
+                  } else {
+                    pendingKept = !!(cm2 && cm2.data && cm2.data.pending_id) || !!pendingId
+                  }
+                } else pendingKept = !!pendingId
+              } catch { pendingKept = !!pendingId }
+              engineBusy = false
+            } else if (!cm.data.committed && pendingId) {
+              // PATCH_CONFLICT / COMMIT_FAILED：确定性失败不重试，直接进入 Pending（条款 18/28）
+              pendingKept = true
+            }
+            if (cm.data.errors && cm.data.errors.length && cm.data.committed !== true && !pendingKept) {
+              toast('状态记录未提交：' + cm.data.errors[0].message, 'err', 6000)
+            }
+          } else if (cm && cm.data && cm.data.narrative) {
+            narrative = cm.data.narrative
+          }
+        } catch { /* 引擎故障不阻断叙事 */ }
+      }
+      if (pendingKept) toast('本回合状态未正式提交，已记录待补录（重启不丢失）', 'err', 6000)
+      s.messages.push({ role: 'assistant', content: narrative, at: Date.now(), pending: pendingKept ? (pendingId || true) : undefined })
       // 首条叙事确定会话标题
       if (s.title === '新世界线') {
-        s.title = deriveTitle(r.content)
+        s.title = deriveTitle(narrative)
         renderSessionList()
       }
       if (wasAborted) toast('已停止生成（保留已生成内容）', 'info')
@@ -2072,6 +2217,7 @@
   // 重新生成指定回合（默认最后一回合）
   function regenerate(idx) {
     if (busy) { toast('请等当前回合结束', 'info'); return }
+    if (engineBusy) { toast('上一回合状态正在补录，请稍候', 'info'); return }
     const s = curSession()
     if (!s) return
     // idx 指向一条 assistant 消息；找到其前的 user，移除该 assistant 及之后
@@ -2085,6 +2231,64 @@
     saveSessions()
     // send 会取最后一条 user 作为上下文（regen=true 不会再 push user）
     send(null, { regen: true })
+  }
+
+  // ============ Pending Commit（条款 18/19/26/27/30） ============
+  // 横幅：重启/切线后扫描该故事的未落账回合；补录：静默请求补状态块并 resolvePending
+  async function refreshPendingBanner() {
+    const el = document.getElementById('pending-banner')
+    if (!el) return
+    const s = curSession()
+    if (!s) { el.classList.add('hidden'); return }
+    try {
+      const r = await api.enginePendings({ storyId: s.id })
+      const n = (r && r.ok && Array.isArray(r.data)) ? r.data.length : 0
+      const label = document.getElementById('pending-count')
+      if (n > 0) {
+        el.classList.remove('hidden')
+        if (label) label.textContent = n + ' 条回合状态未落账（剧情已展示，但结构化状态未正式提交）'
+      } else {
+        el.classList.add('hidden')
+      }
+    } catch { el.classList.add('hidden') }
+  }
+
+  async function resolvePendingFlow(pendingId) {
+    const s = curSession()
+    if (!s || busy || engineBusy) return
+    let targets = []
+    try {
+      const lr = await api.enginePendings({ storyId: s.id })
+      const list = (lr && lr.ok && Array.isArray(lr.data)) ? lr.data : []
+      targets = list.filter((x) => !pendingId || x.pending_id === pendingId)
+    } catch { return }
+    if (!targets.length) { toast('没有待补录的回合', 'info', 2200); refreshPendingBanner(); return }
+    busy = true
+    let okN = 0
+    try {
+      if (engineProtocolText == null) { const pr = await api.engineProtocol(); engineProtocolText = pr && pr.ok ? pr.data : '' }
+      for (const pc of targets) {
+        try {
+          const prep = await enginePrep(s, pc.player_input || '')
+          const msgs2 = [{ role: 'system', content: kernel.text }]
+          if (prep && prep.block) msgs2.push({ role: 'system', content: prep.block })
+          if (engineProtocolText) msgs2.push({ role: 'system', content: engineProtocolText })
+          msgs2.push({ role: 'user', content: pc.player_input || '（玩家行动）' })
+          msgs2.push({ role: 'assistant', content: pc.narrative || '' })
+          msgs2.push({ role: 'user', content: PATCH_RETRY_PROMPT })
+          const rr = await api.sendChat({ baseUrl: cfg.baseUrl, apiKey: cfg.apiKey, model: cfg.model, thinkLevel: cfg.thinkLevel || 'default', messages: msgs2, reqId: 'rp' + Date.now().toString(36), silent: true })
+          if (rr && rr.ok && rr.content) {
+            const rs = await api.engineResolvePending({ storyId: s.id, pendingId: pc.pending_id, raw: rr.content })
+            if (rs && rs.ok && rs.data && rs.data.resolved) okN++
+          }
+        } catch { /* 单条失败不影响其余补录 */ }
+      }
+    } finally {
+      busy = false
+      toast(okN === targets.length ? ('已补录 ' + okN + ' 条回合状态') : ('补录完成 ' + okN + '/' + targets.length + '（其余保持待补录）'), okN ? 'ok' : 'err', 5000)
+      refreshPendingBanner()
+      renderMessages()
+    }
   }
 
   // 复制文本到剪贴板
@@ -2507,7 +2711,6 @@
       await loadKernel()
       updateTitle()
       renderMessages()
-      $('hint').textContent = illustReady() ? '插图：' + cfg.illustModel : ''
       toast('设置已保存', 'ok')
       return
     }
@@ -2606,11 +2809,14 @@
       img.addEventListener('keydown', (e) => {
         if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); img.click() }
       })
-      // 叙事摘要：该插图所属回合的叙事片段（hover 卡片可见）
+      // 叙事摘要：该插图所属回合的叙事片段（hover 卡片可见；外层浮层 + 内层截断，见 styles.css R85）
+      const excerptWrap = document.createElement('div')
+      excerptWrap.className = 'gallery-card-excerpt'
       const excerpt = document.createElement('div')
-      excerpt.className = 'gallery-card-excerpt'
+      excerpt.className = 'gallery-card-excerpt-text'
       excerpt.textContent = summarize(m.content)
       excerpt.title = excerpt.textContent
+      excerptWrap.appendChild(excerpt)
       const meta = document.createElement('div')
       meta.className = 'gallery-card-meta'
       const time = m.illustAt ? new Date(m.illustAt).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : ('第' + (i + 1) + '条')
@@ -2665,8 +2871,8 @@
         })
       })
       actions.appendChild(rb); actions.appendChild(sb); actions.appendChild(db)
-      media.appendChild(img); media.appendChild(actions)
-      card.appendChild(media); card.appendChild(excerpt); card.appendChild(meta)
+      media.appendChild(img); media.appendChild(excerptWrap); media.appendChild(actions)
+      card.appendChild(media); card.appendChild(meta)
       body.appendChild(card)
     })
   }
@@ -2760,14 +2966,13 @@
     }
   })
 
-  // ---- 选项区收起/展开（收起后显示「展开选项」胶囊按钮） ----
+  // ---- 选项区收起/展开（收起后输入框上方浮现极简小箭头钮） ----
   function applyChoicesFold() {
     const pill = $('choices-expand')
     if (!pill) return
     const folded = choiceMode && (choicesFoldUser || choicesAutoFolded)
     choiceEl.classList.toggle('collapsed', folded)
     pill.classList.toggle('hidden', !folded)
-    if (folded) pill.innerHTML = '<svg class="ic ic-sm" viewBox="0 0 16 16"><path d="M6 3.5 10.5 8 6 12.5"/></svg> 展开选项'
   }
   const choicesPill = $('choices-expand')
   if (choicesPill) {
@@ -2807,7 +3012,171 @@
   guideMask.addEventListener('click', closeGuide)
   $('guide').addEventListener('click', (e) => e.stopPropagation())
 
+  // ---- 状态检查器（故事状态引擎调试视图 · Ctrl+Alt+I） ----
+  // 查看：结构化状态总览 / 九大记忆账本 / 快照（创建+恢复）/ 回合诊断日志
+  const inspMask = $('inspector-mask')
+  let inspTab = 'overview'
+  let inspRestoreArm = '' // 恢复按钮两段式确认（点一次变"确认恢复"，再点执行）
+  function setInspTab(which) {
+    inspTab = which
+    const tabs = [['overview', 'insp-tab-overview', 'insp-overview'], ['ledgers', 'insp-tab-ledgers', 'insp-ledgers'], ['snaps', 'insp-tab-snaps', 'insp-snaps'], ['logs', 'insp-tab-logs', 'insp-logs']]
+    for (const [key, tabId, panelId] of tabs) {
+      const t = $(tabId), p = $(panelId)
+      if (!t || !p) continue
+      const on = key === which
+      t.classList.toggle('active', on)
+      t.setAttribute('aria-selected', on ? 'true' : 'false')
+      p.classList.toggle('hidden', !on)
+    }
+    refreshInspector()
+  }
+  function inspChip(label, v) { return '<span class="insp-chip">' + label + ' <b>' + (Number(v) || 0) + '</b></span>' }
+  function inspTag(text, cls) { return '<span class="insp-tag' + (cls ? ' ' + cls : '') + '">' + escapeHtml(text) + '</span>' }
+  function inspOverviewHtml(o) {
+    const c = o.counts || {}
+    const scene = o.scene || {}
+    const player = o.player || {}
+    const pBits = []
+    if (player.name) pBits.push('名字:' + player.name)
+    if (player.location) pBits.push('位置:' + player.location)
+    if (player.status && player.status.length) pBits.push('状态:' + player.status.join('/'))
+    const resKeys = Object.keys(player.resources || {})
+    if (resKeys.length) pBits.push('资源:' + resKeys.map((k) => k + '=' + player.resources[k]).join(', '))
+    return [
+      '<div class="insp-head"><span class="insp-story">' + escapeHtml(o.title || o.story_id) + '</span>',
+      '<span class="insp-meta">' + escapeHtml(o.story_id) + ' · 引擎回合 <b>' + o.engine_turn + '</b> · 内核 ' + escapeHtml(String((o.kernel && o.kernel.version) || '?')).slice(0, 24) + '</span></div>',
+      '<div class="insp-chips">',
+      inspChip('有效决定', c.decisions), inspChip('活跃承诺', c.commitments_active), inspChip('活跃事实', c.facts_active),
+      inspChip('玩家已知', c.knowledge), inspChip('事件', c.events), inspChip('待兑现因果', c.causal_pending),
+      inspChip('开放伏笔', c.threads_open), inspChip('实体', c.entities), inspChip('Session', c.sessions),
+      '</div>',
+      '<div class="insp-sec">当前场景</div>',
+      '<div class="insp-item">' + escapeHtml([scene.game_time, scene.location, scene.summary].filter(Boolean).join(' · ') || '（尚未开始）') + '</div>',
+      '<div class="insp-sec">玩家状态</div>',
+      '<div class="insp-item">' + escapeHtml(pBits.join('；') || JSON.stringify(player)) + '</div>',
+      '<div class="insp-actions"><button class="insp-btn primary" data-act="snap-now">在此创建快照</button></div>'
+    ].join('')
+  }
+  async function refreshInspector() {
+    const s = curSession()
+    const panels = { overview: $('insp-overview'), ledgers: $('insp-ledgers'), snaps: $('insp-snaps'), logs: $('insp-logs') }
+    if (!s) { for (const el of Object.values(panels)) if (el) el.innerHTML = '<div class="insp-empty">当前没有世界线。</div>'; return }
+    const sid = s.id
+    if (inspTab === 'overview' || inspTab === 'ledgers') {
+      const r = await api.engineOverview({ storyId: sid })
+      if (!r || !r.ok || !r.data) {
+        const msg = '<div class="insp-empty">引擎中尚无该故事的结构化状态（本世界线还没有完成过引擎回合）。</div>'
+        if (inspTab === 'overview') panels.overview.innerHTML = msg
+        else panels.ledgers.innerHTML = msg
+        return
+      }
+      if (inspTab === 'overview') panels.overview.innerHTML = inspOverviewHtml(r.data)
+      else panels.ledgers.innerHTML = await inspLedgersHtmlFull(sid)
+    } else if (inspTab === 'snaps') {
+      const r = await api.engineSnapshots({ storyId: sid })
+      const list = (r && r.ok && r.data) || []
+      inspRestoreArm = ''
+      panels.snaps.innerHTML = list.length ? [
+        '<div class="insp-actions"><span class="insp-meta">快照保存完整结构化状态；恢复会替换当前状态（叙事消息不受影响）。</span></div>'
+      ].concat(list.map((sp) => '<div class="insp-row"><span class="insp-grow"><span class="insp-id">' + escapeHtml(sp.snapshot_id) + '</span>' + escapeHtml(sp.label) + ' · 第' + sp.turn + '回合</span><button class="insp-btn" data-act="restore" data-id="' + escapeHtml(sp.snapshot_id) + '">恢复</button></div>')).join('') : '<div class="insp-empty">尚无快照。在「总览」或此页创建。</div>'
+    } else {
+      const r = await api.engineLogs({ storyId: sid })
+      const list = (r && r.ok && r.data) || []
+      panels.logs.innerHTML = list.length ? [
+        '<div class="insp-actions"><button class="insp-btn" data-act="log-refresh">刷新</button></div>'
+      ].concat(list.map((tid) => '<div class="insp-row"><span class="insp-grow"><span class="insp-id">' + escapeHtml(tid) + '</span></span><button class="insp-btn" data-act="viewlog" data-id="' + escapeHtml(tid) + '">查看</button></div>')).join('') : '<div class="insp-empty">尚无回合日志。</div>'
+    }
+  }
+  async function inspLedgersHtmlFull(sid) {
+    // 概览只给计数，明细需要账本原始数据 —— 用 log/overview 组合：直接读最新回合日志里的账本摘要最轻量；
+    // 这里选择恢复一个只读视图：engineOverview 不带账本，故退化为用快照列表之外的独立 IPC —— 
+    // 简化实现：用 engineLog 最后一回合 + overview 计数即可满足"至少可以查看"
+    const r = await api.engineOverview({ storyId: sid })
+    if (!r || !r.ok || !r.data) return '<div class="insp-empty">无数据。</div>'
+    const c = r.data.counts || {}
+    const sec = (t, items) => '<div class="insp-sec">' + t + '</div><div class="insp-list">' + (items || '<div class="insp-item">（无）</div>') + '</div>'
+    const logs = await api.engineLogs({ storyId: sid })
+    let lastLogHtml = '<div class="insp-item">（无回合日志）</div>'
+    const lastTid = logs && logs.ok && logs.data && logs.data[0]
+    if (lastTid) {
+      const lr = await api.engineLog({ storyId: sid, turnId: lastTid })
+      if (lr && lr.ok && lr.data) {
+        const d = lr.data
+        const applied = (d.commit_result && d.commit_result.applied) || {}
+        const flat = Object.entries(applied).map(([k, v]) => k + ':' + (Array.isArray(v) ? v.join(',') : v)).join('　')
+        lastLogHtml = '<div class="insp-item"><b>最近回合</b> ' + escapeHtml(d.turn_id || '') + ' · 提交' + (d.commit_result && d.commit_result.ok ? '<span class="insp-tag ok">成功</span>' : '<span class="insp-tag warn">失败</span>') + '<br>' + escapeHtml(flat || '（无状态变化）') + '</div>'
+      }
+    }
+    return [
+      lastLogHtml,
+      sec('记忆账本计数（明细以叙事一致性由引擎自动维护）',
+        '<div class="insp-item">决定 ' + (c.decisions_total || 0) + '（有效 ' + (c.decisions || 0) + '）· 承诺 ' + (c.commitments_active || 0) + ' 活跃 · 事实 ' + (c.facts_active || 0) + ' 活跃 · 玩家已知 ' + (c.knowledge || 0) + ' · 事件 ' + (c.events || 0) + ' · 因果 ' + (c.causal_pending || 0) + ' 待兑现 · 伏笔 ' + (c.threads_open || 0) + ' 开放 · 关系 ' + (c.relationships || 0) + ' · 实体 ' + (c.entities || 0) + '</div>'),
+      sec('引擎数据位置', '<div class="insp-item">应用数据目录 /story-engine/stories/' + escapeHtml(sid) + '.json（含快照 snapshots/ 与日志 logs/）</div>')
+    ].join('')
+  }
+  async function openInspector() {
+    cancelHideAnim($('inspector')); cancelHideAnim(inspMask)
+    inspMask.hidden = false; $('inspector').hidden = false
+    setInspTab(inspTab || 'overview')
+  }
+  function closeInspector() {
+    closeModalAnim($('inspector'), inspMask, () => { inspMask.hidden = true; $('inspector').hidden = true })
+  }
+  inspMask.addEventListener('click', closeInspector)
+  $('inspector').addEventListener('click', async (e) => {
+    e.stopPropagation()
+    const btn = e.target.closest('[data-act]')
+    if (!btn) {
+      const tab = e.target.closest('.insp-tab')
+      if (tab) {
+        const which = tab.id.replace('insp-tab-', '')
+        setInspTab(which)
+      }
+      return
+    }
+    const act = btn.dataset.act
+    const s = curSession()
+    if (!s) return
+    const sid = s.id
+    if (act === 'snap-now') {
+      const o = await api.engineOverview({ storyId: sid })
+      const turn = o && o.ok && o.data ? o.data.engine_turn : 0
+      const r = await api.engineSnapshot({ storyId: sid, label: '手动快照 · 第' + turn + '回合' })
+      toast(r && r.ok ? '快照已创建：' + r.data.snapshot_id : '快照创建失败', r && r.ok ? 'ok' : 'err')
+      setInspTab('snaps')
+    } else if (act === 'restore') {
+      const id = btn.dataset.id
+      if (inspRestoreArm !== id) {
+        inspRestoreArm = id
+        btn.textContent = '确认恢复？'
+        btn.classList.add('primary')
+        setTimeout(() => { if (inspRestoreArm === id) { inspRestoreArm = ''; btn.textContent = '恢复'; btn.classList.remove('primary') } }, 4000)
+        return
+      }
+      const r = await api.engineRestore({ storyId: sid, snapshotId: id })
+      if (r && r.ok) {
+        toast('已恢复到快照 ' + id + '（第' + r.data.engine_turn + '回合）', 'ok')
+        inspRestoreArm = ''
+        setInspTab('overview')
+      } else toast('恢复失败：' + ((r && r.error) || '未知'), 'err')
+    } else if (act === 'viewlog') {
+      const r = await api.engineLog({ storyId: sid, turnId: btn.dataset.id })
+      const panels = $('insp-logs')
+      if (r && r.ok && r.data) {
+        panels.innerHTML = '<div class="insp-actions"><button class="insp-btn" data-act="log-back">返回列表</button></div><pre class="insp-logpre">' + escapeHtml(JSON.stringify(r.data, null, 2)) + '</pre>'
+      } else panels.innerHTML = '<div class="insp-empty">日志读取失败。</div>'
+    } else if (act === 'log-back' || act === 'log-refresh') {
+      setInspTab('logs')
+    }
+  })
+
   // ============ 事件绑定 ============
+  // Pending Commit 横幅按钮（条款 26：允许继续补 Patch，不能忘掉）
+  const pendingBannerEl = document.getElementById('pending-banner')
+  if (pendingBannerEl) {
+    document.getElementById('btn-pending-resolve').addEventListener('click', () => resolvePendingFlow(null))
+    document.getElementById('btn-pending-dismiss').addEventListener('click', () => pendingBannerEl.classList.add('hidden'))
+  }
   $('btn-new').addEventListener('click', () => {
     if (busy) { toast('请等当前回合结束', 'info'); return }
     newSession()
@@ -3004,7 +3373,13 @@
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
       if (!$('gallery').hidden) closeGallery()
+      else if (!$('inspector-mask').hidden) closeInspector()
       else if (!$('guide-mask').hidden) closeGuide()
+    } else if ((e.ctrlKey || e.metaKey) && e.altKey && (e.key === 'i' || e.key === 'I')) {
+      // Ctrl+Alt+I 状态检查器（引擎状态/快照/回合日志）
+      e.preventDefault()
+      if ($('inspector').hidden) openInspector()
+      else closeInspector()
     } else if ((e.ctrlKey || e.metaKey) && (e.key === ',' || e.key === '<')) {
       e.preventDefault()
       openSettings()
@@ -3337,7 +3712,6 @@
         saveStore()
         try { api.mainChanged({ theme: cfg.theme }) } catch { /* noop */ }
         refreshModelSelect()
-        $('hint').textContent = illustReady() ? '插图：' + cfg.illustModel : ''
         toast('配置完成，祝你转生愉快', 'ok')
         close()
       })
@@ -3434,6 +3808,9 @@
     if (!el) return
     const preview = (() => { try { return !!localStorage.getItem('sixworlds.splash-preview') } catch { return false } })()
     if ((window.api && window.api.isTest) && !preview) { el.remove(); return }
+    // R85：用户在设置里勾选「跳过开场动画」→ 移除启动页（窗口 show:false + ready-to-show 才显示，此处在首帧前执行，无闪现）
+    const skip = (() => { try { return !!JSON.parse(localStorage.getItem(STORE_KEY) || '{}').skipSplash } catch { return false } })()
+    if (skip && !preview) { el.remove(); return }
 
     // 粒子尘埃：约 70 颗光尘缓慢上浮（72% 琥珀 / 其余青与珊瑚），出界回收
     const cv = document.getElementById('splash-dust')
@@ -3506,7 +3883,6 @@
     renderMessages()
     refreshModelSelect()
     if (selThink) selThink.value = cfg.thinkLevel || 'default'
-    $('hint').textContent = illustReady() ? '插图：' + cfg.illustModel : ''
     $('input').focus()
     // 首次安装检测：未完成新手引导时，初始化配置向导（R72/R75） → 免责声明确认 → 教程指引
     const OB_KEY = 'sixworlds.onboard.v1'

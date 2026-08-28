@@ -48,6 +48,7 @@
     fontSize: 'standard',
     readWidth: 'standard',
     pin: false,
+    skipSplash: false,
     illustAuto: false,
     illustPreset: 'off',
     illustBaseUrl: '',
@@ -247,6 +248,7 @@
     $('set-fontsize').value = cfg.fontSize || 'standard'
     $('set-readwidth').value = cfg.readWidth || 'standard'
     $('set-pin').checked = cfg.pin
+    $('set-skip-splash').checked = !!cfg.skipSplash
     $('set-illust-quality').value = cfg.illustQuality || 'default'
     renderModelsPick()
     $('set-illust-auto').checked = cfg.illustAuto
@@ -650,6 +652,7 @@
     cfg.fontSize = $('set-fontsize').value
     cfg.readWidth = $('set-readwidth').value
     cfg.pin = $('set-pin').checked
+    cfg.skipSplash = $('set-skip-splash').checked
     // 模型清单：当前模型必须包含在内（对话栏下拉至少有一个可选项）
     const mset = new Set(Array.isArray(cfg.models) ? cfg.models : [])
     if (cfg.model) mset.add(cfg.model)

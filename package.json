@@ -1,6 +1,6 @@
 {
   "name": "six-worlds-codex",
-  "version": "1.2.3",
+  "version": "1.2.4",
   "description": "六面世界·Codex 桌面聊天窗 — 独立桌面小程序（内核 markdown + 任意 OpenAI 兼容提供商 + 选项点击）",
   "main": "main.cjs",
   "private": true,
@@ -27,6 +27,7 @@
       "preload.cjs",
       "kernel.md",
       "build/icon.ico",
+      "engine/**",
       "renderer/**",
       "package.json"
     ],

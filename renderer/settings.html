@@ -11,7 +11,6 @@
   <div class="modal-head">
     <span class="modal-title">设置</span>
     <div class="modal-head-actions">
-      <button class="modal-reset" id="btn-reset-settings" title="恢复默认设置">重置</button>
       <button class="modal-close" id="btn-win-min" title="最小化"><svg class="ic" viewBox="0 0 16 16"><path d="M3.5 8h9"/></svg></button>
       <button class="modal-close" id="btn-win-max" title="最大化 / 还原"><svg class="ic" viewBox="0 0 16 16"><rect x="4" y="4" width="8" height="8" rx="1"/></svg></button>
       <button class="modal-close" id="btn-win-close" title="关闭"><svg class="ic" viewBox="0 0 16 16"><path d="M4 4l8 8M12 4l-8 8"/></svg></button>
@@ -43,7 +42,7 @@
       <label>API 密钥</label>
       <div class="row">
         <input id="set-apikey" type="password" placeholder="sk-..." />
-        <button class="mini ghost-mini" id="btn-peek-key" type="button" title="显示 / 隐藏密钥">👁</button>
+        <button class="mini ghost-mini" id="btn-peek-key" type="button" title="显示 / 隐藏密钥" aria-label="显示 / 隐藏密钥"><svg class="ic" viewBox="0 0 16 16"><path d="M1.5 8s2.5-4.5 6.5-4.5S14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8Z"/><circle cx="8" cy="8" r="1.8"/></svg></button>
       </div>
       <label>模型</label>
       <div class="model-combo">
@@ -88,7 +87,7 @@
       <label>API 密钥（留空则复用文本模型的密钥）</label>
       <div class="row">
         <input id="set-illust-apikey" type="password" placeholder="sk-..." />
-        <button class="mini ghost-mini" id="btn-peek-illust-key" type="button" title="显示 / 隐藏密钥">👁</button>
+        <button class="mini ghost-mini" id="btn-peek-illust-key" type="button" title="显示 / 隐藏密钥" aria-label="显示 / 隐藏密钥"><svg class="ic" viewBox="0 0 16 16"><path d="M1.5 8s2.5-4.5 6.5-4.5S14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8Z"/><circle cx="8" cy="8" r="1.8"/></svg></button>
       </div>
       <label>模型</label>
       <div class="model-combo">
@@ -212,6 +211,8 @@
         <option value="wide">宽（860px · 一屏更多）</option>
         <option value="xwide">超宽（980px）</option>
       </select>
+      <h3>启动</h3>
+      <label class="row-inline"><input id="set-skip-splash" type="checkbox" /> 跳过开场动画（下次启动直接进入主界面）</label>
       <h3>世界内核</h3>
       <label>内核文件路径</label>
       <div class="row">
@@ -244,6 +245,7 @@
   <div class="modal-foot">
     <div class="set-status" id="set-status"></div>
     <div class="modal-foot-actions">
+      <button class="ghost" id="btn-reset-settings" title="恢复默认设置">重置</button>
       <button class="ghost" id="btn-settings-cancel">取消</button>
       <button class="primary" id="btn-save-settings">保存设置</button>
     </div>

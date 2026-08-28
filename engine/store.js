@@ -1,0 +1,279 @@
+'use strict'
+/* Persistent State Store —— 按故事分文件的持久层
+ *
+ * 选型理由（对应需求条款 42）：
+ *  - 当前 Electron 33（Node 20）无内置 sqlite；better-sqlite3 原生编译会破坏打包链路。
+ *  - 桌面单写者、每回合一次提交、写入频率低 —— 文件存储完全够用。
+ *  - 每个故事一个文件 = 文件系统级 Story 隔离（条款 4/27），不存在"先查全量再过滤"。
+ *  - Repository 抽象层（repositories.js）隔离本实现，未来可无缝替换 SQLite。
+ *
+ * 事务：staging（内存浅拷贝）→ commit（落盘）→ rollback（丢弃 staging）。
+ * 原子写：写 .tmp 后 rename，崩溃自愈（启动时清孤儿 tmp / 用 tmp 抢救主文件）。
+ */
+const fs = require('fs')
+const path = require('path')
+const { createStory } = require('./schema')
+
+class StateStore {
+  constructor(dataDir) {
+    this.dataDir = dataDir
+    this.storiesDir = path.join(dataDir, 'stories')
+    this.snapshotsDir = path.join(dataDir, 'snapshots')
+    this.pendingsDir = path.join(dataDir, 'pendings') // Pending Commit（条款 18/19：重启可恢复）
+    this.logsDir = path.join(dataDir, 'logs')
+    this.tmpDir = path.join(dataDir, 'tmp')
+    for (const d of [dataDir, this.storiesDir, this.snapshotsDir, this.pendingsDir, this.logsDir, this.tmpDir]) fs.mkdirSync(d, { recursive: true })
+    this._cache = new Map() // storyId → { story, dirty }
+    this._staging = new Map() // storyId → staged story（事务暂存）
+    this._recover()
+  }
+
+  // 崩溃自愈：孤儿 tmp 直接清掉
+  _recover() {
+    try {
+      for (const f of fs.readdirSync(this.tmpDir)) {
+        try { fs.unlinkSync(path.join(this.tmpDir, f)) } catch {}
+      }
+    } catch {}
+  }
+
+  _storyPath(storyId) {
+    // 文件名安全化（storyId 由本引擎生成，但防外部注入）
+    const safe = String(storyId).replace(/[^a-zA-Z0-9_-]/g, '_')
+    return path.join(this.storiesDir, safe + '.json')
+  }
+
+  _atomicWrite(filePath, data) {
+    const tmp = path.join(this.tmpDir, path.basename(filePath) + '.' + Date.now() + '.tmp')
+    fs.writeFileSync(tmp, data, 'utf8')
+    // Windows 下 rename 覆盖已有文件会被杀软/索引器瞬态锁定（EPERM/EACCES/EBUSY），重试退避
+    for (let i = 0; ; i++) {
+      try { fs.renameSync(tmp, filePath); return } catch (e) {
+        if (i >= 6 || !['EPERM', 'EACCES', 'EBUSY'].includes(e.code)) { try { fs.unlinkSync(tmp) } catch {} ; throw e }
+        const wait = [1, 2, 5, 10, 20, 40][i] || 40
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, wait)
+      }
+    }
+  }
+
+  _load(storyId) {
+    const p = this._storyPath(storyId)
+    if (!fs.existsSync(p)) return null
+    try {
+      const story = JSON.parse(fs.readFileSync(p, 'utf8'))
+      story._nameIndex = null
+      return story
+    } catch (e) {
+      // 主文件损坏：尝试同目录残存 tmp（尽力而为），否则报错暴露而非静默吞
+      throw new Error('story file corrupt: ' + storyId + ' (' + e.message + ')')
+    }
+  }
+
+  exists(storyId) {
+    if (this._staging.has(storyId)) return true
+    if (this._cache.has(storyId)) return true
+    return fs.existsSync(this._storyPath(storyId))
+  }
+
+  createStory({ storyId, title, kernelId, kernelVersion, createdAt }) {
+    if (this.exists(storyId)) return this.getStory(storyId)
+    const story = createStory({ storyId, title, kernelId, kernelVersion, createdAt: createdAt || Date.now() })
+    this._cache.set(storyId, { story })
+    this.flushStory(storyId)
+    return story
+  }
+
+  getStory(storyId) {
+    const st = this._staging.get(storyId)
+    if (st) return st
+    const c = this._cache.get(storyId)
+    if (c) return c.story
+    const story = this._load(storyId)
+    if (story) this._cache.set(storyId, { story })
+    return story
+  }
+
+  saveStory(storyId) {
+    // 标脏；flush 时统一落盘（也可逐次调用）
+    const st = this._staging.get(storyId)
+    if (st) { this.flushStory(storyId); return }
+    const c = this._cache.get(storyId)
+    if (c) this.flushStory(storyId)
+  }
+
+  flushStory(storyId) {
+    const story = this.getStory(storyId)
+    if (!story) return
+    const clone = JSON.parse(JSON.stringify(story))
+    clone._nameIndex = undefined
+    this._atomicWrite(this._storyPath(storyId), JSON.stringify(clone))
+    this._cache.set(storyId, { story })
+  }
+
+  // ---- 事务（Scene Commit 用） ----
+  beginTransaction(storyId) {
+    const story = this.getStory(storyId)
+    if (!story) throw new Error('story not found: ' + storyId)
+    this._staging.set(storyId, JSON.parse(JSON.stringify(story)))
+    this._staging.get(storyId)._nameIndex = undefined // 克隆里的 Map 已退化为 {}，强制下次懒重建
+    return this._staging.get(storyId)
+  }
+
+  commitTransaction(storyId) {
+    const staged = this._staging.get(storyId)
+    if (!staged) return false
+    this._staging.delete(storyId)
+    this._cache.set(storyId, { story: staged })
+    this.flushStory(storyId)
+    return true
+  }
+
+  rollbackTransaction(storyId) {
+    return this._staging.delete(storyId)
+  }
+
+  inTransaction(storyId) {
+    return this._staging.has(storyId)
+  }
+
+  // 用给定对象替换内存中的故事并落盘（快照恢复用）
+  replaceStory(storyId, story) {
+    this._staging.delete(storyId)
+    this._cache.set(storyId, { story })
+    this.flushStory(storyId)
+  }
+
+  // ---- 索引：列出全部故事（仅元信息，不载入正文 —— 条款 42 性能） ----
+  listStories() {
+    const out = []
+    let files = []
+    try { files = fs.readdirSync(this.storiesDir) } catch { return out }
+    for (const f of files) {
+      if (!f.endsWith('.json')) continue
+      try {
+        const s = JSON.parse(fs.readFileSync(path.join(this.storiesDir, f), 'utf8'))
+        out.push({ story_id: s.story_id, title: s.title, created_at: s.created_at, updated_at: s.updated_at, kernel: s.kernel, counts: {
+          turns: s.counters && s.counters.turn, decisions: s.decisions.length, facts: s.facts.length, events: s.events.length
+        } })
+      } catch {}
+    }
+    return out.sort((a, b) => (b.updated_at || 0) - (a.updated_at || 0))
+  }
+
+  deleteStory(storyId) {
+    this._cache.delete(storyId)
+    this._staging.delete(storyId)
+    try { fs.unlinkSync(this._storyPath(storyId)) } catch {}
+    // 快照、Pending 与日志一并清理（隔离原则：故事没了，附属数据无存在意义）
+    this.deleteAllPendings(storyId)
+    const sd = path.join(this.snapshotsDir, String(storyId))
+    const ld = path.join(this.logsDir, String(storyId))
+    for (const d of [sd, ld]) { try { fs.rmSync(d, { recursive: true, force: true }) } catch {} }
+  }
+
+  // ---- Pending Commit 文件（条款 19/26/27：独立落盘，重启可扫描恢复） ----
+  _pendingPath(storyId, pendingId) {
+    const safeS = String(storyId).replace(/[^a-zA-Z0-9_-]/g, '_')
+    const safeP = String(pendingId).replace(/[^a-zA-Z0-9_-]/g, '_')
+    return path.join(this.pendingsDir, safeS + '.' + safeP + '.json')
+  }
+
+  savePending(rec) {
+    if (!rec || !rec.story_id || !rec.pending_id) throw new Error('savePending: invalid record')
+    this._atomicWrite(this._pendingPath(rec.story_id, rec.pending_id), JSON.stringify(rec, null, 2))
+    return rec
+  }
+
+  listPendings(storyId) {
+    const prefix = String(storyId).replace(/[^a-zA-Z0-9_-]/g, '_') + '.'
+    let files = []
+    try { files = fs.readdirSync(this.pendingsDir) } catch { return [] }
+    return files.filter((f) => f.startsWith(prefix) && f.endsWith('.json')).map((f) => {
+      try { return JSON.parse(fs.readFileSync(path.join(this.pendingsDir, f), 'utf8')) } catch { return null }
+    }).filter(Boolean)
+      .filter((r) => r.story_id === storyId) // 双重校验：文件名前缀 + 记录内 story_id（条款 27）
+      .sort((a, b) => (a.created_at || 0) - (b.created_at || 0))
+  }
+
+  readPending(storyId, pendingId) {
+    const p = this._pendingPath(storyId, pendingId)
+    if (!fs.existsSync(p)) return null
+    try {
+      const rec = JSON.parse(fs.readFileSync(p, 'utf8'))
+      if (rec.story_id !== storyId) return null // 隔离硬闸（条款 27）
+      return rec
+    } catch { return null }
+  }
+
+  deletePending(storyId, pendingId) {
+    const p = this._pendingPath(storyId, pendingId)
+    if (!fs.existsSync(p)) return false
+    try { fs.unlinkSync(p); return true } catch { return false }
+  }
+
+  deleteAllPendings(storyId) {
+    const prefix = String(storyId).replace(/[^a-zA-Z0-9_-]/g, '_') + '.'
+    let files = []
+    try { files = fs.readdirSync(this.pendingsDir) } catch { return }
+    for (const f of files) if (f.startsWith(prefix)) { try { fs.unlinkSync(path.join(this.pendingsDir, f)) } catch {} }
+  }
+
+  // ---- 快照文件 ----
+  snapshotPath(storyId, snapshotId) {
+    const safe = String(storyId).replace(/[^a-zA-Z0-9_-]/g, '_')
+    const safeSnap = String(snapshotId).replace(/[^a-zA-Z0-9_-]/g, '_')
+    return path.join(this.snapshotsDir, safe, safeSnap + '.json')
+  }
+
+  writeSnapshot(storyId, snapshotId, data) {
+    const p = this.snapshotPath(storyId, snapshotId)
+    fs.mkdirSync(path.dirname(p), { recursive: true })
+    this._atomicWrite(p, JSON.stringify(data))
+    return p
+  }
+
+  readSnapshot(storyId, snapshotId) {
+    const p = this.snapshotPath(storyId, snapshotId)
+    if (!fs.existsSync(p)) return null
+    return JSON.parse(fs.readFileSync(p, 'utf8'))
+  }
+
+  listSnapshots(storyId) {
+    const dir = path.join(this.snapshotsDir, String(storyId).replace(/[^a-zA-Z0-9_-]/g, '_'))
+    if (!fs.existsSync(dir)) return []
+    return fs.readdirSync(dir).filter((f) => f.endsWith('.json')).map((f) => {
+      try {
+        const s = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8'))
+        return { snapshot_id: s.snapshot_id, story_id: s.story_id, label: s.label, turn: s.turn, created_at: s.created_at }
+      } catch { return null }
+    }).filter(Boolean).sort((a, b) => (b.created_at || 0) - (a.created_at || 0))
+  }
+
+  // ---- 回合诊断日志（条款 45） ----
+  appendTurnLog(storyId, log) {
+    const dir = path.join(this.logsDir, String(storyId).replace(/[^a-zA-Z0-9_-]/g, '_'))
+    fs.mkdirSync(dir, { recursive: true })
+    const file = path.join(dir, 'turn-' + String(log.turn_id || 'x').replace(/[^a-zA-Z0-9_-]/g, '_') + '.json')
+    this._atomicWrite(file, JSON.stringify(log, null, 2))
+    // 滚动清理：每故事只留最近 60 个回合日志
+    try {
+      const files = fs.readdirSync(dir).filter((f) => f.startsWith('turn-')).sort()
+      while (files.length > 60) { const f = files.shift(); try { fs.unlinkSync(path.join(dir, f)) } catch {} }
+    } catch {}
+  }
+
+  readTurnLog(storyId, turnId) {
+    const dir = path.join(this.logsDir, String(storyId).replace(/[^a-zA-Z0-9_-]/g, '_'))
+    const file = path.join(dir, 'turn-' + String(turnId).replace(/[^a-zA-Z0-9_-]/g, '_') + '.json')
+    if (!fs.existsSync(file)) return null
+    return JSON.parse(fs.readFileSync(file, 'utf8'))
+  }
+
+  listTurnLogs(storyId) {
+    const dir = path.join(this.logsDir, String(storyId).replace(/[^a-zA-Z0-9_-]/g, '_'))
+    if (!fs.existsSync(dir)) return []
+    return fs.readdirSync(dir).filter((f) => f.startsWith('turn-')).sort().reverse().map((f) => f.slice(5, -5))
+  }
+}
+
+module.exports = { StateStore }
