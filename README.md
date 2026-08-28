@@ -134,7 +134,7 @@ npm run dist   # 打包 NSIS 安装版 + 便携版单文件（产物在 dist/）
 │   ├── settings.js       # 设置窗口逻辑（双窗口实时同步）
 │   └── styles.css        # 全部样式（CSS 变量驱动 7 调色板 × 明暗）
 ├── kernel.md             # 世界内核《六面世界：人生模拟器》（可替换任意世界观）
-├── build/                # 应用图标源文件（icon.svg → npm run icon 生成 .ico/.png）
+├── build/                # 应用图标（cat.png 黑猫源 → npm run icon 生成 .ico/.png）
 ├── docs/shots/           # README 截图
 ├── scripts-dev/          # 核心回归与工具脚本（见下）
 └── 启动游戏.cmd           # 双击启动（首次自动 npm install）
