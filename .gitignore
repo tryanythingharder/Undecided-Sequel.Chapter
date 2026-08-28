@@ -2,6 +2,8 @@ node_modules/
 dist/
 test-shots/
 test-profile/
+design-prompts/
+docs-*.md
 *.log
 .DS_Store
 Thumbs.db

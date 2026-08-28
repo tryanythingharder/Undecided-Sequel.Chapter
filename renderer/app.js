@@ -259,9 +259,9 @@
     const s = curSession()
     if (s) { s.updatedAt = Date.now(); saveSessions() }
   }
-  // 从叙事文本提取会话标题：优先【甲龙历…】所在行，否则截取首句
+  // 从叙事文本提取会话标题：优先【XX历…｜…】场景行（兼容任意历法内核），否则截取首句
   function deriveTitle(text) {
-    const m = String(text || '').match(/【(甲龙历[^\]】]*)】/)
+    const m = String(text || '').match(/【([^\]】]*历[^\]】]*｜[^\]】]*)】/)
     if (m) return m[1].split('｜')[0] + ' · ' + (m[1].split('｜')[2] || m[1].split('｜')[1] || '')
     const t = String(text || '').replace(/\s+/g, ' ').trim()
     return t.slice(0, 18) || '新世界线'
@@ -1202,8 +1202,8 @@
     for (let li = 0; li < lines.length; li++) {
       const t = lines[li].trim()
       if (!t) { flush(); continue }
-      // 场景行：【甲龙历 407.03.01｜清晨｜布耶纳村】
-      if (/^【甲龙历/.test(t)) {
+      // 场景行：【甲龙历 407.03.01｜清晨｜布耶纳村】/【玄历 1024.03.01｜清晨｜青阳城】等历法场景行
+      if (/^【[^\]】]*历[^\]】]*｜/.test(t)) {
         flush()
         out.push('<div class="scene-line">' + mdInline(escapeHtml(t)) + '</div>')
         continue
@@ -1782,7 +1782,7 @@
   // 悬停小窗内容：插图优先，否则场景行/摘要
   function railSnippet(m) {
     const t = String(m.content || '')
-    const sc = t.match(/【(甲龙历[^\]】]*)】/)
+    const sc = t.match(/【([^\]】]*历[^\]】]*｜[^\]】]*)】/)
     if (sc) return sc[1]
     return t.replace(/\s+/g, ' ').trim().slice(0, 60) || '（这一幕）'
   }

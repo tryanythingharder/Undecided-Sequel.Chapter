@@ -7,12 +7,6 @@
 以《六面世界：人生模拟器》世界内核为舞台：AI 逐幕推进叙事、每幕给出 A/B/C 选项按钮，也可自由行动；
 支持世界线分歧回溯（IF 线）、AI 插图生成、画廊集与故事存档导出。兼容任意 OpenAI 兼容大模型端点。
 
-![Platform](https://img.shields.io/badge/platform-Windows%2010%2B-blue)
-![Electron](https://img.shields.io/badge/Electron-33-47848F?logo=electron&logoColor=white)
-![Node](https://img.shields.io/badge/Node.js-%E2%89%A518-339933?logo=nodedotjs&logoColor=white)
-![Version](https://img.shields.io/badge/version-1.2.3-c98b4b)
-![License](https://img.shields.io/badge/license-MIT-green)
-
 [功能总览](#-功能总览) · [截图预览](#-截图预览) · [快速开始](#-快速开始) · [打包发布](#-打包发布) · [开发与测试](#-开发与测试) · [免责声明](#-免责声明)
 
 </div>
@@ -140,9 +134,9 @@ npm run dist   # 打包 NSIS 安装版 + 便携版单文件（产物在 dist/）
 │   ├── settings.js       # 设置窗口逻辑（双窗口实时同步）
 │   └── styles.css        # 全部样式（CSS 变量驱动 7 调色板 × 明暗）
 ├── kernel.md             # 世界内核《六面世界：人生模拟器》（可替换任意世界观）
-├── build/                # 应用图标源文件
+├── build/                # 应用图标源文件（icon.svg → npm run icon 生成 .ico/.png）
 ├── docs/shots/           # README 截图
-├── scripts-dev/          # Playwright 开发/回归脚本（见下）
+├── scripts-dev/          # 核心回归与工具脚本（见下）
 └── 启动游戏.cmd           # 双击启动（首次自动 npm install）
 ```
 
@@ -150,8 +144,9 @@ npm run dist   # 打包 NSIS 安装版 + 便携版单文件（产物在 dist/）
 
 - `npm start` — 开发运行；所有脚本以 `SIXWORLDS_TEST=1` 启动并重定向 userData 到 `test-profile/`，**永不触碰真实用户配置**；
 - `node scripts-dev/verify.cjs` — 35 项 UI 断言；`node scripts-dev/e2e-mock.cjs` — 本地 mock 服务端全链路（80 项）；
-- `node scripts-dev/test-choices.cjs` — 选项解析/多选/收起回归（25 项）；`scripts-dev/` 下另有侧栏、会话、置顶、搜索、插图重试等 20+ 专项套件；
-- `node scripts-dev/capture-readme-shots.cjs` — 重新生成 README 截图（种演示数据后逐屏捕获至 `docs/shots/`）。
+- `node scripts-dev/test-choices.cjs` — 选项解析/多选/收起回归（25 项）；
+- `node scripts-dev/capture-readme-shots.cjs` — 重新生成 README 截图（种演示数据后逐屏捕获至 `docs/shots/`）；
+- 测试脚本基于 Playwright（驱动本地 Electron，无需下载浏览器）：`npm i -D playwright` 后即可运行。
 
 ## ❓ 常见问题
 

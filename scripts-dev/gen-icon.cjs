@@ -8,18 +8,10 @@ const SIZES = [16, 24, 32, 48, 64, 128, 256]
 
 async function main() {
   await app.whenReady()
-  // 图标源：优先 build/cat.png（R77 新图标），缺失时回退 SVG 原方案
-  const catPath = path.join(__dirname, '..', 'build', 'cat.png')
-  let imgSrc
-  let srcName
-  if (fs.existsSync(catPath)) {
-    imgSrc = 'data:image/png;base64,' + fs.readFileSync(catPath).toString('base64')
-    srcName = 'cat.png'
-  } else {
-    const svg = fs.readFileSync(path.join(__dirname, '..', 'build', 'icon.svg'), 'utf8')
-    imgSrc = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg)
-    srcName = 'icon.svg'
-  }
+  // 图标源：build/icon.svg（扁平六面立方体）
+  const svg = fs.readFileSync(path.join(__dirname, '..', 'build', 'icon.svg'), 'utf8')
+  const imgSrc = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg)
+  const srcName = 'icon.svg'
   const win = new BrowserWindow({
     show: false, width: 300, height: 300,
     webPreferences: { offscreen: true, contextIsolation: true, nodeIntegration: false, sandbox: true }
