@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:;">
+  <title>六面世界</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <!-- ============ R76 入场动画（Mineradio 式启动页；e2e 测试环境由 app.js 移除） ============ -->
+  <div id="splash" aria-hidden="true">
+    <canvas class="dust" id="splash-dust"></canvas>
+    <div class="splash-content">
+      <div class="splash-lockup">
+        <h1 class="splash-w-zh">六面世界</h1>
+        <div class="splash-w-wrap"><h2 class="splash-w-lat">自己的<b>故事</b></h2></div>
+      </div>
+      <div class="splash-signal"></div>
+      <p class="splash-sub">Six Worlds &middot; Private Story Engine</p>
+      <p class="splash-enter">点击进入</p>
+    </div>
+    <div class="splash-noise"></div>
+  </div>
+
+  <header class="titlebar">
+    <div class="titlebar-brand">
+      <button id="btn-sidebar-toggle" class="tb-btn sb-toggle" title="收起会话栏（Ctrl+B）"><svg class="ic" viewBox="0 0 16 16"><path d="M10 3.5 5.5 8l4.5 4.5"/></svg></button>
+      <span class="sigil"><svg class="ic" viewBox="0 0 16 16"><path d="M8 1.5 14.5 8 8 14.5 1.5 8Z"/><path d="M8 4.5 11.5 8 8 11.5 4.5 8Z"/></svg></span>
+      <span class="titlebar-name">六面世界</span>
+    </div>
+    <div class="titlebar-actions">
+      <button id="btn-gallery" class="tb-btn" title="画廊（本次重生 · 插图集）">画廊</button>
+      <button id="btn-pin" class="tb-btn" title="置顶显示">置顶</button>
+      <button id="btn-theme" class="tb-btn" title="切换主题">主题</button>
+      <span class="tb-sep"></span>
+      <button id="btn-min" class="tb-btn tb-win" title="最小化"><svg class="ic" viewBox="0 0 16 16"><path d="M3.5 8h9"/></svg></button>
+      <button id="btn-max" class="tb-btn tb-win" title="最大化"><svg class="ic" viewBox="0 0 16 16"><rect x="4" y="4" width="8" height="8" rx="1"/></svg></button>
+      <button id="btn-close" class="tb-btn tb-win tb-close" title="关闭"><svg class="ic" viewBox="0 0 16 16"><path d="M4 4l8 8M12 4l-8 8"/></svg></button>
+    </div>
+  </header>
+
+  <div class="layout">
+    <aside class="sidebar" id="sidebar">
+      <button id="btn-ws" class="ws-btn" title="切换/管理工作区"><span class="ws-icon"><svg class="ic" viewBox="0 0 16 16"><path d="M8 1.5 14.5 8 8 14.5 1.5 8Z"/><path d="M8 4.5 11.5 8 8 11.5 4.5 8Z"/></svg></span><span id="ws-name">默认世界</span><span class="ws-caret"><svg class="ic ic-sm" viewBox="0 0 16 16"><path d="M4 6l4 4 4-4"/></svg></span></button>
+      <div id="ws-menu" class="ws-menu hidden">
+        <div id="ws-menu-list" class="ws-menu-list"></div>
+        <div class="ws-menu-sep"></div>
+        <button class="ws-menu-item action" id="ws-new"><svg class="ic ic-sm" viewBox="0 0 16 16"><path d="M8 3.5v9M3.5 8h9"/></svg> 新建工作区</button>
+        <button class="ws-menu-item action" id="ws-rename"><svg class="ic ic-sm" viewBox="0 0 16 16"><path d="M9.5 3l3.5 3.5L6.5 13H3v-3.5L9.5 3Z"/></svg> 重命名工作区</button>
+        <button class="ws-menu-item action" id="ws-kernel"><svg class="ic ic-sm" viewBox="0 0 16 16"><path d="M8 1.5 14.5 8 8 14.5 1.5 8Z"/><path d="M8 4.5 11.5 8 8 11.5 4.5 8Z"/></svg> 设置专属内核…</button>
+        <button class="ws-menu-item action danger" id="ws-del"><svg class="ic ic-sm" viewBox="0 0 16 16"><path d="M4 4l8 8M12 4l-8 8"/></svg> 删除工作区</button>
+      </div>
+      <button class="new-chat" id="btn-new" title="开始一条新的世界线">新世界线</button>
+      <input id="sb-search" class="sb-search" type="text" placeholder="搜索本工作区…" title="在当前工作区内搜索标题与正文（Esc 清空）" />
+      <div class="session-area">
+        <div class="session-label-row">
+          <div class="session-label">世界线</div>
+          <button id="btn-sb-collapse" class="sb-collapse-btn" title="收起会话栏（Ctrl+B，拖动右缘可再拉开）"><svg class="ic" viewBox="0 0 16 16"><path d="M10 3.5 5.5 8l4.5 4.5"/></svg></button>
+        </div>
+        <div id="session-list" class="session-list">
+          <div class="session-item active">当前世界</div>
+        </div>
+      </div>
+      <div class="sidebar-foot">
+        <div id="kernel-chip" class="chip" title="世界内核状态">内核 · <span id="kernel-state">…</span></div>
+        <button class="side-btn" id="btn-settings">设置</button>
+      </div>
+    </aside>
+
+    <main class="chat">
+      <!-- 故事进度条（会话栏完全收起时显示在左侧；悬停节点预览，点击跳转） -->
+      <div class="progress-rail" id="progress-rail">
+        <div class="rail-nodes" id="rail-nodes"></div>
+        <div class="rail-track"><div class="rail-fill" id="rail-fill"></div></div>
+      </div>
+      <div class="rail-pop hidden" id="rail-pop"></div>
+      <div class="chat-header">
+        <div class="chat-title" id="chat-title">序幕 · 帷幕未启</div>
+        <div class="chat-head-right">
+          <span class="chat-status" id="chat-status" aria-live="polite"></span>
+        </div>
+      </div>
+      <div class="search-bar" id="search-bar" hidden>
+        <input id="search-input" type="text" placeholder="在当前世界线搜索…" />
+        <span class="search-count" id="search-count" aria-live="polite">0/0</span>
+        <button class="search-nav" id="search-prev" title="上一个（Shift+Enter）"><svg class="ic" viewBox="0 0 16 16"><path d="M8 3.5v9M4 8.5 8 4l4 4.5"/></svg></button>
+        <button class="search-nav" id="search-next" title="下一个（Enter）"><svg class="ic" viewBox="0 0 16 16"><path d="M8 12.5v-9M4 7.5 8 12l4-4.5"/></svg></button>
+        <button class="search-close" id="search-close" title="关闭（Esc）"><svg class="ic" viewBox="0 0 16 16"><path d="M4 4l8 8M12 4l-8 8"/></svg></button>
+      </div>
+
+      <div class="messages" id="messages"></div>
+
+      <div class="choices" id="choices"></div>
+      <!-- 选项区收起时的展开按钮（上滑查阅历史时选项自动收起，回到底部自动展开） -->
+      <button id="choices-expand" class="choices-expand hidden"><svg class="ic ic-sm" viewBox="0 0 16 16"><path d="M6 3.5 10.5 8 6 12.5"/></svg> 展开选项</button>
+
+      <div class="composer">
+        <div class="composer-box">
+          <textarea id="input" rows="2" placeholder="自由描述你的行动…（Enter 发送 · Shift+Enter 换行）"></textarea>
+          <!-- R70 IA 重组：低频配置（插图状态/模型/思考程度）左聚，高频动作（灵感/发送）右聚，主操作权重突出 -->
+          <div class="composer-foot">
+            <div class="composer-config">
+              <!-- R70：模型芯片迁入配置簇——全部技术配置归一处，对话头只留故事语境（忙碌状态） -->
+              <button class="model-chip" id="chip-text-model" title="当前文本模型 · 点击查看用量"></button>
+              <button class="model-chip img" id="chip-img-model" title="当前插图模型 · 点击查看用量" hidden></button>
+              <!-- 模型用量下拉面板（点击模型芯片展开，锚定配置簇上方） -->
+              <div class="model-pop hidden" id="model-pop"></div>
+              <span class="hint" id="hint"></span>
+              <select class="foot-select" id="sel-model" title="切换同一提供商下的模型（在设置中配置可选清单）"></select>
+              <select class="foot-select" id="sel-think" title="思考程度（提供商不支持时自动使用默认）">
+                <option value="default">思考 · 默认</option>
+                <option value="low">思考 · 浅</option>
+                <option value="medium">思考 · 中</option>
+                <option value="high">思考 · 深</option>
+              </select>
+            </div>
+            <div class="composer-actions">
+              <button class="inspire-btn" id="btn-inspire" title="给我一条行动灵感（填入后可编辑再发送）"><svg class="ic ic-sm" viewBox="0 0 16 16"><path d="M8 2l1.2 3.3L12.5 6.5 9.2 7.8 8 11l-1.2-3.2L3.5 6.5l3.3-1.2L8 2Z"/><path d="M12.5 11l.6 1.6 1.6.6-1.6.6-.6 1.6-.6-1.6-1.6-.6 1.6-.6.6-1.6Z"/></svg> 灵感</button>
+              <button class="send" id="btn-send">发送 <svg class="ic ic-sm" viewBox="0 0 16 16"><path d="M3.5 8.5 8 13h4.5M12.5 13H8M12.5 13V8.5"/></svg></button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- ============ 设置：独立系统窗口（settings.html），由主进程创建 ============ -->
+
+  <!-- ============ 画廊（本次重生 · 插图集） ============ -->
+  <div class="modal-mask" id="gallery-mask" hidden></div>
+  <div class="gallery" id="gallery" hidden role="dialog" aria-modal="true" aria-labelledby="gallery-title">
+    <div class="gallery-head">
+      <div class="gallery-title-wrap">
+        <span class="gallery-title" id="gallery-title">画廊</span>
+        <span class="gallery-sub" id="gallery-count"></span>
+      </div>
+      <button class="gallery-close" id="btn-gallery-close" title="关闭"><svg class="ic" viewBox="0 0 16 16"><path d="M4 4l8 8M12 4l-8 8"/></svg></button>
+    </div>
+    <!-- R80：还原原型 K——工具条 = 世界线下拉 + 保存全部插图 + 导出为故事存档（同行，右端） -->
+    <div class="gallery-toolbar">
+      <select id="gallery-session" class="gallery-select"></select>
+      <button class="ghost gallery-saveall" id="btn-gallery-saveall" title="把这条世界线的全部插图保存到文件夹">保存全部插图</button>
+      <button class="ghost gallery-saveall" id="btn-gallery-export" title="把这条世界线导出为单个自包含 HTML（文字 + 插图）">导出为故事存档</button>
+    </div>
+    <div class="gallery-body" id="gallery-body"></div>
+  </div>
+
+  <!-- ============ 悬浮按钮：回到底部 / 操作指南 ============ -->
+  <button id="btn-help" class="float-btn help-btn" title="操作指南（怎么玩）">?</button>
+
+  <!-- ============ 标题栏主题弹层（多预设调色板 + 明暗模式） ============ -->
+  <div class="theme-pop hidden" id="theme-pop">
+    <!-- R78：与其它面板统一——右上角关闭钮 -->
+    <div class="theme-pop-head">
+      <span class="theme-pop-title">主题预设</span>
+      <button class="theme-pop-close" id="btn-theme-close" title="关闭（Esc）"><svg class="ic" viewBox="0 0 16 16"><path d="M4 4l8 8M12 4l-8 8"/></svg></button>
+    </div>
+    <div class="swatch-grid" id="swatch-grid"></div>
+    <div class="theme-pop-title">明暗模式</div>
+    <div class="theme-mode-row">
+      <button class="theme-mode" data-mode="system">跟随系统</button>
+      <button class="theme-mode" data-mode="dark">深色</button>
+      <button class="theme-mode" data-mode="light">浅色</button>
+    </div>
+  </div>
+
+  <!-- ============ 帮助面板（R70：怎么玩 + 快捷键合并为双 Tab；Ctrl+/ 直达快捷键页） ============ -->
+  <div class="modal-mask" id="guide-mask" hidden>
+    <div class="modal guide" id="guide" hidden role="dialog" aria-modal="true" aria-labelledby="guide-title">
+      <div class="modal-head">
+        <span class="modal-title" id="guide-title">帮助</span>
+        <div class="modal-head-actions">
+          <button class="modal-close" id="btn-guide-close" title="关闭"><svg class="ic" viewBox="0 0 16 16"><path d="M4 4l8 8M12 4l-8 8"/></svg></button>
+        </div>
+      </div>
+      <div class="help-tabs" role="tablist">
+        <button class="help-tab active" id="help-tab-play" role="tab" aria-selected="true">怎么玩</button>
+        <button class="help-tab" id="help-tab-keys" role="tab" aria-selected="false">快捷键</button>
+      </div>
+      <div class="modal-body">
+        <div class="help-panel" id="guide-play">
+        <div class="set-group">
+          <h3>第一步 · 开始转生</h3>
+          <div class="guide-row"><span class="guide-num">1</span><span>点击聊天区中央的<strong>「开始游戏」</strong>按钮，或选择一个<strong>出身预设</strong>（或在下方输入框自由描述你的出身与行动，Enter 发送）</span></div>
+          <div class="guide-row"><span class="guide-num">2</span><span>世界会以「甲龙历」纪年推进叙事，并给出 <strong>A/B/C 选项按钮</strong></span></div>
+        </div>
+        <div class="set-group">
+          <h3>第二步 · 推进故事</h3>
+          <div class="guide-row"><span class="guide-num">3</span><span><strong>点击选项按钮</strong>直接行动；点选项区右上角的<strong>「多选组合」</strong>开关（或按住 <kbd>Ctrl</kbd> 点击）可勾选多个选项，点「组合发送」一次执行多件事</span></div>
+          <div class="guide-row"><span class="guide-num">4</span><span>不喜欢任何选项？直接在<strong>输入框打字</strong>自由行动（Enter 发送 · Shift+Enter 换行）</span></div>
+          <div class="guide-row"><span class="guide-num">5</span><span>悬停任意消息右上角出现工具条：<strong>复制 / 重生成 / 插图 / 保存</strong></span></div>
+        </div>
+        <div class="set-group">
+          <h3>第三步 · 分歧与回溯（IF 线）</h3>
+          <div class="guide-row"><span class="guide-num">6</span><span>对某个选择的结果不满意？悬停你<strong>当时发出的那条行动</strong>，点工具条上的 <strong>「IF 分歧」</strong></span></div>
+          <div class="guide-row"><span class="guide-num">7</span><span>系统会在<strong>新的世界线</strong>里复刻到该节点为止的历史，选项按钮重新出现——换一个选择，走向不同结局（原线保留不受影响）</span></div>
+        </div>
+        <div class="set-group">
+          <h3>更多</h3>
+          <div class="guide-row"><span class="guide-num">8</span><span>左侧会话栏：<strong>拖动右缘伸缩</strong>、拖到最窄或按 <kbd>Ctrl</kbd><kbd>B</kbd> 收起；收起后左侧出现<strong>故事进度条</strong>，悬停节点可预览该幕（有插图的节点显示图片小窗），点击跳转到那一幕。选项按钮在向上翻阅历史时会<strong>自动收起</strong>（点「展开选项」或回到置底自动展开）</span></div>
+          <div class="guide-row"><span class="guide-num">9</span><span><kbd>Ctrl</kbd><kbd>N</kbd> 新建世界线 · <kbd>Ctrl</kbd><kbd>G</kbd> 打开<strong>画廊</strong>查看全部插图 · <kbd>Ctrl</kbd><kbd>F</kbd> 搜索当前世界线 · <kbd>Ctrl</kbd><kbd>,</kbd> 设置（模型/插图/外观）· 输入框为空时按 <kbd>↑</kbd> 召回上一条行动 · <kbd>Ctrl</kbd><kbd>/</kbd> 快捷键表</span></div>
+        </div>
+        </div>
+        <div class="help-panel hidden" id="guide-keys">
+        <div class="set-group">
+          <h3>对话</h3>
+          <div class="sc-row"><span>发送消息</span><span class="keys"><kbd>Enter</kbd></span></div>
+          <div class="sc-row"><span>换行</span><span class="keys"><kbd>Shift</kbd><kbd>Enter</kbd></span></div>
+          <div class="sc-row"><span>召回上一条行动（输入框为空时，连按向上回溯）</span><span class="keys"><kbd>↑</kbd></span></div>
+          <div class="sc-row"><span>停止生成（生成中）</span><span class="keys"><kbd>点击「停止」按钮</kbd></span></div>
+          <h3>导航</h3>
+          <div class="sc-row"><span>收起 / 展开会话栏</span><span class="keys"><kbd>Ctrl</kbd><kbd>B</kbd></span></div>
+          <div class="sc-row"><span>新建世界线</span><span class="keys"><kbd>Ctrl</kbd><kbd>N</kbd></span></div>
+          <div class="sc-row"><span>搜索当前世界线</span><span class="keys"><kbd>Ctrl</kbd><kbd>F</kbd></span></div>
+          <div class="sc-row"><span>打开设置</span><span class="keys"><kbd>Ctrl</kbd><kbd>,</kbd></span></div>
+          <div class="sc-row"><span>打开画廊</span><span class="keys"><kbd>Ctrl</kbd><kbd>G</kbd></span></div>
+          <div class="sc-row"><span>快捷键面板</span><span class="keys"><kbd>Ctrl</kbd><kbd>/</kbd></span></div>
+          <div class="sc-row"><span>字号 放大 / 缩小 / 复位</span><span class="keys"><kbd>Ctrl</kbd><kbd>=</kbd><kbd>Ctrl</kbd><kbd>-</kbd><kbd>Ctrl</kbd><kbd>0</kbd></span></div>
+          <h3>大图查看</h3>
+          <div class="sc-row"><span>上一张 / 下一张</span><span class="keys"><kbd>←</kbd><kbd>→</kbd></span></div>
+          <div class="sc-row"><span>关闭</span><span class="keys"><kbd>Esc</kbd></span></div>
+        </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,65 @@
+{
+  "name": "six-worlds-codex",
+  "version": "1.2.3",
+  "description": "六面世界·Codex 桌面聊天窗 — 独立桌面小程序（内核 markdown + 任意 OpenAI 兼容提供商 + 选项点击）",
+  "main": "main.cjs",
+  "private": true,
+  "author": "六面世界",
+  "productName": "六面世界",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --dev",
+    "icon": "electron scripts-dev/gen-icon.cjs",
+    "dist": "electron-builder --win nsis portable"
+  },
+  "build": {
+    "appId": "com.sixworlds.codex",
+    "productName": "六面世界",
+    "copyright": "MIT License",
+    "electronDist": "node_modules/electron/dist",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "main.cjs",
+      "preload.cjs",
+      "kernel.md",
+      "build/icon.ico",
+      "renderer/**",
+      "package.json"
+    ],
+    "win": {
+      "icon": "build/icon.ico",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "六面世界"
+    },
+    "portable": {
+      "artifactName": "六面世界-便携版-${version}.exe"
+    }
+  },
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^26.15.3"
+  }
+}

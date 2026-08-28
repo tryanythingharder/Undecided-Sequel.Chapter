@@ -1,0 +1,22 @@
+﻿const path = require('node:path')
+const PLAYWRIGHT = 'C:\\Users\\Administrator\\AppData\\Local\\npm-cache\\_npx\\31e32ef8478fbf80\\node_modules\\playwright'
+const { chromium } = require(PLAYWRIGHT)
+async function main() {
+  const browser = await chromium.launch()
+  const page = await browser.newPage({ viewport: { width: 1120, height: 700 }, deviceScaleFactor: 2 })
+  await page.goto('file:///' + path.join(__dirname, 'proto', 'reference-island-cinema.html').replace(/\\/g, '/'))
+  await page.waitForTimeout(1000)
+  await page.screenshot({ path: path.join(__dirname, 'shot-proto-island-dark.png') })
+  await page.click('.demo-panel button:nth-of-type(2)')
+  await page.waitForTimeout(700)
+  await page.screenshot({ path: path.join(__dirname, 'shot-proto-island-busy.png') })
+  await page.click('.demo-panel button:nth-of-type(4)')
+  await page.waitForTimeout(700)
+  await page.screenshot({ path: path.join(__dirname, 'shot-proto-island-illust.png') })
+  await page.click('.theme-toggle')
+  await page.waitForTimeout(600)
+  await page.screenshot({ path: path.join(__dirname, 'shot-proto-island-light.png') })
+  await browser.close()
+  process.exit(0)
+}
+main().catch((e) => { console.error(e); process.exit(1) })

@@ -1,0 +1,397 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="utf-8" />
+<title>六面世界 · 灵动岛 + 电影场 参考原型</title>
+<style>
+/* ============================================================
+   六面世界 · 设计方向参考原型（Mineradio 氛围 + 灵动岛通知）
+   - 电影暗场：深黑舞台 + 内容取色的环境光晕 + 细噪点
+   - 玻璃拟态：半透明 + 背景模糊 + 1px 内高光描边
+   - 灵动岛：顶部居中胶囊通知，收纳/展开弹性 morph
+   ============================================================ */
+* { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --dur-spring: .5s;
+  --ease-spring: cubic-bezier(.32, 1.35, .35, 1);
+  --ease-out: cubic-bezier(.22, 1, .36, 1);
+}
+html[data-theme="dark"] {
+  --stage: #0b0b0d;            /* 电影场底色，比原 --bg 更深 */
+  --stage-2: #121214;
+  --glass: rgba(28, 28, 32, .58);
+  --glass-strong: rgba(32, 32, 37, .78);
+  --glass-border: rgba(255, 255, 255, .08);
+  --glass-highlight: rgba(255, 255, 255, .10);
+  --text: #e8e4dc;
+  --text-dim: #a29e95;
+  --text-faint: #6e6b64;
+  --accent: #d99a52;
+  --accent-soft: rgba(217, 154, 82, .16);
+  --accent-glow: rgba(217, 154, 82, .34);
+  --ok: #8fca74;
+  --danger: #e8756d;
+  --danger-soft: rgba(232, 117, 109, .14);
+  --ok-soft: rgba(143, 202, 116, .14);
+  --island-bg: rgba(22, 22, 26, .62);
+  --shadow-float: 0 8px 32px rgba(0,0,0,.5), 0 2px 8px rgba(0,0,0,.4);
+}
+html[data-theme="light"] {
+  --stage: #f3f1ec;
+  --stage-2: #ebe8e1;
+  --glass: rgba(255, 255, 255, .66);
+  --glass-strong: rgba(255, 255, 255, .86);
+  --glass-border: rgba(38, 35, 30, .08);
+  --glass-highlight: rgba(255, 255, 255, .85);
+  --text: #26231e;
+  --text-dim: #6b675f;
+  --text-faint: #a09c93;
+  --accent: #a5641f;
+  --accent-soft: rgba(165, 100, 31, .12);
+  --accent-glow: rgba(165, 100, 31, .22);
+  --ok: #4e8a3f;
+  --danger: #c84646;
+  --danger-soft: rgba(200, 70, 70, .10);
+  --ok-soft: rgba(78, 138, 63, .10);
+  --island-bg: rgba(255, 255, 255, .72);
+  --shadow-float: 0 8px 32px rgba(28,25,23,.14), 0 2px 8px rgba(28,25,23,.08);
+}
+html, body { height: 100%; }
+body {
+  font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  background: var(--stage);
+  color: var(--text);
+  overflow: hidden;
+}
+.mono { font-family: "SF Mono", "Cascadia Code", Consolas, monospace; }
+
+/* ---- 电影暗场：环境光 + 噪点 ---- */
+.stage-bg { position: fixed; inset: 0; pointer-events: none; }
+.stage-bg::before {  /* 顶部琥珀环境光：随最新插图取色 */
+  content: ""; position: absolute; inset: 0;
+  background:
+    radial-gradient(52% 38% at 50% -6%, var(--accent-glow), transparent 68%),
+    radial-gradient(40% 30% at 82% 108%, rgba(120, 90, 160, .10), transparent 70%);
+  transition: background 1.2s var(--ease-out);
+}
+.stage-bg::after {  /* 细噪点，胶片颗粒 */
+  content: ""; position: absolute; inset: 0; opacity: .05;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)' opacity='.55'/%3E%3C/svg%3E");
+}
+html[data-theme="light"] .stage-bg::after { opacity: .035; }
+
+/* ---- 伪标题栏（示意） ---- */
+.titlebar {
+  position: fixed; top: 0; left: 0; right: 0; height: 38px; z-index: 50;
+  display: flex; align-items: center; justify-content: space-between; padding: 0 14px;
+  background: transparent; font-size: 12px; color: var(--text-faint);
+}
+.titlebar .brand { display: flex; align-items: center; gap: 8px; letter-spacing: .5px; }
+.titlebar .sigil { width: 14px; height: 14px; border: 1.2px solid var(--text-faint); transform: rotate(45deg); border-radius: 3px; }
+
+/* ============================================================
+   灵动岛通知（替代 toast）：顶部居中悬浮胶囊
+   收纳态：图标+一句话；展开态：morph 出进度/缩略图/操作
+   ============================================================ */
+.island {
+  position: fixed; top: 46px; left: 50%; transform: translateX(-50%);
+  z-index: 100; display: flex; align-items: center; gap: 10px;
+  background: var(--island-bg);
+  -webkit-backdrop-filter: blur(28px) saturate(1.5);
+  backdrop-filter: blur(28px) saturate(1.5);
+  border: 1px solid var(--glass-border);
+  border-radius: 999px;
+  padding: 8px 18px 8px 14px;
+  min-width: 56px; max-width: min(460px, 88vw);
+  box-shadow: var(--shadow-float), inset 0 1px 0 var(--glass-highlight);
+  transition: all var(--dur-spring) var(--ease-spring);
+  cursor: default;
+}
+.island .ic-wrap {
+  width: 22px; height: 22px; border-radius: 50%; flex: none;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 11px;
+  transition: background var(--dur-spring) var(--ease-spring);
+}
+.island .txt { font-size: 12.5px; line-height: 1.45; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.island .txt small { display: block; font-size: 11px; color: var(--text-faint); }
+.island .act {
+  flex: none; border: none; border-radius: 999px; cursor: pointer;
+  padding: 5px 12px; font-size: 11.5px; font-family: inherit;
+  background: var(--accent); color: #241c10; font-weight: 600;
+  transition: transform .18s var(--ease-spring), filter .18s;
+}
+.island .act:hover { transform: scale(1.05); filter: brightness(1.06); }
+.island .act.ghost { background: transparent; color: var(--text-dim); border: 1px solid var(--glass-border); }
+
+/* 状态染色 */
+.island.busy .ic-wrap { background: var(--accent-soft); color: var(--accent); }
+.island.ok   .ic-wrap { background: var(--ok-soft); color: var(--ok); }
+.island.err  .ic-wrap { background: var(--danger-soft); color: var(--danger); }
+.island.err  { border-color: rgba(232, 117, 109, .35); }
+
+/* busy 呼吸光环 + 不确定进度线 */
+.island.busy { animation: island-breath 2.4s ease-in-out infinite; }
+@keyframes island-breath {
+  0%, 100% { box-shadow: var(--shadow-float), 0 0 0 0 var(--accent-soft); }
+  50%      { box-shadow: var(--shadow-float), 0 0 0 7px transparent; }
+}
+.island.busy::after {
+  content: ""; position: absolute; left: 16px; right: 16px; bottom: 3px; height: 2px;
+  border-radius: 2px; overflow: hidden;
+  background: linear-gradient(90deg, transparent, var(--accent), transparent);
+  background-size: 40% 100%; background-repeat: no-repeat;
+  animation: island-shimmer 1.4s linear infinite;
+}
+@keyframes island-shimmer { from { background-position: -60% 0; } to { background-position: 160% 0; } }
+
+/* 展开态：morph 成带缩略图/多行的卡片胶囊 */
+.island.expand {
+  border-radius: 22px; padding: 12px 16px; gap: 12px; max-width: min(460px, 88vw);
+}
+.island.expand .txt { white-space: normal; }
+.island .thumb {
+  display: none; width: 74px; height: 46px; border-radius: 12px; flex: none;
+  background: linear-gradient(135deg, #3a2f22, #1d1a16);
+  border: 1px solid var(--glass-border); box-shadow: 0 4px 14px rgba(0,0,0,.4);
+}
+html[data-theme="light"] .island .thumb { background: linear-gradient(135deg, #d8c9ae, #b3a284); box-shadow: 0 4px 14px rgba(28,25,23,.15); }
+.island.expand.has-thumb .thumb { display: block; animation: thumb-in .5s var(--ease-spring) both; }
+@keyframes thumb-in { from { transform: scale(.6); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+
+/* 入场 / 离场 */
+.island.enter { animation: island-in .55s var(--ease-spring) both; }
+@keyframes island-in { from { transform: translateX(-50%) translateY(-26px) scale(.86); opacity: 0; } }
+.island.leave { animation: island-out .3s ease-in both; }
+@keyframes island-out { to { transform: translateX(-50%) translateY(-20px) scale(.9); opacity: 0; } }
+
+/* ============================================================
+   消息流 · 电影舞台化
+   ============================================================ */
+.stream {
+  position: relative; z-index: 1; height: 100vh; overflow-y: auto;
+  padding: 92px 24px 40px;
+}
+.stream-inner { max-width: var(--read-w, 720px); margin: 0 auto; }
+
+/* 场景行：电影镜头标注 */
+.scene-line {
+  display: inline-flex; align-items: center; gap: 10px;
+  margin: 26px 0 14px; font-family: var(--mono); font-size: 11.5px;
+  color: var(--text-dim); letter-spacing: 1.5px;
+}
+.scene-line::before { content: ""; width: 22px; height: 1px; background: var(--accent); opacity: .8; }
+
+/* 叙事正文：直接排在暗场上，无卡片框 */
+.msg-body p { font-size: 14.5px; line-height: 1.85; color: var(--text); margin: 0 0 14px; }
+.msg-body p b { color: var(--accent); font-weight: 600; }
+
+/* 状态面板：玻璃 HUD 卡 */
+.status-panel {
+  margin: 18px 0; padding: 14px 18px;
+  background: var(--glass);
+  -webkit-backdrop-filter: blur(18px) saturate(1.3); backdrop-filter: blur(18px) saturate(1.3);
+  border: 1px solid var(--glass-border); border-radius: 16px;
+  box-shadow: inset 0 1px 0 var(--glass-highlight), 0 4px 20px rgba(0,0,0,.25);
+  font-family: var(--mono); font-size: 12px; line-height: 1.9; color: var(--text-dim);
+  white-space: pre-wrap;
+}
+.status-panel .k { color: var(--accent); }
+
+/* 插图：舞台主角，带环境光晕溢出 */
+.illust-stage { margin: 22px 0 26px; position: relative; }
+.illust-stage .frame {
+  width: 100%; aspect-ratio: 16/9; border-radius: 18px;
+  background:
+    radial-gradient(80% 90% at 30% 20%, #6b5233, transparent 60%),
+    radial-gradient(70% 80% at 78% 82%, #2c3a4a, transparent 62%),
+    linear-gradient(160deg, #242019, #14120f);
+  border: 1px solid var(--glass-border);
+  box-shadow: 0 18px 70px var(--accent-glow), 0 6px 22px rgba(0,0,0,.5);
+  display: flex; align-items: center; justify-content: center;
+  color: var(--text-faint); font-size: 12px; letter-spacing: 3px;
+  position: relative; overflow: hidden;
+}
+.illust-stage .frame::after {  /* 顶部流光 */
+  content: ""; position: absolute; inset: 0;
+  background: linear-gradient(105deg, transparent 40%, rgba(255,255,255,.07) 50%, transparent 60%);
+  transform: translateX(-100%); transition: transform 1s var(--ease-out);
+}
+.illust-stage:hover .frame::after { transform: translateX(100%); }
+.illust-stage .cap {
+  margin-top: 10px; text-align: center; font-size: 11px; color: var(--text-faint); letter-spacing: 1px;
+}
+
+/* 玩家行动：右对齐玻璃胶囊 */
+.msg-user { display: flex; justify-content: flex-end; margin: 20px 0; }
+.msg-user .bubble {
+  max-width: 78%; padding: 10px 16px;
+  background: var(--glass); border: 1px solid var(--glass-border); border-radius: 16px 16px 6px 16px;
+  -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px);
+  font-size: 13.5px; line-height: 1.7; color: var(--text);
+  box-shadow: inset 0 1px 0 var(--glass-highlight);
+}
+.msg-user .who { display: block; font-size: 10.5px; color: var(--text-faint); margin-bottom: 3px; letter-spacing: 1px; }
+
+/* 选项区：玻璃胶囊 + 弹性悬浮 */
+.choices { margin: 26px 0 10px; }
+.choices-head {
+  display: flex; align-items: center; gap: 10px; margin-bottom: 12px;
+  font-size: 11.5px; color: var(--text-faint); letter-spacing: 1px;
+}
+.choices-head::after { content: ""; flex: 1; height: 1px; background: var(--glass-border); }
+.choice {
+  display: flex; align-items: center; gap: 12px; width: 100%; text-align: left;
+  margin-bottom: 10px; padding: 13px 18px; cursor: pointer; font-family: inherit;
+  background: var(--glass); border: 1px solid var(--glass-border); border-radius: 16px;
+  color: var(--text); font-size: 13.5px; line-height: 1.6;
+  -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px);
+  box-shadow: inset 0 1px 0 var(--glass-highlight), 0 2px 10px rgba(0,0,0,.2);
+  transition: transform .3s var(--ease-spring), border-color .2s, box-shadow .3s, background .2s;
+  position: relative; overflow: hidden;
+}
+.choice::before {  /* 键位徽章 */
+  content: attr(data-key); flex: none;
+  width: 26px; height: 26px; border-radius: 9px;
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--mono); font-size: 12px; font-weight: 700;
+  color: var(--accent); background: var(--accent-soft);
+  border: 1px solid transparent;
+  transition: all .25s var(--ease-spring);
+}
+.choice:hover {
+  transform: translateY(-3px) scale(1.008);
+  border-color: var(--accent); background: var(--glass-strong);
+  box-shadow: inset 0 1px 0 var(--glass-highlight), 0 10px 30px rgba(0,0,0,.35), 0 0 0 3px var(--accent-soft);
+}
+.choice:hover::before { background: var(--accent); color: #241c10; transform: scale(1.08); }
+.choice:active { transform: translateY(-1px) scale(.995); }
+
+/* ---- 演示控制面板（仅原型用） ---- */
+.demo-panel {
+  position: fixed; right: 18px; bottom: 18px; z-index: 200;
+  display: flex; flex-direction: column; gap: 8px;
+}
+.demo-panel button {
+  border: 1px solid var(--glass-border); background: var(--glass); color: var(--text-dim);
+  -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
+  border-radius: 10px; padding: 7px 13px; font-size: 11.5px; cursor: pointer; font-family: inherit;
+  transition: all .2s;
+}
+.demo-panel button:hover { color: var(--text); border-color: var(--accent); }
+.demo-panel .theme-toggle { position: fixed; right: 18px; bottom: 190px; }
+
+/* 流式光标 */
+.cursor { display: inline-block; width: 8px; height: 16px; background: var(--accent); vertical-align: -2px; animation: blink 1s steps(1) infinite; border-radius: 1px; }
+@keyframes blink { 50% { opacity: 0; } }
+</style>
+</head>
+<body>
+<div class="stage-bg"></div>
+
+<header class="titlebar">
+  <div class="brand"><span class="sigil"></span>六面世界</div>
+  <div class="mono">参考原型 · 方向确认用</div>
+</header>
+
+<!-- ============ 灵动岛通知（默认演示：插图完成展开态） ============ -->
+<div class="island enter has-thumb" id="island">
+  <span class="ic-wrap">✓</span>
+  <span class="thumb"></span>
+  <span class="txt">第 12 幕插图已完成<small>点击查看 · 悬停展开详情</small></span>
+  <button class="act">查看</button>
+</div>
+
+<!-- ============ 消息流 ============ -->
+<main class="stream">
+  <div class="stream-inner">
+
+    <div class="scene-line mono">【甲龙历 407.03.01｜清晨｜布耶纳村】</div>
+    <div class="msg-body">
+      <p>晨雾还没散尽，村口的石板路泛着露水。你攥了攥肩上洗得发白的行囊带子，<b>洛琪希</b>的背影在雾里若隐若现——她说今天的课在森林那边。</p>
+      <p>远处传来铁匠铺开门的声响，混着面包房飘来的麦香。这是你在布耶纳村的第三个春天。</p>
+    </div>
+
+    <div class="status-panel mono"><span class="k">【简要状态】</span>
+生命 ▸██████████ 92　位置 ▸ 布耶纳村·村口
+持有 ▸ 木剑 / 旅行行囊 / 洛琪希的便条
+同行 ▸ 洛琪希（魔法家庭教师）</div>
+
+    <div class="illust-stage">
+      <div class="frame">插　图</div>
+      <div class="cap">第 12 幕 · 晨雾中的村口 —— 点击查看大图</div>
+    </div>
+
+    <div class="msg-body">
+      <p>「发什么呆呢？」雾里传来轻笑声，「再不走，今天的魔法课就要变成<b>逃课记录</b>了哦。」</p>
+      <p><span class="cursor"></span></p>
+    </div>
+
+    <div class="msg-user">
+      <div class="bubble"><span class="who">你 · 09:41</span>跟上洛琪希，顺便问她今天要教什么魔法。</div>
+    </div>
+
+    <div class="choices">
+      <div class="choices-head">这一幕的 3 个选择</div>
+      <button class="choice" data-key="A"><span>老老实实跟上，路上追问今天的教学内容</span></button>
+      <button class="choice" data-key="B"><span>先去面包房买两个刚出炉的面包当早饭，再追上去</span></button>
+      <button class="choice" data-key="C"><span>故意放慢脚步，等她回头来催——逗逗这位老师</span></button>
+    </div>
+
+  </div>
+</main>
+
+<!-- ============ 演示控制（原型专用） ============ -->
+<div class="demo-panel">
+  <button class="theme-toggle" onclick="toggleTheme()">切换明暗</button>
+  <button onclick="islandBusy()">灵动岛 · 生成中</button>
+  <button onclick="islandOk()">灵动岛 · 成功</button>
+  <button onclick="islandIllust()">灵动岛 · 插图完成</button>
+  <button onclick="islandErr()">灵动岛 · 失败可重试</button>
+</div>
+
+<script>
+function toggleTheme() {
+  const h = document.documentElement
+  h.dataset.theme = h.dataset.theme === 'dark' ? 'light' : 'dark'
+}
+const island = document.getElementById('island')
+function showIsland(cls, icon, txt, sub, actions, thumb) {
+  const el = document.createElement('div')
+  el.id = 'island'
+  el.className = 'island enter ' + cls + (thumb ? ' has-thumb expand' : '')
+  el.innerHTML =
+    '<span class="ic-wrap">' + icon + '</span>' +
+    (thumb ? '<span class="thumb"></span>' : '') +
+    '<span class="txt">' + txt + (sub ? '<small>' + sub + '</small>' : '') + '</span>' +
+    (actions || '')
+  const cur = document.getElementById('island') || island
+  cur.replaceWith(el)
+  // 自动收纳：6s 后离场
+  clearTimeout(showIsland._t)
+  showIsland._t = setTimeout(() => dismiss(el), cls.includes('busy') ? 12000 : 6000)
+}
+function dismiss(el) {
+  el.classList.add('leave')
+  setTimeout(() => el.remove(), 320)
+}
+function islandBusy() {
+  showIsland('busy', '✦', '世界正在书写这一幕…', '通常只需几秒 · 点击 STOP 可中断',
+    '<button class="act ghost">停止</button>')
+}
+function islandOk() {
+  showIsland('ok', '✓', '已保存到画廊', '本次重生 · 第 12 幅')
+}
+function islandIllust() {
+  showIsland('ok has-thumb expand', '✓', '第 12 幕插图已完成', '点击查看 · 悬停展开详情',
+    '<button class="act">查看</button>', true)
+}
+function islandErr() {
+  showIsland('err', '!', '插图生成失败：请求超时', '端点无响应，可稍后重试',
+    '<button class="act ghost">重试</button>')
+}
+// 首屏 8s 后自动收纳演示岛
+setTimeout(() => { const el = document.getElementById('island'); if (el) dismiss(el) }, 8000)
+</script>
+</body>
+</html>

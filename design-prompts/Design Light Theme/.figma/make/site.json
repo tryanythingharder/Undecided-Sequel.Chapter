@@ -1,0 +1,10 @@
+{
+  "description": "Offers a user-friendly interface with a default light theme for seamless navigation and enhanced visual comfort across various tasks.",
+  "robots": {
+    "index": false
+  },
+  "accessibility": {
+    "addBypassLinks": false,
+    "ignoreReducedMotion": false
+  }
+}

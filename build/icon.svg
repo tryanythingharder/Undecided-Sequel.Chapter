@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1d1f24"/>
+      <stop offset="1" stop-color="#101114"/>
+    </linearGradient>
+    <linearGradient id="facet1" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#7fb06f"/>
+      <stop offset="1" stop-color="#5a8a4e"/>
+    </linearGradient>
+    <linearGradient id="facet2" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#9ac48d"/>
+      <stop offset="1" stop-color="#7fb06f"/>
+    </linearGradient>
+    <linearGradient id="facet3" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#4d7343"/>
+      <stop offset="1" stop-color="#3a5a33"/>
+    </linearGradient>
+  </defs>
+  <!-- 圆角底 -->
+  <rect x="8" y="8" width="240" height="240" rx="52" fill="url(#bg)" stroke="#2c2f35" stroke-width="2"/>
+  <!-- 六面晶石（菱形钻石形态，三个明暗面） -->
+  <g transform="translate(128 134)">
+    <!-- 顶冠 -->
+    <polygon points="0,-74 62,-30 0,-6 -62,-30" fill="url(#facet2)"/>
+    <!-- 左下角面 -->
+    <polygon points="-62,-30 0,-6 -38,66 -62,18" fill="url(#facet1)"/>
+    <!-- 右下角面 -->
+    <polygon points="62,-30 62,18 38,66 0,-6" fill="url(#facet3)"/>
+    <!-- 中央亮面 -->
+    <polygon points="0,-6 38,66 -38,66" fill="url(#facet1)" opacity="0.75"/>
+    <!-- 高光棱线 -->
+    <polyline points="0,-74 62,-30 62,18 38,66 -38,66 -62,18 -62,-30 0,-74" fill="none" stroke="#c9e4bd" stroke-width="3" stroke-linejoin="round" opacity="0.9"/>
+    <line x1="0" y1="-74" x2="0" y2="-6" stroke="#c9e4bd" stroke-width="2" opacity="0.55"/>
+    <line x1="-62" y1="-30" x2="0" y2="-6" stroke="#c9e4bd" stroke-width="2" opacity="0.55"/>
+    <line x1="62" y1="-30" x2="0" y2="-6" stroke="#c9e4bd" stroke-width="2" opacity="0.55"/>
+    <line x1="0" y1="-6" x2="0" y2="66" stroke="#c9e4bd" stroke-width="2" opacity="0.4"/>
+  </g>
+  <!-- 星光点缀（世界之门的微光） -->
+  <circle cx="196" cy="58" r="5" fill="#e8d44d" opacity="0.95"/>
+  <circle cx="196" cy="58" r="9" fill="#e8d44d" opacity="0.25"/>
+  <circle cx="52" cy="72" r="3" fill="#e8d44d" opacity="0.7"/>
+</svg>

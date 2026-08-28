@@ -1,0 +1,254 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:;">
+  <title>设置 · 六面世界</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body class="settings-win">
+  <!-- 标题栏（.modal-head 为窗口拖动区，右侧为窗口控制按钮） -->
+  <div class="modal-head">
+    <span class="modal-title">设置</span>
+    <div class="modal-head-actions">
+      <button class="modal-reset" id="btn-reset-settings" title="恢复默认设置">重置</button>
+      <button class="modal-close" id="btn-win-min" title="最小化"><svg class="ic" viewBox="0 0 16 16"><path d="M3.5 8h9"/></svg></button>
+      <button class="modal-close" id="btn-win-max" title="最大化 / 还原"><svg class="ic" viewBox="0 0 16 16"><rect x="4" y="4" width="8" height="8" rx="1"/></svg></button>
+      <button class="modal-close" id="btn-win-close" title="关闭"><svg class="ic" viewBox="0 0 16 16"><path d="M4 4l8 8M12 4l-8 8"/></svg></button>
+    </div>
+  </div>
+
+  <div class="modal-tabs">
+    <button class="tab active" data-tab="text">文本模型</button>
+    <button class="tab" data-tab="image">插图模型</button>
+    <button class="tab" data-tab="appearance">外观 · 内核</button>
+    <button class="tab" data-tab="advanced">高级</button>
+  </div>
+  <div class="modal-body">
+    <!-- 文本模型 -->
+    <section class="set-group tab-panel active" data-panel="text">
+      <h3>接口</h3>
+      <label>提供商预设</label>
+      <select id="set-preset">
+        <option value="deepseek">DeepSeek 深度求索</option>
+        <option value="openai">OpenAI</option>
+        <option value="moonshot">Moonshot Kimi</option>
+        <option value="zhipu">智谱 GLM</option>
+        <option value="qwen">通义 Qwen</option>
+        <option value="silicon">硅基流动 SiliconFlow</option>
+        <option value="custom">自定义 OpenAI 兼容端点</option>
+      </select>
+      <label>API 地址 (Base URL)</label>
+      <input id="set-baseurl" type="text" placeholder="https://api.deepseek.com" />
+      <label>API 密钥</label>
+      <div class="row">
+        <input id="set-apikey" type="password" placeholder="sk-..." />
+        <button class="mini ghost-mini" id="btn-peek-key" type="button" title="显示 / 隐藏密钥">👁</button>
+      </div>
+      <label>模型</label>
+      <div class="model-combo">
+        <input id="set-model" type="text" placeholder="deepseek-chat" autocomplete="off" spellcheck="false" />
+        <button class="mini ghost-mini" id="btn-models-text" type="button" title="从 GET /models 获取可用模型列表并下拉选择">获取模型</button>
+        <button class="mini ghost-mini" id="btn-test-text" type="button" title="GET /models 验证地址与密钥可用">测试</button>
+        <div class="model-dropdown hidden" id="model-dd-text">
+          <input class="model-filter" id="model-filter-text" type="text" placeholder="筛选模型…" autocomplete="off" spellcheck="false" />
+          <div class="model-options" id="model-opts-text"></div>
+          <div class="model-empty hidden" id="model-empty-text">没有匹配的模型</div>
+        </div>
+      </div>
+      <div class="test-result hidden" id="test-result-text"></div>
+      <h3>在应用中使用的模型</h3>
+      <label>勾选要在对话栏下拉中出现的模型（点上方「获取模型」拉取后勾选；当前填写的模型始终可用）。温度等生成参数已按端点默认值处理，不再手动设置。</label>
+      <div class="models-pick">
+        <div class="models-pick-empty" id="models-pick-empty">还没有可选清单：点上方「获取模型」拉取后勾选，或在下方手动添加模型名。</div>
+        <div id="models-pick-list" class="models-pick-list"></div>
+      </div>
+      <div class="row">
+        <input id="set-model-manual" type="text" placeholder="手动添加模型名（如 deepseek-reasoner），回车或点添加" autocomplete="off" spellcheck="false" />
+        <button class="mini" id="btn-model-manual-add" type="button">添加</button>
+      </div>
+    </section>
+
+    <!-- 插图模型 -->
+    <section class="set-group tab-panel" data-panel="image" hidden>
+      <h3>自动插图</h3>
+      <label class="row-inline"><input id="set-illust-auto" type="checkbox" /> 每段叙事自动生成插图（关闭后可点消息旁按钮手动生成）</label>
+      <h3>接口</h3>
+      <label>图像提供商预设</label>
+      <select id="set-illust-preset">
+        <option value="off">不使用插图</option>
+        <option value="openai">OpenAI · gpt-image-1</option>
+        <option value="zhipu">智谱 · CogView-4</option>
+        <option value="silicon">硅基流动 · Kwai-Kolors</option>
+        <option value="dashscope">通义 · wanx / 通义万相</option>
+        <option value="custom">自定义 OpenAI 兼容端点</option>
+      </select>
+      <label>API 地址 (Base URL)</label>
+      <input id="set-illust-baseurl" type="text" placeholder="https://api.openai.com/v1" />
+      <label>API 密钥（留空则复用文本模型的密钥）</label>
+      <div class="row">
+        <input id="set-illust-apikey" type="password" placeholder="sk-..." />
+        <button class="mini ghost-mini" id="btn-peek-illust-key" type="button" title="显示 / 隐藏密钥">👁</button>
+      </div>
+      <label>模型</label>
+      <div class="model-combo">
+        <input id="set-illust-model" type="text" placeholder="gpt-image-1" autocomplete="off" spellcheck="false" />
+        <button class="mini ghost-mini" id="btn-models-image" type="button" title="从 GET /models 获取可用模型列表并下拉选择">获取模型</button>
+        <button class="mini ghost-mini" id="btn-test-image" type="button" title="GET /models 验证地址与密钥可用">测试</button>
+        <div class="model-dropdown hidden" id="model-dd-image">
+          <input class="model-filter" id="model-filter-image" type="text" placeholder="筛选模型…" autocomplete="off" spellcheck="false" />
+          <div class="model-options" id="model-opts-image"></div>
+          <div class="model-empty hidden" id="model-empty-image">没有匹配的模型</div>
+        </div>
+      </div>
+      <div class="test-result hidden" id="test-result-image"></div>
+
+      <h3>风格与画面</h3>
+      <label>插图风格预设</label>
+      <select id="set-illust-style">
+        <option value="ln-original">原作轻小说 · 严格参照《无职转生》シロタツ插画（默认 · 英文提示词）</option>
+        <option value="anime">日系动漫 · 轻小说通用插画</option>
+        <option value="watercolor">水彩 · 柔和氛围</option>
+        <option value="oil">油画 · 厚重史诗</option>
+        <option value="ink">水墨 · 素雅留白</option>
+        <option value="realistic">写实 · 电影质感</option>
+        <option value="custom">自定义（下方填写提示词）</option>
+      </select>
+      <label id="set-illust-custom-label" class="hidden">自定义风格提示词（描述画风、线条、光影、构图等；建议用英文书写以降低噪点）</label>
+      <textarea id="set-illust-custom" rows="3" placeholder="例：Japanese light novel illustration, soft watercolor brushwork, warm palette, fantasy village background, rich detail, no text"></textarea>
+
+      <label>画面尺寸（默认保持横幅 16:9）</label>
+      <select id="set-illust-size">
+        <option value="512x512">512×512 · 方形（最快）</option>
+        <option value="768x768">768×768 · 方形</option>
+        <option value="1024x1024">1024×1024 · 方形 1:1</option>
+        <option value="1344x768">1344×768 · 横幅 16:9（默认 · 小说插图常用）</option>
+        <option value="1536x864">1536×864 · 横幅 16:9 高清</option>
+        <option value="896x1152">896×1152 · 竖幅 3:4</option>
+        <option value="768x1344">768×1344 · 长竖幅 9:16</option>
+      </select>
+      <label>清晰度（端点支持时生效；默认 = 沿用端点缺省画质，即现有行为）</label>
+      <select id="set-illust-quality">
+        <option value="default">默认（端点缺省）</option>
+        <option value="standard">标准</option>
+        <option value="high">高清（更精细，消耗更多）</option>
+      </select>
+
+      <details class="set-details">
+        <summary>高级生成参数</summary>
+        <label>反向提示词 / Negative Prompt（不希望出现的元素，按需填写）</label>
+        <input id="set-illust-negative" type="text" placeholder="lowres, bad anatomy, blurry, extra fingers, watermark" />
+        <label class="row-inline"><input id="set-illust-seed-lock" type="checkbox" /> 锁定随机种子（seed）</label>
+        <input id="set-illust-seed" type="number" placeholder="留空 = 随机；填整数 = 固定（可复现结果）" />
+        <label>生成张数（n，部分端点不支持）</label>
+        <input id="set-illust-n" type="number" min="1" max="4" step="1" value="1" />
+      </details>
+    </section>
+
+    <!-- 外观 · 内核 -->
+    <section class="set-group tab-panel" data-panel="appearance" hidden>
+      <h3>配色</h3>
+      <label>主题预设（调色板）</label>
+      <select id="set-palette">
+        <option value="classic">经典（默认）</option>
+        <option value="paper">羊皮纸 · 米黄暖调</option>
+        <option value="forest">林间 · 青绿</option>
+        <option value="violet">紫晶 · 雾紫</option>
+        <option value="ocean">海渊 · 深蓝</option>
+        <option value="rose">蔷薇 · 绯红</option>
+        <option value="contrast">高对比 · 黑白</option>
+      </select>
+      <label>明暗模式</label>
+      <select id="set-theme">
+        <option value="system">跟随系统</option>
+        <option value="dark">深色</option>
+        <option value="light">浅色</option>
+      </select>
+      <h3>样式</h3>
+      <label>展示字体</label>
+      <select id="set-font">
+        <option value="sans">无衬线（默认）</option>
+        <option value="serif">衬线 · 书卷气</option>
+        <option value="mono">等宽 · 代码感</option>
+        <option value="kai">楷体 · 古典</option>
+      </select>
+      <label>圆角</label>
+      <select id="set-radius">
+        <option value="none">直角 · 硬朗</option>
+        <option value="small">小圆角</option>
+        <option value="standard">标准（默认）</option>
+        <option value="round">圆润</option>
+      </select>
+      <label>文字密度（行距与留白）</label>
+      <select id="set-density">
+        <option value="compact">紧凑 · 一屏更多</option>
+        <option value="standard">标准（默认）</option>
+        <option value="relaxed">宽松 · 阅读舒适</option>
+      </select>
+      <h3>布局</h3>
+      <label>界面布局</label>
+      <select id="set-layout">
+        <option value="sidebar">标准 · 侧栏 + 聊天（默认）</option>
+        <option value="focus">专注 · 隐藏侧栏</option>
+        <option value="immersive">沉浸 · 隐藏侧栏 + 极简头部</option>
+      </select>
+      <label>侧边栏方向</label>
+      <select id="set-sbside">
+        <option value="left">左侧（默认）</option>
+        <option value="right">右侧</option>
+      </select>
+      <label class="row-inline"><input id="set-pin" type="checkbox" /> 置顶显示窗口</label>
+      <h3>阅读体验</h3>
+      <label>正文字号</label>
+      <select id="set-fontsize">
+        <option value="small">小（13px · 信息更密）</option>
+        <option value="standard">标准（14.5px）</option>
+        <option value="large">大（16px · 阅读舒适）</option>
+      </select>
+      <label>内容宽度</label>
+      <select id="set-readwidth">
+        <option value="narrow">窄（640px · 书页感）</option>
+        <option value="standard">标准（720px）</option>
+        <option value="wide">宽（860px · 一屏更多）</option>
+        <option value="xwide">超宽（980px）</option>
+      </select>
+      <h3>世界内核</h3>
+      <label>内核文件路径</label>
+      <div class="row">
+        <input id="set-kernel" type="text" placeholder="kernel.md" />
+        <button class="mini" id="btn-pick-kernel">选择…</button>
+      </div>
+    </section>
+
+    <!-- 高级 -->
+    <section class="set-group tab-panel" data-panel="advanced" hidden>
+      <h3>上下文与记忆</h3>
+      <label>上下文：发送最近多少条消息</label>
+      <input id="set-ctx" type="number" min="2" max="64" step="1" value="24" />
+      <label>本地最多保留多少条消息</label>
+      <input id="set-keep" type="number" min="8" max="400" step="1" value="80" />
+      <label>自动插图：仅叙事长度超过该字数时触发（避免短回复消耗配额）</label>
+      <input id="set-illust-minlen" type="number" min="0" max="2000" step="10" value="80" />
+      <label class="row-inline"><input id="set-illust-prompt-prefix-enable" type="checkbox" /> 提示词前缀：在自动提炼的画面内容前加固定语</label>
+      <input id="set-illust-prompt-prefix" type="text" placeholder="奇幻小说《六面世界》场景插图。" />
+      <hr class="set-hr" />
+      <h3>数据管理</h3>
+      <div class="set-actions-row">
+        <button class="ghost" id="btn-clear-sessions" title="清空所有世界线与插图">清空全部世界线</button>
+        <button class="ghost" id="btn-export-config" title="导出当前配置为 JSON 文件">导出配置</button>
+        <button class="ghost" id="btn-import-config" title="从 JSON 文件导入配置（不含密钥）">导入配置</button>
+      </div>
+    </section>
+  </div>
+
+  <div class="modal-foot">
+    <div class="set-status" id="set-status"></div>
+    <div class="modal-foot-actions">
+      <button class="ghost" id="btn-settings-cancel">取消</button>
+      <button class="primary" id="btn-save-settings">保存设置</button>
+    </div>
+  </div>
+
+  <script src="settings.js"></script>
+</body>
+</html>
