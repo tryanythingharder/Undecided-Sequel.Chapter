@@ -7,3 +7,11 @@ docs-*.md
 *.log
 .DS_Store
 Thumbs.db
+
+# 移动端配套工程（仅提交源码）
+mobile/.gradle/
+mobile/build/
+mobile/app/build/
+mobile/local.properties
+# 测试运行截图（生成产物）
+scripts-dev/*.png
