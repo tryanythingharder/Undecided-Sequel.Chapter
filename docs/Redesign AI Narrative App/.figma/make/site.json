@@ -1,0 +1,10 @@
+{
+  "description": "Engage in immersive AI-driven tabletop RPG adventures, crafting narratives and making choices while managing unique worlds and storylines for endless storytelling.",
+  "robots": {
+    "index": false
+  },
+  "accessibility": {
+    "addBypassLinks": false,
+    "ignoreReducedMotion": false
+  }
+}
