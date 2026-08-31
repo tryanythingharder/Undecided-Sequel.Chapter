@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">六面世界</string>
+    <string name="channel_name">生成通知</string>
+    <string name="channel_desc">叙事与插图生成完成通知</string>
+</resources>

@@ -780,3 +780,40 @@ ipcMain.handle('theme:get', () => ({
   source: nativeTheme.themeSource,
   dark: nativeTheme.shouldUseDarkColors
 }))
+
+// ---- 移动端进度包导出（渲染层收集 localStorage，主进程读引擎文件并落盘） ----
+ipcMain.handle('progress:export', async (evt, payload) => {
+  try {
+    const storyEngineDir = path.join(app.getPath('userData'), 'story-engine')
+    const files = {}
+    const walk = (dir) => {
+      for (const f of fs.readdirSync(dir)) {
+        const full = path.join(dir, f)
+        const st = fs.statSync(full)
+        if (st.isDirectory()) walk(full)
+        else {
+          const rel = path.relative(storyEngineDir, full).split(path.sep).join('/')
+          files[rel] = fs.readFileSync(full, 'utf8')
+        }
+      }
+    }
+    if (fs.existsSync(storyEngineDir)) walk(storyEngineDir)
+    const bundle = {
+      type: 'sixworlds-progress',
+      v: 1,
+      exportedAt: Date.now(),
+      world: (payload && payload.world) || null,
+      sessions: (payload && payload.sessions) || [],
+      engine: { files },
+    }
+    const res = await dialog.showSaveDialog(windowForEvent(evt), {
+      title: '导出移动端进度包',
+      defaultPath: '六面世界-进度包.json',
+    })
+    if (res.canceled || !res.filePath) return { ok: false, canceled: true }
+    fs.writeFileSync(res.filePath, JSON.stringify(bundle))
+    return { ok: true, path: res.filePath }
+  } catch (e) {
+    return { ok: false, error: String((e && e.message) || e) }
+  }
+})

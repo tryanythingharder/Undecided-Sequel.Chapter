@@ -59,5 +59,7 @@ contextBridge.exposeInMainWorld('api', {
     const h = (_e, piece) => cb(piece)
     ipcRenderer.on('chat:delta', h)
     return () => ipcRenderer.removeListener('chat:delta', h)
-  }
+  },
+  // 移动端进度包导出（渲染层收集 localStorage，主进程读引擎文件落盘）
+  exportProgress: (payload) => ipcRenderer.invoke('progress:export', payload),
 })
