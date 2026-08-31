@@ -15,7 +15,7 @@ const { clampImportance, IMPORTANCE_FLOOR, DECISION_EFFECTIVE } = require('./sch
  * patch_status: PATCH_PRESENT | NO_STATE_CHANGE | PATCH_MISSING | PATCH_INVALID | PATCH_CONFLICT | COMMIT_FAILED（条款 15/22） */
 function commitFromRaw(engine, raw, meta) {
   const ex = extractPatch(raw)
-  return commitPatch(engine, ex.patch, Object.assign({ parse_error: ex.parse_error, patch_found: ex.found, noChange: ex.noChange }, meta || {}), ex.narrative)
+  return commitPatch(engine, ex.patch, Object.assign({ parse_error: ex.parse_error, patch_found: ex.found, noChange: ex.noChange, unmarked: ex.unmarked }, meta || {}), ex.narrative)
 }
 
 /* 提交规范化后的 patch */
@@ -29,6 +29,7 @@ function commitPatch(engine, rawPatch, meta, narrativeOverride) {
 
   const result = { ok: false, committed: false, patch_status: null, errors: [], warnings: [], applied: {}, turn_id: 'TRN-' + String(story0.counters.turn + 1).padStart(6, '0'), story_id: storyId, session_id: meta.sessionId || null, narrative: narrativeOverride != null ? narrativeOverride : '' }
   if (meta.parse_error) result.warnings.push({ code: 'PATCH_PARSE', message: 'patch 解析失败已降级：' + meta.parse_error })
+  if (meta.unmarked) result.warnings.push({ code: 'PATCH_UNMARKED', message: '模型未输出协议标记，已按回复尾部裸 JSON 兜底识别（建议提示模型遵守状态记录协议）' })
 
   // ---- 空 patch / 显式无变化（条款 15/21/22）：三类严格区分，不再统一静默 ----
   if (!Object.keys(patch).length) {

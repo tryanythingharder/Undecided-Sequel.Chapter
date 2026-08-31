@@ -56,7 +56,8 @@ function createEngine(dataDir) {
   engine.retrieve = (storyId, opts) => {
     const story = store.getStory(storyId)
     if (!story) throw new Error('story not found: ' + storyId)
-    return retrieve(story, Object.assign({ storyId }, opts || {}))
+    /* 注入检索缓存槽（规范二十五/四十三）：版本随 flushStory/恢复/删除自动失效，按 story 隔离 */
+    return retrieve(story, Object.assign({ storyId }, opts || {}, { _retr: { slot: store.retrSlot(storyId) } }))
   }
 
   engine.buildContext = (storyId, opts) => {
@@ -64,7 +65,9 @@ function createEngine(dataDir) {
     if (!story) return null
     const o = opts || {}
     const retrieved = engine.retrieve(storyId, o) // accessLevel 由 retriever 在数据源过滤（条款 8）
-    return { block: buildContextBlock(story, retrieved, o.accessLevel), retrieved, overview: stateOverview(story) } // 二次权限校验（条款 10）
+    const budget = {}
+    const block = buildContextBlock(story, retrieved, o.accessLevel, budget) // 二次权限校验（条款 10）
+    return { block, retrieved, overview: stateOverview(story), budget } // budget：Context 构成/截断审计（规范三十八）
   }
 
   engine.commitFromRaw = (raw, meta) => commitFromRaw(engine, raw, meta)

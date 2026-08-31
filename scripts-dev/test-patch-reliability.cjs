@@ -165,5 +165,28 @@ const KERNEL = '可靠性测试内核。'
   check('log: PATCH_MISSING 也有日志留痕', d && d.patch_status === 'PATCH_MISSING')
 }
 
+
+// ============ 测试 N：容错标记变体 + 尾部裸 JSON 兜底（真实弱模型容错链） ============
+{
+  const { extractPatch } = require('../engine/patch')
+  const e1 = extractPatch('叙事。＜＜＜STATE_PATCH＞＞＞{"turn_summary":"a"}＜＜＜END_PATCH＞＞＞')
+  check('容错: 全角标记识别', e1.found === true && e1.patch && e1.patch.turn_summary === 'a', e1)
+  const e2 = extractPatch('叙事。\n<<< STATE_PATCH >>\n{"turn_summary":"b"}\n<<< end_patch >>\n')
+  check('容错: 空格/少箭头/小写标记识别', e2.found === true && e2.patch && e2.patch.turn_summary === 'b', e2)
+  const e3 = extractPatch('闲聊。＜＜＜NO_STATE_CHANGE＞＞＞')
+  check('容错: NO_STATE_CHANGE 全角变体', e3.noChange === true && e3.found === false, e3)
+  engine.ensureStory({ storyId: 'pr-bare', title: 'T-bare', kernelId: 'k', kernelText: KERNEL })
+  const bare = '夜色渐深，你回到了旅店。\n{"turn_summary":"回到旅店歇息","scene":{"game_time":"第2日·夜","location":"旅店"},"events":[{"type":"action","description":"回旅店歇息","importance":10}]}'
+  const r1 = engine.commitFromRaw(bare, { storyId: 'pr-bare', sessionId: 'SES-bare', playerInput: '回旅店' })
+  check('容错: 尾部裸 JSON 被兜底采纳', r1.ok && r1.committed === true, { status: r1.patch_status })
+  check('容错: 采纳带 PATCH_UNMARKED 警告', (r1.warnings || []).some((w) => w.code === 'PATCH_UNMARKED'), r1.warnings)
+  check('容错: 叙事与 JSON 正确剥离', r1.narrative.indexOf('夜色渐深') === 0 && r1.narrative.indexOf('turn_summary') < 0, r1.narrative)
+  const mid = '开头。{"turn_summary":"假"}\n\n然后是一大段跟状态毫无关系的叙事文本，继续描写风声、街道与人群，足够长到让这段 JSON 不处于回复尾部，因此不应被当作状态块兜底识别。'.repeat(3)
+  const e4 = extractPatch(mid)
+  check('容错: 中段裸 JSON 不误采纳', e4.found === false && e4.unmarked !== true, e4.found)
+  const e5 = extractPatch('叙事。\n```json\n<<<STATE_PATCH>>>\n{"turn_summary":"c",}\n<<<END_PATCH>>>\n```')
+  check('容错: 围栏包裹 + 尾逗号', e5.found === true && e5.patch && e5.patch.turn_summary === 'c', e5)
+}
+
 console.log('\n== Patch 可靠性测试: ' + pass + ' 通过, ' + fail + ' 失败 ==')
 process.exit(fail ? 1 : 0)

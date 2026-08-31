@@ -7,26 +7,84 @@ const PATCH_BEGIN = '<<<STATE_PATCH>>>'
 const PATCH_END = '<<<END_PATCH>>>'
 const NO_STATE_CHANGE = '<<<NO_STATE_CHANGE>>>' // 条款 21/23：纯聊天回合的合法显式标记
 
+/* 容错标记匹配（真实模型常见变体：全角括号/少一个 >/内部空格/大小写/下划线） */
+const RE_BEGIN = /(?:<<<|＜＜＜|＜<<?)\s*STATE[_ ]?PATCH\s*(?:>{2,3}|＞＞?＞?)/i
+const RE_END = /(?:<<<|＜＜＜)\s*END[_ ]?PATCH\s*(?:>{2,3}|＞＞?＞?)/i
+const RE_NO_CHANGE = /(?:<<<|＜＜＜)\s*NO[_ ]?STATE[_ ]?CHANGE\s*(?:>{2,3}|＞＞?＞?)/i
+
 /* 从模型原始输出中提取 patch 块。
- * 返回 { found, narrative, patch, raw, noChange } —— narrative 为剥离协议块后的纯叙事。
- * noChange=true 表示模型显式声明本回合无状态变化（两种合法结尾之一）。 */
+ * 返回 { found, narrative, patch, raw, noChange, unmarked }
+ * —— narrative 为剥离协议块后的纯叙事；noChange=true 表示显式声明无状态变化；
+ * unmarked=true 表示模型没写标记、但按「尾部裸 JSON（含 turn_summary）」兜底识别成功。 */
 function extractPatch(rawText) {
   const text = String(rawText || '')
-  // 先剥 NO_STATE_CHANGE 标记（可与叙事共存，出现即视为显式声明）
+  // 先剥 NO_STATE_CHANGE 标记（可与叙事共存，出现即视为显式声明；含全角/少箭头变体）
   let noChange = false
   let work = text
-  if (work.indexOf(NO_STATE_CHANGE) !== -1) {
+  if (RE_NO_CHANGE.test(work)) {
     noChange = true
-    work = work.split(NO_STATE_CHANGE).join('').trim()
+    work = work.replace(RE_NO_CHANGE, '').trim()
   }
-  const begin = work.indexOf(PATCH_BEGIN)
-  if (begin === -1) return { found: false, noChange, narrative: work.trim(), patch: null, raw: work }
-  const narrative = work.slice(0, begin).trim()
-  const rest = work.slice(begin + PATCH_BEGIN.length)
-  const end = rest.indexOf(PATCH_END)
-  const rawPatch = end === -1 ? rest : rest.slice(0, end)
-  const parsed = tolerantParse(rawPatch)
-  return { found: true, noChange, narrative, patch: parsed.ok ? parsed.value : null, parse_error: parsed.ok ? null : parsed.error, raw: rawPatch }
+  const beginMatch = work.match(RE_BEGIN)
+  if (beginMatch) {
+    const begin = beginMatch.index
+    const narrative = work.slice(0, begin).trim()
+    const rest = work.slice(begin + beginMatch[0].length)
+    const endMatch = rest.match(RE_END)
+    const rawPatch = endMatch ? rest.slice(0, endMatch.index) : rest
+    const parsed = tolerantParse(rawPatch)
+    return { found: true, noChange, narrative, patch: parsed.ok ? parsed.value : null, parse_error: parsed.ok ? null : parsed.error, raw: rawPatch }
+  }
+  /* 兜底：无标记但回复末尾是含 turn_summary 的裸 JSON（弱模型常见失误）。
+   * 仅接受「尾段」JSON（起点在倒数 2000 字符内，且其后只剩空白/围栏/短尾注），
+   * 避免把叙事中段的示例 JSON 误当状态块。命中标记 unmarked=true，由提交层记警告。 */
+  if (!noChange) {
+    const cand = findTailJson(work)
+    if (cand) {
+      const parsed = tolerantParse(cand.json)
+      if (parsed.ok && parsed.value && typeof parsed.value === 'object' && parsed.value.turn_summary != null) {
+        return { found: true, noChange, narrative: work.slice(0, cand.start).trim(), patch: parsed.value, raw: cand.json, unmarked: true }
+      }
+    }
+  }
+  return { found: false, noChange, narrative: work.trim(), patch: null, raw: work }
+}
+
+/* 在文本尾部找最后一个平衡的 JSON 对象：起点须在 tail 窗口内，其后只允许短尾注 */
+function findTailJson(text) {
+  const window = 2000
+  const tailStart = Math.max(0, text.length - window)
+  let i = text.lastIndexOf('{')
+  while (i >= tailStart) {
+    const depth = scanDepth(text, i)
+    if (depth.end > i) {
+      const json = text.slice(i, depth.end + 1)
+      /* 必须是状态块形状（含 turn_summary）才采纳；否则继续向前回溯更大的平衡对象 */
+      if (json.includes('"turn_summary"')) {
+        const after = text.slice(depth.end + 1).replace(/^```*\s*/, '').trim()
+        if (after.length <= 24) return { start: i, json }
+      }
+    }
+    i = text.lastIndexOf('{', i - 1)
+  }
+  return null
+}
+/* 从 start 的 '{' 起做括号配平（字符串感知），返回匹配 '}' 的下标；未闭合则返回 -1 */
+function scanDepth(text, start) {
+  let depth = 0, inStr = false, esc = false
+  for (let i = start; i < text.length; i++) {
+    const ch = text[i]
+    if (inStr) {
+      if (esc) esc = false
+      else if (ch === '\\') esc = true
+      else if (ch === '"') inStr = false
+      continue
+    }
+    if (ch === '"') inStr = true
+    else if (ch === '{') depth++
+    else if (ch === '}') { depth--; if (depth === 0) return { end: i } }
+  }
+  return { end: -1 }
 }
 
 /* 容错 JSON 解析：剥 markdown 围栏 → 尾逗号清除 → 智能引号归一 → 截断补全 → 首尾大括号裁剪 */
@@ -135,4 +193,4 @@ function patchProtocolPrompt() {
   ].join('\n')
 }
 
-module.exports = { PATCH_BEGIN, PATCH_END, NO_STATE_CHANGE, extractPatch, tolerantParse, normalizePatch, patchProtocolPrompt, closeBrackets }
+module.exports = { PATCH_BEGIN, PATCH_END, NO_STATE_CHANGE, extractPatch, tolerantParse, normalizePatch, patchProtocolPrompt, closeBrackets, findTailJson }

@@ -13,6 +13,25 @@ function assertStory(story) {
   if (!story || !story.story_id) throw new Error('invalid story object')
   return story.story_id
 }
+/* 实体提及自动链接（规范二十二/二十三）：记录正文提到已存在实体 → 自动建立 entity 关联。
+ * 这是实体索引的数据基础：模型未显式给 entity_names 时，检索层仍能沿实体边做关联召回。
+ * 匹配：全名 + 短名变体（≥3 字实体取末 2 字，如 青铜罗盘→罗盘、老锻炉→锻炉——记录文本
+ * 常用短称指代同一实体）。仅链接「已存在」实体（不凭名字造实体）；
+ * 玩家自身名、单字名、已死亡实体跳过（死亡不可参与——一致性契约；避免全账本噪声边）。 */
+function mentionLinks(story, text) {
+  const t = String(text || '').toLowerCase()
+  if (!t) return []
+  const player = String((story.player && story.player.name) || '').toLowerCase()
+  const out = []
+  for (const e of story.entities) {
+    if (e.state && e.state.alive === false) continue
+    const nm = String(e.name || '').toLowerCase()
+    if (nm.length < 2 || nm === player) continue
+    const variants = nm.length >= 3 ? [nm, nm.slice(-2)] : [nm]
+    if (variants.some((v) => t.includes(v)) && !out.includes(e.entity_id)) out.push(e.entity_id)
+  }
+  return out
+}
 function check(story, rec) {
   if (rec.story_id !== story.story_id) throw new Error('cross-story write blocked: ' + rec.story_id + ' -> ' + story.story_id)
 }
@@ -177,6 +196,10 @@ const Repos = {
       }
     }
     story.facts.push(rec)
+    for (const eid of mentionLinks(story, rec.statement)) {
+      if (rec.entity_ids.length >= 20) break
+      if (!rec.entity_ids.includes(eid)) rec.entity_ids.push(eid)
+    }
     return rec
   },
   getFact(story, id) { return story.facts.find((f) => f.fact_id === id) || null },
@@ -203,6 +226,10 @@ const Repos = {
       session_id: story._currentSessionId || null
     }, story, now)
     story.events.push(rec)
+    for (const eid of mentionLinks(story, rec.description)) {
+      if (rec.participants.length >= 20) break
+      if (!rec.participants.includes(eid)) rec.participants.push(eid)
+    }
     return rec
   },
   getEvent(story, id) { return story.events.find((e) => e.event_id === id) || null },

@@ -25,7 +25,20 @@ class StateStore {
     for (const d of [dataDir, this.storiesDir, this.snapshotsDir, this.pendingsDir, this.logsDir, this.tmpDir]) fs.mkdirSync(d, { recursive: true })
     this._cache = new Map() // storyId → { story, dirty }
     this._staging = new Map() // storyId → staged story（事务暂存）
+    /* 检索层缓存槽（规范二十四/二十五/四十三）：storyId → { version, entityIndex, queries }
+     * store 只负责持有与版本递增（flushStory 即状态变更点），结构与失效策略由 retriever 管理。 */
+    this._retrCache = new Map()
     this._recover()
+  }
+
+  /* 检索缓存槽：version 单调递增，任何状态落盘（含快照恢复）都会 bump → 所有派生缓存失效 */
+  retrSlot(storyId) {
+    let c = this._retrCache.get(storyId)
+    if (!c) { c = { version: 0, entityIndex: null, queries: new Map() }; this._retrCache.set(storyId, c) }
+    return c
+  }
+  _dropRetrCache(storyId) {
+    this._retrCache.delete(storyId)
   }
 
   // 崩溃自愈：孤儿 tmp 直接清掉
@@ -104,19 +117,39 @@ class StateStore {
   flushStory(storyId) {
     const story = this.getStory(storyId)
     if (!story) return
-    const clone = JSON.parse(JSON.stringify(story))
-    clone._nameIndex = undefined
-    this._atomicWrite(this._storyPath(storyId), JSON.stringify(clone))
+    /* 性能（基线实测：全量重写随账本线性增长，事务克隆+序列化占 commit 大头）：
+     * 不再做 JSON.parse(JSON.stringify()) 克隆 —— 单次 stringify + replacer 剔除懒索引即写盘。
+     * 语义不变：仍为整故事原子替换写。 */
+    this._atomicWrite(this._storyPath(storyId), JSON.stringify(story, (k, v) => (k === '_nameIndex' ? undefined : v)))
+    this._writeMeta(storyId, story)
     this._cache.set(storyId, { story })
+    const rc = this._retrCache.get(storyId)
+    if (rc) { rc.version += 1; rc.queries.clear() } // 缓存一致性（规范四十三）：状态变更即失效；实体索引按水位增量续建（retriever 管理）
+  }
+
+  /* 故事元信息侧车（规范三十二：列表/首屏不解析全量正文） */
+  _metaPath(storyId) {
+    const safe = String(storyId).replace(/[^a-zA-Z0-9_-]/g, '_')
+    return path.join(this.storiesDir, safe + '.meta.json')
+  }
+  _writeMeta(storyId, story) {
+    try {
+      this._atomicWrite(this._metaPath(storyId), JSON.stringify({
+        story_id: story.story_id, title: story.title, created_at: story.created_at, updated_at: story.updated_at, kernel: story.kernel,
+        counts: { turns: story.counters && story.counters.turn, decisions: story.decisions.length, facts: story.facts.length, events: story.events.length, entities: story.entities.length, commitments: story.commitments.length, threads: story.threads.length, sessions: story.sessions.length }
+      }))
+    } catch { /* 侧车失败不阻断主数据 */ }
   }
 
   // ---- 事务（Scene Commit 用） ----
   beginTransaction(storyId) {
     const story = this.getStory(storyId)
     if (!story) throw new Error('story not found: ' + storyId)
-    this._staging.set(storyId, JSON.parse(JSON.stringify(story)))
-    this._staging.get(storyId)._nameIndex = undefined // 克隆里的 Map 已退化为 {}，强制下次懒重建
-    return this._staging.get(storyId)
+    /* structuredClone：比 JSON 往返快 2-3 倍（性能基线中事务克隆是 commit 的大头之一），
+     * 且实体名索引 Map 被完整克隆（仍有效，免懒重建）。故事对象是纯数据，无函数/DOM 引用。 */
+    const staged = structuredClone(story)
+    this._staging.set(storyId, staged)
+    return staged
   }
 
   commitTransaction(storyId) {
@@ -143,17 +176,31 @@ class StateStore {
     this.flushStory(storyId)
   }
 
-  // ---- 索引：列出全部故事（仅元信息，不载入正文 —— 条款 42 性能） ----
+  // ---- 索引：列出全部故事（优先读元信息侧车，不再解析全量正文 —— 条款 42/规范三十二） ----
   listStories() {
     const out = []
     let files = []
     try { files = fs.readdirSync(this.storiesDir) } catch { return out }
     for (const f of files) {
-      if (!f.endsWith('.json')) continue
+      if (!f.endsWith('.json') || f.endsWith('.meta.json')) continue
+      const storyPath = path.join(this.storiesDir, f)
+      const metaPath = storyPath.slice(0, -5) + '.meta.json'
       try {
-        const s = JSON.parse(fs.readFileSync(path.join(this.storiesDir, f), 'utf8'))
+        /* 侧车新鲜（mtime 不早于主文件）→ 直接用；否则退回全量解析（兼容旧数据/侧车丢失） */
+        let s = null
+        try {
+          const mStat = fs.statSync(metaPath), sStat = fs.statSync(storyPath)
+          if (mStat.mtimeMs >= sStat.mtimeMs) s = JSON.parse(fs.readFileSync(metaPath, 'utf8'))
+        } catch { s = null }
+        if (!s || !s.story_id) s = JSON.parse(fs.readFileSync(storyPath, 'utf8'))
+        /* 侧车 shape 是 counts（展示口径），全量故事是 counters（引擎口径）——两者都兼容 */
+        const c = s.counts || s.counters || {}
+        const num = (k, arr) => (c[k] !== undefined ? c[k] : (arr || []).length)
         out.push({ story_id: s.story_id, title: s.title, created_at: s.created_at, updated_at: s.updated_at, kernel: s.kernel, counts: {
-          turns: s.counters && s.counters.turn, decisions: s.decisions.length, facts: s.facts.length, events: s.events.length
+          turns: c.turns !== undefined ? c.turns : c.turn,
+          decisions: num('decisions', s.decisions),
+          facts: num('facts', s.facts),
+          events: num('events', s.events)
         } })
       } catch {}
     }
@@ -163,7 +210,9 @@ class StateStore {
   deleteStory(storyId) {
     this._cache.delete(storyId)
     this._staging.delete(storyId)
+    this._dropRetrCache(storyId)
     try { fs.unlinkSync(this._storyPath(storyId)) } catch {}
+    try { fs.unlinkSync(this._metaPath(storyId)) } catch {}
     // 快照、Pending 与日志一并清理（隔离原则：故事没了，附属数据无存在意义）
     this.deleteAllPendings(storyId)
     const sd = path.join(this.snapshotsDir, String(storyId))
@@ -254,7 +303,7 @@ class StateStore {
     const dir = path.join(this.logsDir, String(storyId).replace(/[^a-zA-Z0-9_-]/g, '_'))
     fs.mkdirSync(dir, { recursive: true })
     const file = path.join(dir, 'turn-' + String(log.turn_id || 'x').replace(/[^a-zA-Z0-9_-]/g, '_') + '.json')
-    this._atomicWrite(file, JSON.stringify(log, null, 2))
+    this._atomicWrite(file, JSON.stringify(log)) // 紧凑序列化（诊断日志无需 pretty-print，体积减半）
     // 滚动清理：每故事只留最近 60 个回合日志
     try {
       const files = fs.readdirSync(dir).filter((f) => f.startsWith('turn-')).sort()

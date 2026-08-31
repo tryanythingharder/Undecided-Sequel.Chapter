@@ -259,12 +259,22 @@
       saveSessions()
     }
   }
-  function saveSessions() {
+  /* 会话保存（规范八：前端不无限写）——防抖合并高频写入（每回合多次调用 → 400ms 一次全量落盘）；
+   * immediate=true 用于删除/导入/工作区切换等关键点；页面隐藏/关闭时强制冲刷，不丢尾部消息。 */
+  let _saveTimer = 0
+  function _doSaveSessions() {
     try {
       localStorage.setItem(SESSIONS_KEY, JSON.stringify(sessions.slice(0, 50)))
       saveFailWarned = false
     } catch { warnSaveFail('最新世界线进度') }
   }
+  function saveSessions(immediate) {
+    if (immediate) { if (_saveTimer) { clearTimeout(_saveTimer); _saveTimer = 0 } _doSaveSessions(); return }
+    if (_saveTimer) return
+    _saveTimer = setTimeout(() => { _saveTimer = 0; _doSaveSessions() }, 400)
+  }
+  window.addEventListener('pagehide', () => { if (_saveTimer) { clearTimeout(_saveTimer); _saveTimer = 0; _doSaveSessions() } })
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden' && _saveTimer) { clearTimeout(_saveTimer); _saveTimer = 0; _doSaveSessions() } })
   function curSession() { return sessions.find((s) => s.id === currentId) || null }
 
   function newSession() {
@@ -473,7 +483,7 @@
             if (!currentId) newSession()
           }
           saveStore()
-          saveSessions()
+          saveSessions(true)
           renderSessionList()
           renderMessages()
           updateTitle()
@@ -682,13 +692,14 @@
     })
     if (!ok) return
     sessions = sessions.filter((s) => s.ws !== ws.id)
+    // 删除语义立即持久化（防抖窗口内崩溃不复活已删数据）
     workspaces = workspaces.filter((w) => w.id !== ws.id)
     // 删除后切到剩余第一个工作区
     currentWsId = workspaces[0].id
     const wsS = wsSessions()
     currentId = wsS.length ? wsS[0].id : null
     if (!currentId) newSession()
-    saveSessions(); saveWorkspaces(); saveStore()
+    saveSessions(true); saveWorkspaces(); saveStore()
     renderWsBtn()
     renderSessionList()
     renderMessages()
@@ -1266,6 +1277,15 @@
   const msgEl = $('messages')
   const choiceEl = $('choices')
 
+  /* ---- 聊天历史窗口化（规范五/六/七/八）：DOM 只保留最近窗口 ----
+   * Chat History ≠ Story Memory：完整历史仍在会话数据里（可搜索/可翻阅），
+   * 但 DOM 节点数有界——打开/切换/发送只渲染最近 RENDER_WINDOW 条，
+   * 向上翻阅按 RENDER_CHUNK 追加更早历史，避免大历史卡死前端。 */
+  const RENDER_WINDOW = 60
+  const RENDER_CHUNK = 60
+  let renderWindow = RENDER_WINDOW
+  let _renderedSessionId = null
+
   // 智能滚动：用户位于底部附近时跟随，向上翻阅时不打扰
   let wasNearBottom = true
   function autoScroll() {
@@ -1280,13 +1300,34 @@
     const prevScroll = msgEl.scrollTop
     wasNearBottom = msgEl.scrollHeight - msgEl.scrollTop - msgEl.clientHeight < 120
     const s = curSession()
-    const messages = s ? s.messages : []
-    msgEl.innerHTML = ''
+    if (!s || s.id !== _renderedSessionId) renderWindow = RENDER_WINDOW // 切换世界线重置窗口
+    _renderedSessionId = s ? s.id : null
+    const all = s ? s.messages : []
+    const total = all.length
+    const start = Math.max(0, total - renderWindow) // 窗口起点（绝对下标）
+    const messages = all.slice(start)
     let lastAssistantIdx = -1
     // R71：预计算最后一条 assistant——其选项会提取为按钮，正文渲染时跳过选项行避免重复
-    messages.forEach((m, i) => { if (m.role === 'assistant') lastAssistantIdx = i })
+    all.forEach((m, i) => { if (m.role === 'assistant') lastAssistantIdx = i })
+    msgEl.innerHTML = ''
 
-    messages.forEach((m, i) => {
+    // 「查看更早」哨兵：更早历史仍在数据中，按需加载进 DOM（规范七：分页接口语义）
+    if (start > 0) {
+      const older = document.createElement('button')
+      older.className = 'load-older'
+      older.textContent = '查看更早的消息（还有 ' + start + ' 条）'
+      older.title = '加载更早的聊天记录进视图'
+      older.addEventListener('click', () => {
+        const prevHeight = msgEl.scrollHeight, prevTop = msgEl.scrollTop
+        renderWindow += RENDER_CHUNK
+        renderMessages()
+        msgEl.scrollTop = msgEl.scrollHeight - prevHeight + prevTop // 顶部补页后保持视口锚定
+      })
+      msgEl.appendChild(older)
+    }
+
+    messages.forEach((m, k) => {
+      const i = start + k // 绝对下标：工具/重生成/搜索/插图槽一律使用会话数据的真实下标
       const div = document.createElement('div')
       div.className = 'msg ' + (m.role === 'user' ? 'user' : 'assistant')
       const role = document.createElement('div')
@@ -1371,7 +1412,7 @@
         // 提取原始错误文本（去掉 ⚠️ 前缀行）
         const raw = String(m.content).replace(/^⚠️[^\n]*\n?/, '')
         body.textContent = raw || m.content
-        if (!busy && i === messages.length - 1) {
+        if (!busy && i === total - 1) {
           const retryBtn = document.createElement('button')
           retryBtn.className = 'retry-btn'
           retryBtn.textContent = '↻ 重试这一回合'
@@ -1413,7 +1454,7 @@
           img.alt = '场景插图'
           img.title = '点击查看大图'
           // 传入当前会话全部插图，Lightbox 中可 ← → 切换
-          const allIllusts = messages.filter((x) => x.illust).map((x) => x.illust)
+          const allIllusts = all.filter((x) => x.illust).map((x) => x.illust)
           img.addEventListener('click', () => viewIllust(m.illust, allIllusts))
           // R33b 键盘可达：Enter/Space 打开大图
           img.tabIndex = 0
@@ -1498,7 +1539,7 @@
     }
 
     // 空状态（开场引导）
-    if (messages.length === 0 && !busy) {
+    if (total === 0 && !busy) {
       const empty = document.createElement('div')
       empty.className = 'empty'
       const sigil = document.createElement('div')
@@ -1566,7 +1607,7 @@
     // 输入占位随上下文切换（P1：占位文案须与当前可用操作一致）
     $('input').placeholder = '自由描述你的行动…（Enter 发送 · Shift+Enter 换行）'
     if (lastAssistantIdx >= 0 && !busy) {
-      const choices = parseChoices(messages[lastAssistantIdx].content)
+      const choices = parseChoices(all[lastAssistantIdx].content)
       if (choices.length > 0) {
         choiceMode = true
         $('input').placeholder = '点选上方选项直接行动，或在此自由描述…（Enter 发送）'
@@ -1674,7 +1715,7 @@
     // R83 兜底 v2：模型未按契约输出选项时，先从原文提取「引号候选清单」（上下文相关），
     // 提取不到才退回通用建议。引号分支是内容的确定性映射，测试环境允许；
     // 通用三条仍只在真实会话注入（防污染 e2e）。错误回合不注入。
-    const lastMsg = lastAssistantIdx >= 0 ? messages[lastAssistantIdx] : null
+    const lastMsg = lastAssistantIdx >= 0 ? all[lastAssistantIdx] : null
     const isErr = !!lastMsg && String(lastMsg.content || '').startsWith('⚠️')
     const quoteChoices = (!choiceMode && lastMsg && !isErr) ? extractQuoteChoices(lastMsg.content) : []
     if (quoteChoices.length >= 2) {
@@ -1968,13 +2009,20 @@
     scrollToActiveMatch()
   }
 
-  // 跳到当前命中：把对应 mark 标 active 并滚入视野
+  // 跳到当前命中：把对应 mark 标 active 并滚入视野（按绝对消息下标定位；不在窗口内则先扩窗加载）
   function scrollToActiveMatch() {
     if (searchActive < 0) return
     let target = searchActive
+    const s = curSession()
     for (const x of searchMatches) {
       if (target < x.count) {
-        const msg = msgEl.querySelector('.msg:nth-child(' + (x.msgIdx + 1) + ')')
+        let msg = msgEl.querySelector('.msg[data-mi="' + x.msgIdx + '"]')
+        if (!msg && s) {
+          // 目标在渲染窗口之外：扩窗加载后重找（聊天历史分页语义）
+          renderWindow = Math.max(renderWindow, s.messages.length - x.msgIdx + RENDER_WINDOW)
+          renderMessages()
+          msg = msgEl.querySelector('.msg[data-mi="' + x.msgIdx + '"]')
+        }
         if (msg) {
           const marks = msg.querySelectorAll('mark')
           marks.forEach((mk, i) => mk.classList.toggle('active', i === target))
@@ -2013,12 +2061,24 @@
   const storySess = new Map() // storyId -> sessionId（重启应用 = 新 Session；故事记忆跨 Session 持久）
   let engineProtocolText = null // 输出协议说明书（每次运行取一次）
   // 条款 17：State Patch 缺失时的补录请求词——只要求补结构化状态，严禁重写剧情（条款 25）
-  const PATCH_RETRY_PROMPT = [
-    '上一轮叙事已经生成。当前系统缺少合法 State Patch。',
-    '请仅根据已经生成的叙事和当前 State，输出对应的结构化 State Patch（按此前给你的状态记录协议）。',
-    '不要重新生成剧情。不要修改、扩写或复述已经生成的叙事。回复只包含状态块本身。',
-    '如果重新审视后确认这一回合确实没有任何状态变化，只输出 <<<NO_STATE_CHANGE>>>。'
-  ].join('\n')
+  // 补录提示词：自带最小模板示例（弱模型按例输出可大幅提高合规率）；reason 用于冲突引导
+  function patchRetryPrompt(reason) {
+    const lines = [
+      '上一轮叙事已经生成。当前系统缺少合法 State Patch。',
+      '请仅根据上面已经生成的叙事和当前 State，输出对应的结构化 State Patch。',
+      '不要重新生成剧情。不要修改、扩写或复述已经生成的叙事。不要用 Markdown 代码围栏包裹。',
+      '回复的最末尾严格按此格式输出（最小可用示例）：',
+      '<<<STATE_PATCH>>>',
+      '{"turn_summary":"本回合一句话概括","scene":{"game_time":"故事内时间","location":"当前地点"},"events":[{"type":"action","description":"本回合发生的主要事件","importance":30}]}',
+      '<<<END_PATCH>>>',
+      '需要记录玩家的决定/新事实/承诺/关系变化/伏笔，就在 JSON 里加对应键：decisions / facts / commitments / commitment_updates / relationships / threads / causal / entity_changes（键可省略，值必须是数组）。',
+      '如果重新审视后确认这一回合确实没有任何状态变化，只输出一行：<<<NO_STATE_CHANGE>>>',
+      '除状态块（或 NO_STATE_CHANGE）外，不要输出任何其他文字。'
+    ]
+    if (reason) lines.splice(1, 0, '上一轮的输出因以下原因被系统拒绝：' + reason + ' —— 请修正后重新只输出状态块；引用编号若不存在，改用内容关键词或先创建对应记录。')
+    return lines.join('\n')
+  }
+  const PATCH_RETRY_PROMPT = patchRetryPrompt(null)
   async function enginePrep(s, playerInput) {
     try {
       const ws = curWs()
@@ -2134,12 +2194,13 @@
             if (cm.data.narrative) narrative = cm.data.narrative
             pendingId = cm.data.pending_id || null
             // 条款 17：PATCH_MISSING / PATCH_INVALID → 自动一次静默重试：只补状态块，不重写剧情（条款 25）
-            if (!cm.data.committed && (cm.data.patch_status === 'PATCH_MISSING' || cm.data.patch_status === 'PATCH_INVALID')) {
+            const retryable = !cm.data.committed && (cm.data.patch_status === 'PATCH_MISSING' || cm.data.patch_status === 'PATCH_INVALID' || cm.data.patch_status === 'PATCH_CONFLICT')
+            if (retryable) {
               engineBusy = true // 补录期间禁止并发发送/重生成（不复位流式 UI，避免与 e2e/用户时序互踩）
               try {
                 const retryMsgs = msgs.concat([
                   { role: 'assistant', content: narrative },
-                  { role: 'user', content: PATCH_RETRY_PROMPT }
+                  { role: 'user', content: patchRetryPrompt(cm.data.patch_status === 'PATCH_CONFLICT' ? ((cm.data.errors && cm.data.errors[0] && cm.data.errors[0].message) || '') : null) }
                 ])
                 const rr = await api.sendChat(Object.assign({}, payload, { messages: retryMsgs, reqId: 'rp' + Date.now().toString(36), silent: true }))
                 if (rr && rr.ok && rr.content) {
@@ -2246,7 +2307,7 @@
       const label = document.getElementById('pending-count')
       if (n > 0) {
         el.classList.remove('hidden')
-        if (label) label.textContent = n + ' 条回合状态未落账（剧情已展示，但结构化状态未正式提交）'
+        if (label) label.textContent = n + ' 条回合状态未落账（剧情已展示，状态未提交——多因模型未按协议输出状态块；点击横幅可一键补录，频繁出现建议更换模型）'
       } else {
         el.classList.add('hidden')
       }
@@ -2275,7 +2336,7 @@
           if (engineProtocolText) msgs2.push({ role: 'system', content: engineProtocolText })
           msgs2.push({ role: 'user', content: pc.player_input || '（玩家行动）' })
           msgs2.push({ role: 'assistant', content: pc.narrative || '' })
-          msgs2.push({ role: 'user', content: PATCH_RETRY_PROMPT })
+          msgs2.push({ role: 'user', content: patchRetryPrompt(null) })
           const rr = await api.sendChat({ baseUrl: cfg.baseUrl, apiKey: cfg.apiKey, model: cfg.model, thinkLevel: cfg.thinkLevel || 'default', messages: msgs2, reqId: 'rp' + Date.now().toString(36), silent: true })
           if (rr && rr.ok && rr.content) {
             const rs = await api.engineResolvePending({ storyId: s.id, pendingId: pc.pending_id, raw: rr.content })

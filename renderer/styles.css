@@ -351,6 +351,16 @@ button { font-family: var(--sans); cursor: pointer; }
 .msg.user { align-self: center; }
 .msg.assistant { align-self: center; }
 
+/* 聊天历史「查看更早」哨兵（窗口化渲染的向上分页入口） */
+.load-older {
+  display: block; margin: 14px auto 4px; padding: 5px 16px;
+  border: 1px solid var(--border, #333); border-radius: 999px;
+  background: transparent; color: var(--text-faint);
+  font-family: var(--mono); font-size: 11px; letter-spacing: .5px;
+  transition: color .15s, border-color .15s;
+}
+.load-older:hover { color: var(--accent); border-color: var(--accent); }
+
 .msg-role {
   font-family: var(--mono); font-size: 11px; color: var(--text-faint);
   margin-bottom: 6px; letter-spacing: 1.5px; text-transform: uppercase;
