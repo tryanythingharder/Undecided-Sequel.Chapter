@@ -1,17 +1,243 @@
-const { app, BrowserWindow, ipcMain, nativeTheme, dialog, shell, Notification } = require('electron')
+const { app, BrowserWindow, ipcMain, nativeTheme, dialog, shell, Notification, safeStorage, protocol, net } = require('electron')
 const path = require('node:path')
 const fs = require('node:fs')
+const crypto = require('node:crypto')
+const { pathToFileURL } = require('node:url')
+
+protocol.registerSchemesAsPrivileged([{
+  scheme: 'sixworlds-asset',
+  privileges: { standard: true, secure: true, supportFetchAPI: true }
+}])
 
 // 测试隔离：scripts-dev 下的 Playwright 脚本以 SIXWORLDS_TEST=1 启动时，
 // 使用独立的 userData 档案目录，localStorage 等持久化与真实使用完全隔离，
 // 绝不会清掉/覆盖用户手工配置的模型与密钥。
-if (process.env.SIXWORLDS_TEST) {
-  app.setPath('userData', path.join(app.getPath('userData'), 'test-profile'))
+if (process.env.SIXWORLDS_TEST || process.env.SIXWORLDS_STORAGE_TEST) {
+  const profile = process.env.SIXWORLDS_STORAGE_TEST ? 'test-profile-storage' : 'test-profile'
+  app.setPath('userData', path.join(app.getPath('userData'), profile))
 }
 
 const KERNEL_DEFAULT = path.join(__dirname, 'kernel.md')
+const MAX_KERNEL_BYTES = 1024 * 1024
+const MAX_CONFIG_BYTES = 2 * 1024 * 1024
+const MAX_IMAGE_BYTES = 25 * 1024 * 1024
+const MAX_CHAT_RESPONSE_BYTES = 16 * 1024 * 1024
+const MAX_IMAGE_BATCH = 100
+const MAX_SESSIONS_JSON_BYTES = 64 * 1024 * 1024
+const MAX_SESSIONS = 50
 let win = null
 let settingsWin = null
+
+function atomicWriteFile(file, data) {
+  fs.mkdirSync(path.dirname(file), { recursive: true })
+  const tmp = file + '.tmp-' + process.pid + '-' + Date.now()
+  fs.writeFileSync(tmp, data)
+  try {
+    fs.renameSync(tmp, file)
+  } catch (e) {
+    try { fs.rmSync(file, { force: true }) } catch {}
+    try { fs.renameSync(tmp, file) } catch (renameError) {
+      try { fs.rmSync(tmp, { force: true }) } catch {}
+      throw renameError
+    }
+  }
+}
+
+function readTextFileLimited(file, maxBytes, label) {
+  const stat = fs.statSync(file)
+  if (!stat.isFile()) throw new Error((label || '文件') + '不是普通文件')
+  if (stat.size > maxBytes) throw new Error((label || '文件') + '过大（上限 ' + Math.floor(maxBytes / 1024) + 'KB）')
+  return fs.readFileSync(file, 'utf8')
+}
+
+async function readResponseBufferLimited(response, maxBytes, label) {
+  const declared = Number(response.headers.get('content-length') || 0)
+  if (declared > maxBytes) throw new Error((label || '响应') + '过大')
+  if (!response.body || !response.body.getReader) {
+    const buf = Buffer.from(await response.arrayBuffer())
+    if (buf.length > maxBytes) throw new Error((label || '响应') + '过大')
+    return buf
+  }
+  const reader = response.body.getReader()
+  const chunks = []
+  let total = 0
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    total += value.byteLength
+    if (total > maxBytes) {
+      try { await reader.cancel() } catch {}
+      throw new Error((label || '响应') + '过大')
+    }
+    chunks.push(Buffer.from(value))
+  }
+  return Buffer.concat(chunks, total)
+}
+
+function sessionDataDir() { return path.join(app.getPath('userData'), 'session-data') }
+function sessionImagesDir() { return path.join(sessionDataDir(), 'images') }
+function sessionsFile() { return path.join(sessionDataDir(), 'sessions.json') }
+function secretsFile() { return path.join(app.getPath('userData'), 'secrets.json') }
+
+function hashText(value) {
+  return crypto.createHash('sha256').update(Buffer.isBuffer(value) ? value : String(value)).digest('hex')
+}
+
+function dataUrlImage(value) {
+  const m = String(value || '').match(/^data:(image\/(?:png|jpeg|jpg|webp));base64,([A-Za-z0-9+/=\r\n]+)$/i)
+  if (!m) throw new Error('无效或不支持的图像数据')
+  const estimated = Math.floor(m[2].replace(/[\r\n]/g, '').length * 3 / 4)
+  if (estimated > MAX_IMAGE_BYTES) throw new Error('单张插图过大（上限 25MB）')
+  const buffer = Buffer.from(m[2], 'base64')
+  if (!buffer.length || buffer.length > MAX_IMAGE_BYTES) throw new Error('单张插图过大或数据无效')
+  const mime = m[1].toLowerCase().replace('image/jpg', 'image/jpeg')
+  const ext = mime === 'image/jpeg' ? 'jpg' : mime.slice(6)
+  return { buffer, mime, ext }
+}
+
+function imageAssetRel(value) {
+  try {
+    const u = new URL(String(value || ''))
+    if (u.protocol !== 'sixworlds-asset:' || u.hostname !== 'image') return null
+    const rel = decodeURIComponent(u.pathname).replace(/^\/+/, '').replace(/\\/g, '/')
+    return /^[a-f0-9]{24}\/[a-f0-9]{64}\.(?:png|jpg|webp)$/.test(rel) ? rel : null
+  } catch { return null }
+}
+
+function imageAssetUrl(rel) {
+  return 'sixworlds-asset://image/' + String(rel).split('/').map(encodeURIComponent).join('/')
+}
+
+function resolveImageAsset(rel) {
+  if (!/^[a-f0-9]{24}\/[a-f0-9]{64}\.(?:png|jpg|webp)$/.test(String(rel || ''))) throw new Error('非法插图引用')
+  const root = path.resolve(sessionImagesDir())
+  const target = path.resolve(root, String(rel))
+  if (!target.startsWith(root + path.sep)) throw new Error('插图路径越界')
+  const stat = fs.statSync(target)
+  if (!stat.isFile() || stat.size > MAX_IMAGE_BYTES) throw new Error('插图文件无效或过大')
+  return target
+}
+
+function imageSource(value) {
+  const rel = imageAssetRel(value)
+  if (rel) {
+    const file = resolveImageAsset(rel)
+    const ext = path.extname(file).toLowerCase()
+    const mime = ext === '.jpg' ? 'image/jpeg' : (ext === '.webp' ? 'image/webp' : 'image/png')
+    return { buffer: fs.readFileSync(file), mime, ext: ext.slice(1) }
+  }
+  return dataUrlImage(value)
+}
+
+function externalizeSessions(input) {
+  if (!Array.isArray(input)) throw new Error('会话数据格式不正确')
+  if (input.length > MAX_SESSIONS) throw new Error('会话数量超过上限（50）')
+  const sessions = JSON.parse(JSON.stringify(input))
+  const assets = new Set()
+  let imageCount = 0
+  for (const session of sessions) {
+    if (!session || typeof session !== 'object' || !Array.isArray(session.messages)) throw new Error('会话数据不完整')
+    if (session.messages.length > 5000) throw new Error('单条世界线消息过多')
+    const sessionDir = hashText(session.id || 'unknown').slice(0, 24)
+    for (const message of session.messages) {
+      if (!message || typeof message !== 'object') continue
+      if (!message.illust) {
+        delete message.illustAsset
+        continue
+      }
+      let rel = imageAssetRel(message.illust)
+      if (!rel) {
+        const img = dataUrlImage(message.illust)
+        const digest = hashText(img.buffer)
+        rel = sessionDir + '/' + digest + '.' + img.ext
+        const target = path.join(sessionImagesDir(), rel)
+        if (!fs.existsSync(target)) atomicWriteFile(target, img.buffer)
+      } else {
+        resolveImageAsset(rel)
+      }
+      imageCount++
+      if (imageCount > 2000) throw new Error('插图数量超过上限（2000）')
+      assets.add(rel)
+      message.illustAsset = rel
+      delete message.illust
+    }
+  }
+  const json = JSON.stringify({ v: 1, sessions })
+  if (Buffer.byteLength(json) > MAX_SESSIONS_JSON_BYTES) throw new Error('会话文本数据过大（上限 64MB，不含插图）')
+  return { sessions, assets, json }
+}
+
+function hydrateSessions(stored) {
+  const sessions = Array.isArray(stored) ? stored : []
+  for (const session of sessions) {
+    if (!session || !Array.isArray(session.messages)) continue
+    for (const message of session.messages) {
+      if (!message || !message.illustAsset) continue
+      try {
+        resolveImageAsset(message.illustAsset)
+        message.illust = imageAssetUrl(message.illustAsset)
+      } catch {
+        delete message.illust
+        delete message.illustAsset
+        message.illustError = '本地插图文件缺失或损坏'
+      }
+    }
+  }
+  return sessions
+}
+
+function progressSessions(input) {
+  const sessions = JSON.parse(JSON.stringify(Array.isArray(input) ? input : []))
+  for (const session of sessions) {
+    if (!session || !Array.isArray(session.messages)) continue
+    for (const message of session.messages) {
+      if (!message) continue
+      // 移动端进度包只同步叙事与结构化状态；插图留在桌面图库，避免数百 MB 的 base64 JSON。
+      delete message.illust
+      delete message.illustAsset
+    }
+  }
+  return sessions
+}
+
+function cleanupSessionImages(keep) {
+  const root = sessionImagesDir()
+  if (!fs.existsSync(root)) return
+  for (const dir of fs.readdirSync(root, { withFileTypes: true })) {
+    if (!dir.isDirectory() || !/^[a-f0-9]{24}$/.test(dir.name)) continue
+    const fullDir = path.join(root, dir.name)
+    for (const file of fs.readdirSync(fullDir, { withFileTypes: true })) {
+      const rel = dir.name + '/' + file.name
+      if (file.isFile() && !keep.has(rel)) fs.rmSync(path.join(fullDir, file.name), { force: true })
+    }
+    try { if (fs.readdirSync(fullDir).length === 0) fs.rmdirSync(fullDir) } catch {}
+  }
+}
+
+function loadSecrets() {
+  if (!fs.existsSync(secretsFile())) return { apiKey: '', illustApiKey: '' }
+  if (!safeStorage.isEncryptionAvailable()) throw new Error('系统安全存储当前不可用')
+  const raw = readTextFileLimited(secretsFile(), 128 * 1024, '密钥文件')
+  const doc = JSON.parse(raw)
+  if (!doc || doc.v !== 1 || typeof doc.payload !== 'string') throw new Error('密钥文件格式不正确')
+  const decrypted = safeStorage.decryptString(Buffer.from(doc.payload, 'base64'))
+  const value = JSON.parse(decrypted)
+  return {
+    apiKey: typeof value.apiKey === 'string' ? value.apiKey : '',
+    illustApiKey: typeof value.illustApiKey === 'string' ? value.illustApiKey : ''
+  }
+}
+
+function saveSecrets(value) {
+  if (!safeStorage.isEncryptionAvailable()) throw new Error('系统安全存储当前不可用，密钥未保存')
+  const payload = {
+    apiKey: String((value && value.apiKey) || '').slice(0, 16384),
+    illustApiKey: String((value && value.illustApiKey) || '').slice(0, 16384)
+  }
+  const encrypted = safeStorage.encryptString(JSON.stringify(payload)).toString('base64')
+  atomicWriteFile(secretsFile(), JSON.stringify({ v: 1, payload: encrypted }))
+  return true
+}
 
 // 按调用方定位窗口：设置窗口里的对话框/窗口控制应作用于设置窗口本身
 function windowForEvent(evt) {
@@ -37,7 +263,7 @@ function createWindow() {
       sandbox: true
     }
   })
-  win.loadFile(path.join(__dirname, 'renderer', 'index.html'))
+  win.loadFile(uiSchemeEntry())
   win.once('ready-to-show', () => win.show())
   watchTopmost(win)
   // 链接接管：内容中的 URL 一律用系统默认浏览器打开，绝不许在应用内导航（防白屏/游离窗口）
@@ -167,8 +393,44 @@ function saveWindowState() {
 }
 let lastNormalBounds = null
 
+// ---- 界面方案（经典 / 原型工作台，持久化到 userData/ui-scheme.json） ----
+function readUiScheme() {
+  try {
+    const st = JSON.parse(fs.readFileSync(path.join(app.getPath('userData'), 'ui-scheme.json'), 'utf8'))
+    return st && st.scheme === 'proto' ? 'proto' : 'classic'
+  } catch {}
+  return 'classic'
+}
+function writeUiScheme(scheme) {
+  try {
+    fs.mkdirSync(app.getPath('userData'), { recursive: true })
+    fs.writeFileSync(path.join(app.getPath('userData'), 'ui-scheme.json'), JSON.stringify({ scheme }))
+  } catch {}
+}
+function uiSchemeEntry() {
+  return readUiScheme() === 'proto'
+    ? path.join(__dirname, 'renderer-proto', 'index.html')
+    : path.join(__dirname, 'renderer', 'index.html')
+}
+
 app.whenReady().then(() => {
   nativeTheme.themeSource = 'system'
+  protocol.handle('sixworlds-asset', async (request) => {
+    try {
+      const rel = imageAssetRel(request.url)
+      if (!rel) return new Response('Not found', { status: 404 })
+      const file = resolveImageAsset(rel)
+      const ext = path.extname(file).toLowerCase()
+      const mime = ext === '.jpg' ? 'image/jpeg' : (ext === '.webp' ? 'image/webp' : 'image/png')
+      const body = fs.readFileSync(file)
+      return new Response(body, {
+        status: 200,
+        headers: { 'Content-Type': mime, 'Content-Length': String(body.length), 'Cache-Control': 'private, max-age=31536000, immutable' }
+      })
+    } catch {
+      return new Response('Not found', { status: 404 })
+    }
+  })
   createWindow()
   // 窗口状态持久化：大小变化/移动/关闭时保存（去抖）
   let stateTimer = null
@@ -202,6 +464,121 @@ app.whenReady().then(() => {
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()
 })
+app.on('will-quit', () => {
+  try { storyEngine?.close?.() } catch {}
+  try { sessionsDb?.close?.() } catch {}
+})
+
+// ---- 诊断：语义索引状态（打包/用户环境排查用；引擎惰性创建，未初始化时返回 uninitialized） ----
+ipcMain.handle('vector:stats', () => {
+  try { return storyEngine?.vectorStore?.stats?.() || { enabled: false, uninitialized: true } }
+  catch (e) { return { enabled: false, error: String((e && e.message) || e) }
+  }
+})
+
+// ---- 界面方案切换（经典 / 原型工作台） ----
+ipcMain.handle('ui-scheme:get', () => readUiScheme())
+
+ipcMain.handle('ui-scheme:set', (evt, scheme) => {
+  const next = scheme === 'proto' ? 'proto' : 'classic'
+  writeUiScheme(next)
+  // 立即把调用窗口切换到对应方案的入口（数据与设置两侧完全共享）
+  const target = windowForEvent(evt)
+  if (target && !target.isDestroyed()) target.loadFile(uiSchemeEntry())
+  return next
+})
+
+// ---- 敏感配置与会话持久化 ----
+ipcMain.handle('secrets:load', () => {
+  try { return { ok: true, secrets: loadSecrets() } }
+  catch (e) { return { ok: false, error: String((e && e.message) || e) } }
+})
+
+ipcMain.handle('secrets:save', (_evt, value) => {
+  try { saveSecrets(value); return { ok: true } }
+  catch (e) { return { ok: false, error: String((e && e.message) || e) } }
+})
+
+// ---- 会话持久化：SQLite 主存（sessions.db）+ JSON 镜像（sessions.json，移动端工具/人工恢复兼容面） ----
+const { createSessionsDb } = require('./sessions-db.cjs')
+let sessionsDb = null
+function sessionsDbFor() {
+  if (!sessionsDb) sessionsDb = createSessionsDb(app.getPath('userData'))
+  return sessionsDb
+}
+
+let sessionSaveQueue = Promise.resolve()
+ipcMain.handle('sessions:load', async () => {
+  try {
+    const db = sessionsDbFor()
+    if (db.enabled) {
+      // 1) SQLite 主存
+      const fromDb = db.load()
+      if (fromDb) {
+        const doc = fromDb.doc
+        const stored = Array.isArray(doc) ? doc : doc && doc.sessions
+        if (!Array.isArray(stored) || stored.length > MAX_SESSIONS) throw new Error('会话库格式不正确')
+        return { ok: true, exists: true, sessions: hydrateSessions(stored), storage: 'sqlite' }
+      }
+      // 2) 一次性迁移：主存为空且旧 JSON 存在 → 导入主存（JSON 镜像保留不删）
+      const file = sessionsFile()
+      if (fs.existsSync(file)) {
+        const raw = readTextFileLimited(file, MAX_SESSIONS_JSON_BYTES, '会话文件')
+        const doc = JSON.parse(raw)
+        const stored = Array.isArray(doc) ? doc : doc.sessions
+        if (!Array.isArray(stored) || stored.length > MAX_SESSIONS) throw new Error('会话文件格式不正确')
+        db.importDoc(Array.isArray(doc) ? { v: 1, sessions: stored } : doc)
+        return { ok: true, exists: true, sessions: hydrateSessions(stored), storage: 'migrated' }
+      }
+      return { ok: true, exists: false, sessions: [], storage: 'empty' }
+    }
+    // 3) 降级：纯文件路径（旧行为）
+    const file = sessionsFile()
+    if (!fs.existsSync(file)) return { ok: true, exists: false, sessions: [], storage: 'file' }
+    const raw = readTextFileLimited(file, MAX_SESSIONS_JSON_BYTES, '会话文件')
+    const doc = JSON.parse(raw)
+    const stored = Array.isArray(doc) ? doc : doc.sessions
+    if (!Array.isArray(stored) || stored.length > MAX_SESSIONS) throw new Error('会话文件格式不正确')
+    return { ok: true, exists: true, sessions: hydrateSessions(stored), storage: 'file' }
+  } catch (e) {
+    return { ok: false, error: String((e && e.message) || e) }
+  }
+})
+
+ipcMain.handle('sessions:save', (_evt, input) => {
+  const task = async () => {
+    const data = externalizeSessions(input)
+    const db = sessionsDbFor()
+    if (db.enabled) db.importDoc({ v: 1, sessions: data.sessions })
+    atomicWriteFile(sessionsFile(), data.json) // JSON 镜像：兼容面保留（移动端工具/人工恢复）
+    cleanupSessionImages(data.assets)
+    return { ok: true, count: data.sessions.length, images: data.assets.size }
+  }
+  sessionSaveQueue = sessionSaveQueue.then(task, task)
+  return sessionSaveQueue.catch((e) => ({ ok: false, error: String((e && e.message) || e) }))
+})
+
+ipcMain.handle('sessions:clear', async () => {
+  const task = async () => {
+    const db = sessionsDbFor()
+    if (db.enabled) db.clear()
+    const file = sessionsFile()
+    fs.rmSync(file, { force: true })
+    fs.rmSync(sessionImagesDir(), { recursive: true, force: true })
+    return { ok: true }
+  }
+  sessionSaveQueue = sessionSaveQueue.then(task, task)
+  return sessionSaveQueue.catch((e) => ({ ok: false, error: String((e && e.message) || e) }))
+})
+
+ipcMain.handle('image:readDataUrl', (_evt, source) => {
+  try {
+    const img = imageSource(source)
+    return { ok: true, dataUrl: 'data:' + img.mime + ';base64,' + img.buffer.toString('base64') }
+  } catch (e) {
+    return { ok: false, error: String((e && e.message) || e) }
+  }
+})
 
 // ---- 故事状态引擎（通用结构化状态 + 长期记忆 + 检索） ----
 // 存储位于 userData/story-engine/（stories/snapshots/logs 分目录），与 localStorage 互补。
@@ -211,8 +588,23 @@ function engineFor() {
   if (!storyEngine) storyEngine = createEngine(path.join(app.getPath('userData'), 'story-engine'))
   return storyEngine
 }
+const ENGINE_ID_RE = /^[A-Za-z0-9_-]{1,120}$/
+function validateEnginePayload(channel, payload) {
+  if (channel === 'engine:protocol') return
+  if (!ENGINE_ID_RE.test(String(payload.storyId || ''))) throw new Error('非法 storyId')
+  for (const key of ['pendingId', 'snapshotId', 'turnId']) {
+    if (payload[key] != null && !ENGINE_ID_RE.test(String(payload[key]))) throw new Error('非法 ' + key)
+  }
+  for (const key of ['raw', 'kernelText', 'playerInput', 'intent']) {
+    if (payload[key] != null && Buffer.byteLength(String(payload[key])) > MAX_CHAT_RESPONSE_BYTES) throw new Error(key + ' 过大')
+  }
+}
 const safeHandle = (ch, fn) => ipcMain.handle(ch, async (_e, payload) => {
-  try { return { ok: true, data: await fn(payload || {}) } }
+  try {
+    const value = payload || {}
+    validateEnginePayload(ch, value)
+    return { ok: true, data: await fn(value) }
+  }
   catch (e) { return { ok: false, error: String((e && e.message) || e) } }
 })
 safeHandle('engine:ensure', (p) => {
@@ -290,7 +682,7 @@ ipcMain.handle('kernel:read', async () => {
   const candidates = [KERNEL_DEFAULT]
   for (const p of candidates) {
     try {
-      const text = fs.readFileSync(p, 'utf8')
+      const text = readTextFileLimited(p, MAX_KERNEL_BYTES, '内核文件')
       return { ok: true, text, path: p, size: text.length }
     } catch { /* next */ }
   }
@@ -299,13 +691,24 @@ ipcMain.handle('kernel:read', async () => {
 
 ipcMain.handle('kernel:readPath', async (_evt, p) => {
   try {
-    const text = fs.readFileSync(p, 'utf8')
+    if (typeof p !== 'string' || !p.trim()) return { ok: false, error: '内核路径不能为空' }
+    const text = readTextFileLimited(p, MAX_KERNEL_BYTES, '内核文件')
     return { ok: true, text, path: p, size: text.length }
   } catch (e) {
     return { ok: false, error: String((e && e.message) || e) }
   }
 })
 ipcMain.handle('kernel:pick', async (evt) => {
+  // 测试接缝：SIXWORLDS_TEST 下允许用环境变量注入所选内核文件（自动化无法驱动原生对话框）
+  if (process.env.SIXWORLDS_TEST && process.env.SIXWORLDS_TEST_PICK) {
+    try {
+      const p = process.env.SIXWORLDS_TEST_PICK
+      const text = readTextFileLimited(p, MAX_KERNEL_BYTES, '内核文件')
+      return { ok: true, text, path: p, size: text.length }
+    } catch (e) {
+      return { ok: false, error: String((e && e.message) || e) }
+    }
+  }
   const res = await dialog.showOpenDialog(windowForEvent(evt), {
     title: '选择世界内核文件',
     filters: [{ name: 'Markdown / 文本', extensions: ['md', 'markdown', 'txt'] }],
@@ -314,8 +717,104 @@ ipcMain.handle('kernel:pick', async (evt) => {
   if (res.canceled || !res.filePaths || !res.filePaths[0]) return { ok: false }
   const p = res.filePaths[0]
   try {
-    const text = fs.readFileSync(p, 'utf8')
+    const text = readTextFileLimited(p, MAX_KERNEL_BYTES, '内核文件')
     return { ok: true, text, path: p, size: text.length }
+  } catch (e) {
+    return { ok: false, error: String((e && e.message) || e) }
+  }
+})
+
+// ---- kernel library（内核库：内置 + 用户自定义，通用多内核支持） ----
+// 内核 id 体系：builtin:kernel.md / builtin:kernel-xianxia.md（随应用分发，只读）；
+// user:<slug>（userData/kernels/<slug>.md，可在内核库中新建/编辑/删除）。
+const KERNELS_DIR = () => {
+  const d = path.join(app.getPath('userData'), 'kernels')
+  fs.mkdirSync(d, { recursive: true })
+  return d
+}
+const BUILTIN_KERNELS = [
+  { id: 'builtin:kernel.md', file: path.join(__dirname, 'kernel.md'), name: '六面世界：人生模拟器' },
+  { id: 'builtin:kernel-xianxia.md', file: path.join(__dirname, 'kernel-xianxia.md'), name: '玄寰界：修真人生模拟器' }
+]
+const KERNEL_SLUG_RE = /^[\w\u4e00-\u9fa5-]+$/
+const kernelSlug = (s) => String(s || '').trim().toLowerCase()
+  .replace(/[\\/:*?"<>|\s]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60)
+
+ipcMain.handle('kernels:list', async () => {
+  const out = []
+  for (const b of BUILTIN_KERNELS) {
+    try {
+      const st = fs.statSync(b.file)
+      out.push({ id: b.id, name: b.name, source: 'builtin', size: st.size, mtime: st.mtimeMs })
+    } catch { /* 内置缺失忽略 */ }
+  }
+  try {
+    for (const f of fs.readdirSync(KERNELS_DIR())) {
+      if (!f.endsWith('.md')) continue
+      const full = path.join(KERNELS_DIR(), f)
+      try {
+        const st = fs.statSync(full)
+        out.push({ id: 'user:' + f.slice(0, -3), name: f.slice(0, -3), source: 'user', size: st.size, mtime: st.mtimeMs })
+      } catch { /* 单文件异常忽略 */ }
+    }
+  } catch { /* 目录读取失败忽略 */ }
+  out.sort((a, b) => (b.mtime || 0) - (a.mtime || 0))
+  return { ok: true, kernels: out }
+})
+
+ipcMain.handle('kernels:read', async (_evt, id) => {
+  try {
+    const s = String(id || '')
+    if (s.startsWith('builtin:')) {
+      const b = BUILTIN_KERNELS.find((x) => x.id === s)
+      if (!b) return { ok: false, error: '未知内置内核' }
+      const text = readTextFileLimited(b.file, MAX_KERNEL_BYTES, '内核文件')
+      return { ok: true, id: s, name: b.name, text, size: text.length }
+    }
+    if (s.startsWith('user:')) {
+      const slug = s.slice(5)
+      if (!KERNEL_SLUG_RE.test(slug)) return { ok: false, error: '非法内核 id' }
+      const text = readTextFileLimited(path.join(KERNELS_DIR(), slug + '.md'), MAX_KERNEL_BYTES, '内核文件')
+      return { ok: true, id: s, name: slug, text, size: text.length }
+    }
+    return { ok: false, error: '未知内核 id' }
+  } catch (e) {
+    return { ok: false, error: String((e && e.message) || e) }
+  }
+})
+
+ipcMain.handle('kernels:save', async (_evt, payload) => {
+  try {
+    const t = String((payload && payload.text) || '')
+    const nm = String((payload && payload.name) || '').trim()
+    if (!nm) return { ok: false, error: '内核名称不能为空' }
+    if (!t.trim()) return { ok: false, error: '内核内容不能为空' }
+    if (t.length > 1024 * 1024) return { ok: false, error: '内核过大（上限 1MB）' }
+    let slug
+    const id = String((payload && payload.id) || '')
+    if (id.startsWith('user:')) {
+      slug = id.slice(5)
+      if (!KERNEL_SLUG_RE.test(slug)) return { ok: false, error: '非法内核 id' }
+    } else {
+      slug = kernelSlug(nm)
+      if (!slug || !KERNEL_SLUG_RE.test(slug)) return { ok: false, error: '内核名称需要包含中文、字母或数字' }
+      if (fs.existsSync(path.join(KERNELS_DIR(), slug + '.md'))) return { ok: false, error: '内核库中已存在同名内核' }
+    }
+    fs.writeFileSync(path.join(KERNELS_DIR(), slug + '.md'), t, 'utf8')
+    return { ok: true, id: 'user:' + slug, name: slug, size: t.length }
+  } catch (e) {
+    return { ok: false, error: String((e && e.message) || e) }
+  }
+})
+
+ipcMain.handle('kernels:delete', async (_evt, id) => {
+  try {
+    const s = String(id || '')
+    if (!s.startsWith('user:')) return { ok: false, error: '内置内核不可删除' }
+    const slug = s.slice(5)
+    if (!KERNEL_SLUG_RE.test(slug)) return { ok: false, error: '非法内核 id' }
+    fs.rmSync(path.join(KERNELS_DIR(), slug + '.md'), { force: true })
+    return { ok: true }
   } catch (e) {
     return { ok: false, error: String((e && e.message) || e) }
   }
@@ -327,12 +826,18 @@ ipcMain.handle('kernel:pick', async (evt) => {
 const pendingChats = new Map() // reqId -> AbortController
 ipcMain.handle('chat:send', async (_evt, cfg) => {
   try {
+    // 内核设计 e2e 接缝：只响应 kd* 请求，不影响内容区聊天或真实运行。
+    if (process.env.SIXWORLDS_TEST && process.env.SIXWORLDS_TEST_AI_REPLY && /^kd/.test(String(cfg.reqId || ''))) {
+      return { ok: true, content: process.env.SIXWORLDS_TEST_AI_REPLY }
+    }
     const baseUrl = String(cfg.baseUrl || '').trim().replace(/\/+$/, '')
     const apiKey = String(cfg.apiKey || '').trim()
     const model = String(cfg.model || '').trim()
     if (!baseUrl || !apiKey || !model) {
       return { ok: false, error: '请先在设置中填写 API 地址、密钥与模型。' }
     }
+    const endpoint = new URL(baseUrl + '/chat/completions')
+    if (!['http:', 'https:'].includes(endpoint.protocol)) return { ok: false, error: 'API 地址仅支持 HTTP / HTTPS' }
     const messages = Array.isArray(cfg.messages) ? cfg.messages : []
     // 注意：不再发送 temperature（端点默认值即最佳实践，设置中也已移除该项）
     const payload = {
@@ -371,25 +876,23 @@ ipcMain.handle('chat:send', async (_evt, cfg) => {
       const timeout = setTimeout(() => controller.abort(), 240000)
       try {
       let res
-      try {
-        res = await fetch(baseUrl + '/chat/completions', {
+      const requestBody = JSON.stringify(payload)
+      if (Buffer.byteLength(requestBody) > MAX_CHAT_RESPONSE_BYTES) return { ok: false, error: '请求上下文过大（上限 16MB）' }
+      res = await fetch(endpoint, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             'Authorization': 'Bearer ' + apiKey,
             'Accept': 'text/event-stream'
           },
-          body: JSON.stringify(payload),
+          body: requestBody,
           signal: controller.signal
         })
-      } finally {
-        clearTimeout(timeout)
-      }
 
       // 非流式响应（或不支持 SSE 的端点）：按普通 JSON 处理
       const ctype = String(res.headers.get('content-type') || '')
       if (!ctype.includes('text/event-stream')) {
-        const body = await res.text()
+        const body = (await readResponseBufferLimited(res, MAX_CHAT_RESPONSE_BYTES, '文本接口响应')).toString('utf8')
         let data
         try { data = JSON.parse(body) } catch {
           return { ok: false, error: '非 JSON 响应 (' + res.status + '): ' + body.slice(0, 400) }
@@ -406,7 +909,7 @@ ipcMain.handle('chat:send', async (_evt, cfg) => {
 
       // 流式响应：逐行解析 SSE
       if (!res.ok) {
-        const body = await res.text()
+        const body = (await readResponseBufferLimited(res, 1024 * 1024, '错误响应')).toString('utf8')
         return { ok: false, error: 'HTTP ' + res.status + ' ' + body.slice(0, 400) }
       }
       let full = ''
@@ -414,11 +917,18 @@ ipcMain.handle('chat:send', async (_evt, cfg) => {
       const reader = res.body.getReader()
       const decoder = new TextDecoder()
       let buf = ''
+      let receivedBytes = 0
       try {
         while (true) {
           const { done, value } = await reader.read()
           if (done) break
+          receivedBytes += value.byteLength
+          if (receivedBytes > MAX_CHAT_RESPONSE_BYTES) {
+            controller.abort()
+            throw new Error('流式响应过大（上限 16MB）')
+          }
           buf += decoder.decode(value, { stream: true })
+          if (buf.length > 2 * 1024 * 1024 && !buf.includes('\n')) throw new Error('流式响应单行过大')
           const lines = buf.split('\n')
           buf = lines.pop() // 末行可能不完整，留待下一块
           for (const line of lines) {
@@ -446,6 +956,7 @@ ipcMain.handle('chat:send', async (_evt, cfg) => {
       if (!full) return { ok: false, error: '流式响应中没有收到文本内容' }
       return { ok: true, content: full, usage }
       } finally {
+        clearTimeout(timeout)
         // 冲刷残余增量（保证最后一截文字在返回前送达渲染层），再清理 reqId
         flushDelta()
         // 整个请求（含 SSE 流消费完毕或中断）结束后才清理，流式期间「停止生成」始终可命中
@@ -519,6 +1030,8 @@ ipcMain.handle('image:generate', async (_evt, cfg) => {
     if (!baseUrl || !apiKey || !model || !prompt) {
       return { ok: false, error: '图像模型未配置完整（地址 / 密钥 / 模型 / 提示词）。' }
     }
+    const endpoint = new URL(baseUrl + '/images/generations')
+    if (!['http:', 'https:'].includes(endpoint.protocol)) return { ok: false, error: 'API 地址仅支持 HTTP / HTTPS' }
     const payload = { model, prompt, size, n: Math.min(4, Math.max(1, Number(cfg.n) || 1)) }
     // 可选参数：反向提示词 / 种子（部分端点支持，按需透传）
     if (String(cfg.negative || '').trim()) payload.negative_prompt = String(cfg.negative).trim()
@@ -533,8 +1046,9 @@ ipcMain.handle('image:generate', async (_evt, cfg) => {
     const controller = new AbortController()
     const timeout = setTimeout(() => controller.abort(), 300000)
     let res
+    let body
     try {
-      res = await fetch(baseUrl + '/images/generations', {
+      res = await fetch(endpoint, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -543,10 +1057,10 @@ ipcMain.handle('image:generate', async (_evt, cfg) => {
         body: JSON.stringify(payload),
         signal: controller.signal
       })
+      body = (await readResponseBufferLimited(res, MAX_IMAGE_BYTES * 2, '图像接口响应')).toString('utf8')
     } finally {
       clearTimeout(timeout)
     }
-    const body = await res.text()
     let data
     try { data = JSON.parse(body) } catch {
       return { ok: false, error: '非 JSON 响应 (' + res.status + '): ' + body.slice(0, 400) }
@@ -565,15 +1079,23 @@ ipcMain.handle('image:generate', async (_evt, cfg) => {
     if (item.b64_json) {
       let mime = 'image/png'
       if (model.includes('jpeg') || model.includes('Kolors')) mime = 'image/jpeg'
-      return Object.assign({ ok: true, dataUrl: 'data:' + mime + ';base64,' + item.b64_json }, billing)
+      const img = dataUrlImage('data:' + mime + ';base64,' + item.b64_json)
+      return Object.assign({ ok: true, dataUrl: 'data:' + img.mime + ';base64,' + img.buffer.toString('base64') }, billing)
     }
     if (item.url) {
       // 拉取远程图片转为 data URL
-      const imgRes = await fetch(item.url)
-      if (!imgRes.ok) return { ok: false, error: '拉取图像失败: ' + imgRes.status }
-      const buf = Buffer.from(await imgRes.arrayBuffer())
-      const mime = imgRes.headers.get('content-type') || 'image/png'
-      return Object.assign({ ok: true, dataUrl: 'data:' + mime + ';base64,' + buf.toString('base64') }, billing)
+      const remoteUrl = new URL(String(item.url))
+      if (!['http:', 'https:'].includes(remoteUrl.protocol)) return { ok: false, error: '图像地址协议不受支持' }
+      const imageController = new AbortController()
+      const imageTimeout = setTimeout(() => imageController.abort(), 60000)
+      try {
+        const imgRes = await fetch(remoteUrl, { signal: imageController.signal })
+        if (!imgRes.ok) return { ok: false, error: '拉取图像失败: ' + imgRes.status }
+        const mime = String(imgRes.headers.get('content-type') || 'image/png').split(';')[0].toLowerCase()
+        if (!/^image\/(?:png|jpeg|jpg|webp)$/.test(mime)) return { ok: false, error: '远程地址返回的不是受支持图像' }
+        const buf = await readResponseBufferLimited(imgRes, MAX_IMAGE_BYTES, '远程图像')
+        return Object.assign({ ok: true, dataUrl: 'data:' + mime + ';base64,' + buf.toString('base64') }, billing)
+      } finally { clearTimeout(imageTimeout) }
     }
     return { ok: false, error: '响应格式不支持（缺少 b64_json / url）' }
   } catch (e) {
@@ -584,15 +1106,12 @@ ipcMain.handle('image:generate', async (_evt, cfg) => {
 // ---- 将插图（data URL）保存到磁盘 ----
 ipcMain.handle('image:save', async (evt, opts) => {
   try {
-    const dataUrl = String((opts && opts.dataUrl) || '')
-    const m = dataUrl.match(/^data:([^;]+);base64,(.*)$/)
-    if (!m) return { ok: false, error: '无效的图像数据' }
-    const mime = m[1]
-    const ext = mime.includes('png') ? 'png' : (mime.includes('jpeg') || mime.includes('jpg') ? 'jpg' : (mime.includes('webp') ? 'webp' : 'png'))
+    const img = imageSource((opts && (opts.dataUrl || opts.source)) || '')
+    const ext = img.ext
     const defaultName = String((opts && opts.defaultName) || ('illust-' + Date.now() + '.' + ext))
     const res = await dialog.showSaveDialog(windowForEvent(evt), { title: '保存插图', defaultPath: defaultName, filters: [{ name: 'Image', extensions: [ext] }] })
     if (res.canceled || !res.filePath) return { ok: false }
-    fs.writeFileSync(res.filePath, Buffer.from(m[2], 'base64'))
+    fs.writeFileSync(res.filePath, img.buffer)
     return { ok: true, path: res.filePath }
   } catch (e) {
     return { ok: false, error: String((e && e.message) || e) }
@@ -605,18 +1124,21 @@ ipcMain.handle('net:test', async (_evt, opts) => {
     const baseUrl = String((opts && opts.baseUrl) || '').trim().replace(/\/+$/, '')
     const apiKey = String((opts && opts.apiKey) || '').trim()
     if (!baseUrl || !apiKey) return { ok: false, error: '地址与密钥不能为空' }
+    const endpoint = new URL(baseUrl + '/models')
+    if (!['http:', 'https:'].includes(endpoint.protocol)) return { ok: false, error: 'API 地址仅支持 HTTP / HTTPS' }
     const controller = new AbortController()
     const timeout = setTimeout(() => controller.abort(), 15000)
     let res
+    let body
     try {
-      res = await fetch(baseUrl + '/models', {
+      res = await fetch(endpoint, {
         headers: { 'Authorization': 'Bearer ' + apiKey },
         signal: controller.signal
       })
+      body = (await readResponseBufferLimited(res, 4 * 1024 * 1024, '模型列表响应')).toString('utf8')
     } finally {
       clearTimeout(timeout)
     }
-    const body = await res.text()
     let data = null
     try { data = JSON.parse(body) } catch { /* 非 JSON */ }
     if (!res.ok) {
@@ -644,7 +1166,7 @@ ipcMain.handle('dialog:openFile', async (evt, opts) => {
       properties: ['openFile']
     })
     if (res.canceled || !res.filePaths || !res.filePaths[0]) return { ok: false }
-    const content = fs.readFileSync(res.filePaths[0], 'utf8')
+    const content = readTextFileLimited(res.filePaths[0], MAX_CONFIG_BYTES, '配置文件')
     return { ok: true, path: res.filePaths[0], content }
   } catch (e) {
     return { ok: false, error: String((e && e.message) || e) }
@@ -656,6 +1178,7 @@ ipcMain.handle('image:saveAll', async (evt, opts) => {
   try {
     const items = Array.isArray(opts && opts.items) ? opts.items : []
     if (!items.length) return { ok: false, error: '没有可保存的插图' }
+    if (items.length > MAX_IMAGE_BATCH) return { ok: false, error: '单次最多保存 100 张插图' }
     const res = await dialog.showOpenDialog(windowForEvent(evt), {
       title: '选择保存文件夹',
       properties: ['openDirectory', 'createDirectory']
@@ -667,12 +1190,10 @@ ipcMain.handle('image:saveAll', async (evt, opts) => {
     const failed = []
     items.forEach((it, i) => {
       try {
-        const m = String(it.dataUrl || '').match(/^data:([^;]+);base64,(.*)$/)
-        if (!m) throw new Error('无效图像数据')
-        const mime = m[1]
-        const ext = mime.includes('png') ? 'png' : (mime.includes('jpeg') || mime.includes('jpg') ? 'jpg' : (mime.includes('webp') ? 'webp' : 'png'))
+        const img = imageSource(it && (it.dataUrl || it.source))
+        const ext = img.ext
         const name = base + '-' + String(i + 1).padStart(2, '0') + '.' + ext
-        fs.writeFileSync(path.join(dir, name), Buffer.from(m[2], 'base64'))
+        fs.writeFileSync(path.join(dir, name), img.buffer)
         saved++
       } catch (e) {
         failed.push(String((e && e.message) || e))
@@ -786,12 +1307,18 @@ ipcMain.handle('progress:export', async (evt, payload) => {
   try {
     const storyEngineDir = path.join(app.getPath('userData'), 'story-engine')
     const files = {}
+    let engineBytes = 0
     const walk = (dir) => {
       for (const f of fs.readdirSync(dir)) {
         const full = path.join(dir, f)
         const st = fs.statSync(full)
-        if (st.isDirectory()) walk(full)
+        if (st.isDirectory()) {
+          if (path.relative(storyEngineDir, full).split(path.sep)[0] !== 'tmp') walk(full)
+        }
         else {
+          if (st.size > 8 * 1024 * 1024) throw new Error('引擎状态文件过大：' + f)
+          engineBytes += st.size
+          if (engineBytes > 128 * 1024 * 1024) throw new Error('引擎状态总量过大（上限 128MB）')
           const rel = path.relative(storyEngineDir, full).split(path.sep).join('/')
           files[rel] = fs.readFileSync(full, 'utf8')
         }
@@ -803,15 +1330,18 @@ ipcMain.handle('progress:export', async (evt, payload) => {
       v: 1,
       exportedAt: Date.now(),
       world: (payload && payload.world) || null,
-      sessions: (payload && payload.sessions) || [],
+      workspaces: (payload && payload.workspaces) || [],
+      sessions: progressSessions((payload && payload.sessions) || []),
       engine: { files },
     }
+    const serialized = JSON.stringify(bundle)
+    if (Buffer.byteLength(serialized) > 128 * 1024 * 1024) throw new Error('进度包过大（上限 128MB）')
     const res = await dialog.showSaveDialog(windowForEvent(evt), {
       title: '导出移动端进度包',
       defaultPath: '六面世界-进度包.json',
     })
     if (res.canceled || !res.filePath) return { ok: false, canceled: true }
-    fs.writeFileSync(res.filePath, JSON.stringify(bundle))
+    fs.writeFileSync(res.filePath, serialized)
     return { ok: true, path: res.filePath }
   } catch (e) {
     return { ok: false, error: String((e && e.message) || e) }

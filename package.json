@@ -1,7 +1,7 @@
 {
   "name": "six-worlds-codex",
   "version": "1.3.0",
-  "description": "六面世界·Codex 桌面聊天窗 — 独立桌面小程序（内核 markdown + 任意 OpenAI 兼容提供商 + 选项点击）",
+  "description": "六面世界通用 AI 故事工作台（多内核设计、内容对话、长期记忆与 OpenAI 兼容端点）",
   "main": "main.cjs",
   "private": true,
   "author": "六面世界",
@@ -10,6 +10,14 @@
   "scripts": {
     "start": "electron .",
     "dev": "electron . --dev",
+    "test": "node scripts-dev/run-tests.cjs all",
+    "test:unit": "node scripts-dev/run-tests.cjs unit",
+    "test:desktop": "node scripts-dev/run-tests.cjs desktop",
+    "test:android": "node scripts-dev/run-android-tests.cjs",
+    "test:android-release": "node scripts-dev/check-android-release.cjs",
+    "test:stress": "node scripts-dev/stress-run.cjs && node scripts-dev/stress-e2e.cjs",
+    "test:perf": "node scripts-dev/bench.cjs && node scripts-dev/bench-recall.cjs && node scripts-dev/bench-fe.cjs && node scripts-dev/bench-vector.cjs",
+    "test:packaged": "node scripts-dev/test-packaged.cjs",
     "icon": "electron scripts-dev/gen-icon.cjs",
     "dist": "node -e \"fs.rmSync('dist',{recursive:true,force:true})\" && electron-builder --win nsis portable"
   },
@@ -24,12 +32,15 @@
     },
     "files": [
       "main.cjs",
+      "sessions-db.cjs",
       "preload.cjs",
       "kernel.md",
       "kernel-xianxia.md",
       "build/icon.ico",
+      "build/cat.png",
       "engine/**",
       "renderer/**",
+      "renderer-proto/**",
       "package.json"
     ],
     "win": {
@@ -58,10 +69,18 @@
     },
     "portable": {
       "artifactName": "六面世界-便携版-${version}.exe"
-    }
+    },
+    "asarUnpack": [
+      "node_modules/sqlite-vec/**",
+      "node_modules/sqlite-vec-*/**"
+    ]
   },
   "devDependencies": {
-    "electron": "^33.0.0",
-    "electron-builder": "^26.15.3"
+    "electron": "^44.0.0",
+    "electron-builder": "^26.15.3",
+    "playwright": "^1.62.1"
+  },
+  "dependencies": {
+    "sqlite-vec": "^0.1.9"
   }
 }
