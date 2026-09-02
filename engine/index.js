@@ -12,11 +12,12 @@ const { patchProtocolPrompt } = require('./patch')
 const { createVectorStore } = require('./vector-store')
 const crypto = require('crypto')
 
-function createEngine(dataDir) {
+function createEngine(dataDir, opts) {
   const store = new StateStore(dataDir)
   const engine = { store }
-  /* 语义索引（SQLite + sqlite-vec，派生层可重建）：不可用时自动降级，检索管线不受影响 */
-  const vectorStore = createVectorStore(dataDir)
+  /* 语义索引（SQLite + sqlite-vec，派生层可重建）：不可用时自动降级，检索管线不受影响。
+   * opts.apiEmbedder（真实模型 /v1/embeddings 配置）：注入后引擎内向量层启用 api-v1 嵌入器。 */
+  const vectorStore = createVectorStore(dataDir, opts && opts.apiEmbedder ? { embedder: 'api-v1', apiEmbedder: opts.apiEmbedder } : undefined)
   engine.vectorStore = vectorStore
   /* 派生索引随正本落盘同步（flushStory 挂点）：commit/事务/恢复等全部写入路径统一在此覆盖，
    * 检索路径不再做同步。retrieve 侧仅留兜底——首查/外部改档时由 store 版本水位判断是否补同步。 */

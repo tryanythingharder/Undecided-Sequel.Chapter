@@ -55,6 +55,9 @@ contextBridge.exposeInMainWorld('api', {
   setUiScheme: (scheme) => ipcRenderer.invoke('ui-scheme:set', scheme),
   // 诊断：语义索引（sqlite-vec）状态
   vectorStats: () => ipcRenderer.invoke('vector:stats'),
+  // 真实嵌入模型配置（api-v1，OpenAI 兼容 /v1/embeddings）：引擎重启后生效
+  embedderConfig: () => ipcRenderer.invoke('embedder:get'),
+  saveEmbedderConfig: (cfg) => ipcRenderer.invoke('embedder:set', cfg),
   // 主窗口 -> 设置窗口：运行时改动（模型/思考程度/主题等）实时同步给已打开的设置窗口
   mainChanged: (payload) => ipcRenderer.invoke('main:changed', payload),
   onCfgSync: (cb) => {

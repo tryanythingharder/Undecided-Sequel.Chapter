@@ -6,6 +6,7 @@ const root = path.join(__dirname, '..')
 const unit = [
   'scripts-dev/test-story-engine.cjs',
   'scripts-dev/test-vector-store.cjs',
+  'scripts-dev/test-embedder-api.cjs',
   'scripts-dev/test-sessions-db.cjs',
   'scripts-dev/test-patch-reliability.cjs',
   'scripts-dev/test-access.cjs',

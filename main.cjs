@@ -476,6 +476,33 @@ ipcMain.handle('vector:stats', () => {
   }
 })
 
+// ---- 真实嵌入模型配置（api-v1）：userData/embedder.json，引擎重启后生效 ----
+ipcMain.handle('embedder:get', () => {
+  const cfg = readEmbedderConfig()
+  return { ok: true, embedder: (cfg && cfg.embedder) || 'hash-v1', baseUrl: cfg ? cfg.baseUrl || '' : '', model: cfg ? cfg.model || '' : '', dim: cfg ? cfg.dim || null : null, hasKey: !!(cfg && cfg.apiKey) }
+})
+ipcMain.handle('embedder:set', (_evt, input) => {
+  try {
+    const mode = input && input.embedder === 'api-v1' ? 'api-v1' : 'hash-v1'
+    if (mode === 'api-v1') {
+      const baseUrl = String(input.baseUrl || '').trim()
+      const model = String(input.model || '').trim()
+      const dim = Number(input.dim)
+      const apiKey = String(input.apiKey || '').trim()
+      if (!/^https?:\/\//.test(baseUrl)) throw new Error('嵌入端点必须是 http(s) URL')
+      if (!model) throw new Error('嵌入模型名不能为空')
+      if (!Number.isInteger(dim) || dim < 2 || dim > 4096) throw new Error('嵌入维度不正确（2~4096）')
+      if (!apiKey) throw new Error('嵌入 API 密钥不能为空（api-v1 不缓存凭据外的任何东西）')
+      atomicWriteFile(embedderConfigFile(), JSON.stringify({ embedder: mode, baseUrl, model, dim, apiKey }))
+    } else {
+      atomicWriteFile(embedderConfigFile(), JSON.stringify({ embedder: mode }))
+    }
+    return { ok: true, embedder: mode, restartRequired: !!storyEngine } // 引擎已建则需重启应用生效（版本水位自动全量重嵌）
+  } catch (e) {
+    return { ok: false, error: String((e && e.message) || e) }
+  }
+})
+
 // ---- 界面方案切换（经典 / 原型工作台） ----
 ipcMain.handle('ui-scheme:get', () => readUiScheme())
 
@@ -588,8 +615,20 @@ ipcMain.handle('image:readDataUrl', (_evt, source) => {
 // 存储位于 userData/story-engine/（stories/snapshots/logs 分目录），与 localStorage 互补。
 const { createEngine } = require('./engine/index')
 let storyEngine = null
+/* 真实嵌入模型配置（api-v1，OpenAI 兼容 /v1/embeddings）：userData/embedder.json，由设置页写入。
+ * 引擎惰性创建时读取——改动配置重启后生效（版本水位自动全量重嵌）。 */
+const embedderConfigFile = () => path.join(app.getPath('userData'), 'embedder.json')
+function readEmbedderConfig() {
+  try { return JSON.parse(fs.readFileSync(embedderConfigFile(), 'utf8')) } catch { return null }
+}
 function engineFor() {
-  if (!storyEngine) storyEngine = createEngine(path.join(app.getPath('userData'), 'story-engine'))
+  if (!storyEngine) {
+    const ec = readEmbedderConfig()
+    const apiEmbedder = (ec && ec.embedder === 'api-v1' && ec.baseUrl && ec.model && ec.dim && ec.apiKey)
+      ? { baseUrl: String(ec.baseUrl), model: String(ec.model), dim: Number(ec.dim), apiKey: String(ec.apiKey) }
+      : null
+    storyEngine = createEngine(path.join(app.getPath('userData'), 'story-engine'), apiEmbedder ? { apiEmbedder } : undefined)
+  }
   return storyEngine
 }
 const ENGINE_ID_RE = /^[A-Za-z0-9_-]{1,120}$/

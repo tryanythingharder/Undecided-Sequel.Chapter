@@ -89,10 +89,18 @@ function embedV2(text, dim = EMBED_DIM) {
   return normalize(v, dim)
 }
 
-/* 嵌入器注册表：新模型（API / ONNX）按同形状注册即可；更换 id → 版本水位触发全量重嵌 */
+/* 嵌入器注册表：新模型按同形状注册即可；更换 id → 版本水位触发全量重嵌。
+ * api-v1：真实模型嵌入（OpenAI 兼容 /v1/embeddings）——经 opts.apiEmbedder 注入
+ * { model, dim, baseUrl, apiKey, fetchImpl }；同文本结果持久缓存（emb_cache 表），
+ * 未热条目降级为 hash-v1 向量并经 opts.onMiss 异步补嵌（补齐后由调用方推进水位全量重嵌）。
+ * 不在同步检索路径上发起网络请求：检索永不阻塞、离线永不降级为失败。 */
 const EMBEDDERS = {
   'hash-v1': { id: 'hash-v1', dim: EMBED_DIM, fn: embedV1 },
-  'hash-v2': { id: 'hash-v2', dim: EMBED_DIM, fn: embedV2 }
+  'hash-v2': { id: 'hash-v2', dim: EMBED_DIM, fn: embedV2 },
+  /* api-v1 真实模型：维度取自注入配置（apiCfg.dim，注册表 0 占位）；向量一律走 emb_cache
+   * （embedSync），注册表 fn 仅在「选了 api-v1 却无配置」的降级场景兜底为 hash-v1
+   * （此时表维度也回落 256，自洽可用）。 */
+  'api-v1': { id: 'api-v1', dim: 0, fn: embedV1 }
 }
 let activeEmbedderId = process.env.SIXWORLDS_EMBEDDER && EMBEDDERS[process.env.SIXWORLDS_EMBEDDER]
   ? process.env.SIXWORLDS_EMBEDDER
@@ -143,14 +151,94 @@ function createVectorStore(dataDir, opts) {
   const path = require('path')
   /* 嵌入器选择：显式 opts > 环境变量 > 模块默认（版本水位见 syncInner 的 embedder 检查） */
   let embedderId = (opts && opts.embedder) || activeEmbedderId
+  /* api-v1（真实模型）：opts.apiEmbedder = { model, dim, baseUrl, apiKey, fetchImpl? }；
+   * 未注入配置时视为未启用（回退 hash 行为），保证引擎在移动桥/测试环境零依赖可用。 */
+  const apiCfg = (opts && opts.apiEmbedder && opts.apiEmbedder.baseUrl && opts.apiEmbedder.model && opts.apiEmbedder.dim)
+    ? opts.apiEmbedder
+    : null
   let db = null
   let cosine = false
   let partitioned = false
   let synced = false
   function ensureMeta() {
     if (synced) return
-    db.exec('CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);')
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
+      CREATE TABLE IF NOT EXISTS emb_cache (
+        h TEXT PRIMARY KEY,
+        vec TEXT NOT NULL
+      );
+    `)
     synced = true
+  }
+
+  /* ---------------- api-v1 支撑：确定性缓存 + 异步补嵌（同步路径零网络） ----------------
+   * 缓存键 = embedder+文本（sha1）：同文本永不重复请求；条目跨重启持久（emb_cache 表）。
+   * 维度约束：vec0 表维度建表即定，真模型维度 ≠ 256 时换嵌入器即整表重建（版本水位机制）；
+   * 因此未热条目【不写向量行】（只落 FTS 词面通道），绝不往表里塞维度不符的占位向量。
+   * 补嵌完成后自动重同步该故事（resyncAfterWarm），检索质量随缓存热化单调上升、永不阻塞。 */
+  const cryptoMod = require('crypto')
+  const vecHash = (t) => cryptoMod.createHash('sha1').update(embedderId + '\u0000' + String(t)).digest('hex')
+  let missQueue = []
+  let missTimer = 0
+  let warming = false
+  const storyTextMap = new Map() // storyId → 正本 story（补嵌完成后的重同步用）
+  function cacheGet(text) {
+    try {
+      const r = db.prepare('SELECT vec FROM emb_cache WHERE h=?').get(vecHash(text))
+      if (!r) return null
+      const arr = JSON.parse(r.vec)
+      return (Array.isArray(arr) && arr.length) ? Float32Array.from(arr) : null
+    } catch { return null }
+  }
+  function cachePut(text, vec) {
+    try { db.prepare('INSERT INTO emb_cache(h, vec) VALUES (?, ?) ON CONFLICT(h) DO UPDATE SET vec=excluded.vec').run(vecHash(text), JSON.stringify(Array.from(vec))) } catch {}
+  }
+  function cacheHas(text) {
+    try { return !!db.prepare('SELECT 1 FROM emb_cache WHERE h=?').get(vecHash(text)) } catch { return false }
+  }
+  async function fetchEmbeddings(texts) {
+    const impl = apiCfg.fetchImpl || (typeof fetch === 'function' ? fetch : null)
+    if (!impl) throw new Error('当前环境无可用网络接口')
+    const res = await impl(String(apiCfg.baseUrl).replace(/\/+$/, '') + '/v1/embeddings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + apiCfg.apiKey },
+      body: JSON.stringify({ model: apiCfg.model, input: texts })
+    })
+    if (!res.ok) throw new Error('嵌入接口 HTTP ' + res.status)
+    const j = await res.json()
+    const byIdx = new Map((Array.isArray(j && j.data) ? j.data : []).map((d) => [d.index, d.embedding]))
+    const out = texts.map((_, i) => byIdx.get(i))
+    if (out.some((v) => !Array.isArray(v) || v.length !== apiCfg.dim)) throw new Error('嵌入接口返回维度不符（期望 ' + apiCfg.dim + '）')
+    return out.map((v) => Float32Array.from(v))
+  }
+  function resyncAfterWarm() {
+    // 补嵌落地 → 缓存已热：重同步这批故事（此时全部命中缓存，占位条目转为真向量，水位推进）
+    const stories = [...storyTextMap.values()]
+    storyTextMap.clear()
+    for (const st of stories) { try { syncInner(st) } catch { /* 重同步失败不外抛（异步上下文） */ } }
+  }
+  function warmMisses() {
+    if (warming || !missQueue.length) return
+    warming = true
+    const batch = missQueue.splice(0, 64)
+    fetchEmbeddings(batch.map((x) => x.text)).then((vecs) => {
+      vecs.forEach((v, i) => cachePut(batch[i].text, v))
+      resyncAfterWarm()
+    }).catch((e) => {
+      console.warn('[vector-store] 异步补嵌失败（下次未热命中会重新入队）：' + String((e && e.message) || e).slice(0, 120))
+      missQueue = [] // 失败清队：离线时不反复打网络；后续未热命中自然重试
+    }).finally(() => { warming = false; if (missQueue.length) scheduleWarm() })
+  }
+  function scheduleWarm() {
+    if (missTimer) return
+    missTimer = setTimeout(() => { missTimer = 0; warmMisses() }, 150)
+  }
+  /* 同步嵌入入口（api-v1）：缓存命中 → 真向量；未热 → null（调用方跳过该条的向量行） */
+  function embedSync(text) {
+    if (embedderId !== 'api-v1' || !apiCfg) return { vec: EMBEDDERS['hash-v1'].fn(text), isPlaceholder: false }
+    const hit = cacheGet(text)
+    return hit ? { vec: hit, isPlaceholder: false } : { vec: null, isPlaceholder: true }
   }
 
   // 打包态：asar 内的原生 dll 无法被 SQLite 的原生文件读取器加载，
@@ -195,28 +283,31 @@ function createVectorStore(dataDir, opts) {
       CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(text, content='chunks', content_rowid='cid', tokenize='trigram');
     `)
     ensureMeta()
-    /* 存量库结构升级（v1 无分区 → v2 按故事分区）：派生层重建——向量/倒排/水位全弃、
-     * 正本不动，各故事下次 flush/检索兜底同步时全量重嵌（零数据损失）。 */
+    /* 当前嵌入器维度（api-v1 用真实模型维度，hash 系用 256）——vec0 表维度建表即定 */
+    const dim = (embedderId === 'api-v1' && apiCfg) ? Number(apiCfg.dim) : EMBED_DIM
+    const vecDimOk = (sql) => new RegExp('FLOAT\\[' + dim + '\\]').test(String(sql || ''))
+    /* 存量库结构升级（v1 无分区 → v2 按故事分区，或维度随嵌入器变化）：派生层重建——
+     * 向量/倒排/水位全弃、正本不动，各故事下次 flush/检索兜底同步时全量重嵌（零数据损失）。 */
     let oldVecSql = null
     try { oldVecSql = db.prepare("SELECT sql FROM sqlite_master WHERE name='chunks_vec'").get().sql } catch {}
-    if (oldVecSql && !/partition key/i.test(oldVecSql)) {
+    if (oldVecSql && (!/partition key/i.test(oldVecSql) || !vecDimOk(oldVecSql))) {
       try { db.exec('DROP TABLE chunks_vec') } catch {}
       try { db.exec("INSERT INTO chunks_fts(chunks_fts) VALUES('delete-all')") } catch {}
       db.exec('DELETE FROM chunks')
       db.exec("DELETE FROM meta WHERE key LIKE 'wm:%'")
-      console.warn('[vector-store] 向量表升级为按故事分区（v1→v2），旧索引已弃，将按需全量重嵌')
+      console.warn('[vector-store] 向量表结构升级（分区/维度 ' + dim + '），旧索引已弃，将按需全量重嵌')
     }
     /* 分区表：KNN 天然限定在单故事分区内，采样窗口不被其他故事稀释。
      * 旧版扩展无分区能力 → 退化为旧表（KNN 超采样后过滤），再无 cosine → L2。 */
     try {
-      db.exec('CREATE VIRTUAL TABLE IF NOT EXISTS chunks_vec USING vec0(embedding FLOAT[' + EMBED_DIM + '] distance_metric=cosine, story_id TEXT PARTITION KEY);')
+      db.exec('CREATE VIRTUAL TABLE IF NOT EXISTS chunks_vec USING vec0(embedding FLOAT[' + dim + '] distance_metric=cosine, story_id TEXT PARTITION KEY);')
       partitioned = true
     } catch {
       partitioned = false
       try {
-        db.exec('CREATE VIRTUAL TABLE IF NOT EXISTS chunks_vec USING vec0(embedding FLOAT[' + EMBED_DIM + '] distance_metric=cosine);')
+        db.exec('CREATE VIRTUAL TABLE IF NOT EXISTS chunks_vec USING vec0(embedding FLOAT[' + dim + '] distance_metric=cosine);')
       } catch {
-        db.exec('CREATE VIRTUAL TABLE IF NOT EXISTS chunks_vec USING vec0(embedding FLOAT[' + EMBED_DIM + ']);')
+        db.exec('CREATE VIRTUAL TABLE IF NOT EXISTS chunks_vec USING vec0(embedding FLOAT[' + dim + ']);')
       }
     }
     const quick = db.prepare('PRAGMA quick_check').get()
@@ -317,8 +408,17 @@ function createVectorStore(dataDir, opts) {
     const insVec = (cid, vec) => partitioned
       ? db.prepare('INSERT INTO chunks_vec(rowid, story_id, embedding) VALUES (' + cid + ', ?, ?)').run(story.story_id, vec)
       : db.prepare('INSERT INTO chunks_vec(rowid, embedding) VALUES (' + cid + ', ?)').run(vec)
+    /* api-v1 冷同步的行可能只有 chunks/FTS 而无向量行——重同步时据此判断是否补插 */
+    const hasVecRow = (cid, sid) => {
+      try {
+        return partitioned
+          ? !!db.prepare('SELECT 1 FROM chunks_vec WHERE rowid=? AND story_id=?').get(cid, sid)
+          : !!db.prepare('SELECT 1 FROM chunks_vec WHERE rowid=?').get(cid)
+      } catch { return false }
+    }
     const rows = storyTexts(story)
     const seen = new Set()
+    let misses = 0
     db.exec('BEGIN')
     try {
       const getRow = db.prepare('SELECT cid, text FROM chunks WHERE story_id=? AND kind=? AND rec_id=?')
@@ -328,7 +428,17 @@ function createVectorStore(dataDir, opts) {
         const key = r.kind + '|' + r.rec_id
         seen.add(key)
         const cur = getRow.get(story.story_id, r.kind, r.rec_id)
-        const vecVal = JSON.stringify(Array.from(embedFn(r.text)))
+        /* api-v1：缓存命中用真向量；未热条目不写向量行（维度不符不能占位），FTS 词面通道照常覆盖，
+         * 文本入异步补嵌队列——补嵌落地后 resyncAfterWarm 重同步该故事，占位条目转为真向量。 */
+        const emb = (embedderId === 'api-v1' && apiCfg) ? embedSync(r.text) : { vec: embedFn(r.text), isPlaceholder: false }
+        if (emb.isPlaceholder) {
+          // 未热：先落 chunks 行（FTS 通道可用），向量行留空，等补嵌重同步补齐
+          if (!cur) { insChunk.run(story.story_id, r.kind, r.rec_id, r.turn, r.importance, r.text); const cid = cidInt(db.prepare('SELECT last_insert_rowid() AS i').get().i); db.prepare('INSERT INTO chunks_fts(rowid, text) VALUES (?,?)').run(cid, r.text) }
+          else { updChunk.run(r.turn, r.importance, r.text, cur.cid); if (cur.text !== r.text) { db.prepare("INSERT INTO chunks_fts(chunks_fts, rowid, text) VALUES ('delete', ?, ?)").run(cur.cid, cur.text); db.prepare('INSERT INTO chunks_fts(rowid, text) VALUES (?,?)').run(cur.cid, r.text) } }
+          misses++
+          continue
+        }
+        const vecVal = JSON.stringify(Array.from(emb.vec))
         if (!cur) {
           const info = insChunk.run(story.story_id, r.kind, r.rec_id, r.turn, r.importance, r.text)
           const cid = cidInt(info.lastInsertRowid)
@@ -336,12 +446,18 @@ function createVectorStore(dataDir, opts) {
           db.prepare('INSERT INTO chunks_fts(rowid, text) VALUES (?,?)').run(cid, r.text)
         } else {
           updChunk.run(r.turn, r.importance, r.text, cur.cid)
-          if (cur.text !== r.text) { // 文本变化才重算向量与倒排
+          /* 文本变化才重算向量与倒排——hash 系同步路径的常规优化；
+           * api-v1 额外处理「行存在但向量行缺失」：冷同步只落了 chunks/FTS，补嵌后的
+           * 重同步必须补插向量行（文本未变的老优化路径会永远跳过它）。 */
+          const vecMissing = (embedderId === 'api-v1' && apiCfg) && !hasVecRow(cur.cid, story.story_id)
+          if (cur.text !== r.text || vecMissing) {
             const cid = cidInt(cur.cid)
-            db.prepare('DELETE FROM chunks_vec WHERE rowid=' + cid).run()
+            if (vecMissing || cur.text !== r.text) db.prepare('DELETE FROM chunks_vec WHERE rowid=' + cid).run()
             insVec(cid, vecVal)
-            db.prepare("INSERT INTO chunks_fts(chunks_fts, rowid, text) VALUES ('delete', ?, ?)").run(cid, cur.text)
-            db.prepare('INSERT INTO chunks_fts(rowid, text) VALUES (?,?)').run(cid, r.text)
+            if (cur.text !== r.text) {
+              db.prepare("INSERT INTO chunks_fts(chunks_fts, rowid, text) VALUES ('delete', ?, ?)").run(cid, cur.text)
+              db.prepare('INSERT INTO chunks_fts(rowid, text) VALUES (?,?)').run(cid, r.text)
+            }
           }
         }
       }
@@ -353,6 +469,15 @@ function createVectorStore(dataDir, opts) {
         db.prepare('DELETE FROM chunks_vec WHERE rowid=' + cid).run()
         db.prepare("INSERT INTO chunks_fts(chunks_fts, rowid, text) VALUES ('delete', ?, ?)").run(cid, c.text)
         db.prepare('DELETE FROM chunks WHERE cid=?').run(cid)
+      }
+      if (misses > 0) {
+        // 占位期不写水位：补嵌落地后 resyncAfterWarm 重走本路径（缓存已热），此时才推进水位。
+        // 未热条目可能有旧的真向量（文本未变则不重复删除），由重同步按缓存命中统一收敛。
+        db.exec('COMMIT')
+        storyTextMap.set(story.story_id, story)
+        for (const r of rows) if (!cacheHas(r.text)) { missQueue.push({ text: r.text }); if (missQueue.length > 1024) missQueue.splice(0, missQueue.length - 1024) }
+        scheduleWarm()
+        return
       }
       setWatermark(story.story_id, wm)
       db.exec('COMMIT')
@@ -377,12 +502,23 @@ function createVectorStore(dataDir, opts) {
     // —— 向量通道 ——
     try {
       const knn = Math.max(limit * 4, 64)
-      const qv = JSON.stringify(Array.from(EMBEDDERS[embedderId].fn(q)))
+      /* api-v1：查询向量同样走缓存——未热则本轮跳过向量通道（词面通道兜底），文本入队异步补嵌。
+       * 同步检索路径零网络请求。 */
+      let qv = null
+      if (embedderId === 'api-v1' && apiCfg) {
+        const qe = embedSync(q)
+        if (qe.isPlaceholder) {
+          if (!cacheHas(q)) { missQueue.push({ text: q }); scheduleWarm() }
+          qv = null
+        } else qv = JSON.stringify(Array.from(qe.vec))
+      } else {
+        qv = JSON.stringify(Array.from(EMBEDDERS[embedderId].fn(q)))
+      }
       /* 分区表：KNN 天然限定单故事分区（采样窗口不被其他故事稀释），无需再按故事过滤；
        * 旧表（扩展无分区能力）：超采样后按故事过滤（rowid → chunks 反查）。 */
-      const vecRows = partitioned
+      const vecRows = qv && partitioned
         ? [...db.prepare('SELECT rowid AS cid, distance AS d FROM chunks_vec WHERE story_id = ? AND embedding MATCH ? AND k = ?').iterate(storyId, qv, knn)]
-        : [...db.prepare('SELECT rowid AS cid, distance AS d FROM chunks_vec WHERE embedding MATCH ? ORDER BY d LIMIT ?').iterate(qv, knn)]
+        : (qv ? [...db.prepare('SELECT rowid AS cid, distance AS d FROM chunks_vec WHERE embedding MATCH ? ORDER BY d LIMIT ?').iterate(qv, knn)] : [])
       const cidMap = db.prepare('SELECT kind, rec_id FROM chunks WHERE cid=? AND story_id=?')
       for (const r of vecRows) {
         const m = partitioned
@@ -457,8 +593,9 @@ function createVectorStore(dataDir, opts) {
         freelist = db.prepare('PRAGMA freelist_count').get().freelist_count
         dbBytes = pages * db.prepare('PRAGMA page_size').get().page_size
       } catch { /* 诊断字段缺失不阻断 */ }
-      return { enabled: true, chunks, stories, dim: EMBED_DIM, metric: cosine ? 'cosine' : 'l2', partitioned, embedder: embedderId, pages, freelist, dbBytes }
-    } catch { return { enabled: true, chunks: 0, stories: 0, dim: EMBED_DIM, metric: cosine ? 'cosine' : 'l2', partitioned, embedder: embedderId } }
+      const dimNow = (embedderId === 'api-v1' && apiCfg) ? Number(apiCfg.dim) : EMBED_DIM
+      return { enabled: true, chunks, stories, dim: dimNow, metric: cosine ? 'cosine' : 'l2', partitioned, embedder: embedderId, pages, freelist, dbBytes }
+    } catch { const dimNow = (embedderId === 'api-v1' && apiCfg) ? Number(apiCfg.dim) : EMBED_DIM; return { enabled: true, chunks: 0, stories: 0, dim: dimNow, metric: cosine ? 'cosine' : 'l2', partitioned, embedder: embedderId } }
   }
 
   /* 收尾维护：checkpoint 把 WAL 并回主库并截断（否则 -wal 文件随使用无限增长），

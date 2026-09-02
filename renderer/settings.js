@@ -633,6 +633,39 @@
     }
   })
 
+  // ============ 语义记忆嵌入模型（api-v1：OpenAI 兼容 /v1/embeddings） ============
+  // 配置存主进程 userData/embedder.json（密钥不进 localStorage/任何导出），引擎重启后生效；
+  // 切换嵌入器时版本水位自动全量重嵌，无需人工干预。
+  {
+    const note = $('embedder-note')
+    const loadEmbedder = async () => {
+      if (!api.embedderConfig) return
+      const r = await api.embedderConfig()
+      if (!r || r.ok === false) return
+      $('set-embedder').value = r.embedder || 'hash-v1'
+      $('set-embed-baseurl').value = r.baseUrl || ''
+      $('set-embed-model').value = r.model || ''
+      $('set-embed-dim').value = r.dim || 2048
+      $('set-embed-key').value = ''
+      $('set-embed-key').placeholder = r.hasKey ? '已保存（留空保持不变）' : '嵌入接口密钥'
+    }
+    loadEmbedder()
+    $('btn-save-embedder').addEventListener('click', async () => {
+      if (!api.saveEmbedderConfig) { toast('当前版本不支持', 'err'); return }
+      const mode = $('set-embedder').value
+      const payload = { embedder: mode, baseUrl: $('set-embed-baseurl').value, model: $('set-embed-model').value, dim: Number($('set-embed-dim').value) || 0, apiKey: $('set-embed-key').value }
+      const r = await api.saveEmbedderConfig(payload)
+      if (r && r.ok) {
+        note.textContent = r.restartRequired ? '已保存——重启应用后生效（首次会自动全量重嵌）' : '已保存——下次启动生效'
+        toast('嵌入配置已保存', 'ok')
+        $('set-embed-key').value = ''
+        loadEmbedder()
+      } else {
+        toast('保存失败：' + ((r && r.error) || '未知错误'), 'err')
+      }
+    })
+  }
+
   // ============ 主题 / 外观 / 置顶 / 阅读体验：即时预览到主窗口（未保存可撤销） ============
   $('set-theme').addEventListener('change', (e) => {
     applyThemeLocal(e.target.value)

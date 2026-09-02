@@ -235,6 +235,25 @@
         <button class="ghost" id="btn-export-progress" title="打包聊天记录与引擎状态，供移动端导入接续进度">导出移动端进度包</button>
         <button class="ghost" id="btn-import-progress" title="导入进度包（移动端导出或桌面备份）：接续世界线与引擎进度">导入进度包</button>
       </div>
+      <hr class="set-hr" />
+      <h3>语义记忆（长期记忆检索）</h3>
+      <label>嵌入模型：长期记忆的语义检索方式（改动重启应用后生效）</label>
+      <select id="set-embedder">
+        <option value="hash-v1">本地快速（hash-v1，离线可用，默认）</option>
+        <option value="api-v1">真实模型（OpenAI 兼容 /v1/embeddings，效果更好）</option>
+      </select>
+      <label>嵌入端点（api-v1）：OpenAI 兼容 base URL，如 https://open.bigmodel.cn/api/paas/v4</label>
+      <input id="set-embed-baseurl" type="text" placeholder="https://open.bigmodel.cn/api/paas/v4" />
+      <label>嵌入模型名（api-v1）：如 embedding-3 / text-embedding-3-small</label>
+      <input id="set-embed-model" type="text" placeholder="embedding-3" />
+      <label>嵌入维度（api-v1）：模型输出维度，如 2048 / 1536</label>
+      <input id="set-embed-dim" type="number" min="2" max="4096" step="1" value="2048" />
+      <label>嵌入 API 密钥（api-v1）：仅保存在本机 embedder.json，不进入任何导出</label>
+      <input id="set-embed-key" type="password" placeholder="嵌入接口密钥" />
+      <div class="row">
+        <button class="mini" id="btn-save-embedder">保存嵌入配置</button>
+        <span class="set-note" id="embedder-note"></span>
+      </div>
       <details class="set-details">
         <summary>兼容设置</summary>
         <label>旧版内核文件路径</label>
