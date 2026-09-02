@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8" />
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:;">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: sixworlds-asset:;">
   <title>设置 · 六面世界</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
@@ -20,7 +20,7 @@
   <div class="modal-tabs">
     <button class="tab active" data-tab="text">文本模型</button>
     <button class="tab" data-tab="image">插图模型</button>
-    <button class="tab" data-tab="appearance">外观 · 内核</button>
+    <button class="tab" data-tab="appearance">外观</button>
     <button class="tab" data-tab="advanced">高级</button>
   </div>
   <div class="modal-body">
@@ -144,7 +144,7 @@
       </details>
     </section>
 
-    <!-- 外观 · 内核 -->
+    <!-- 外观 -->
     <section class="set-group tab-panel" data-panel="appearance" hidden>
       <h3>配色</h3>
       <label>主题预设（调色板）</label>
@@ -213,12 +213,6 @@
       </select>
       <h3>启动</h3>
       <label class="row-inline"><input id="set-skip-splash" type="checkbox" /> 跳过开场动画（下次启动直接进入主界面）</label>
-      <h3>世界内核</h3>
-      <label>内核文件路径</label>
-      <div class="row">
-        <input id="set-kernel" type="text" placeholder="kernel.md" />
-        <button class="mini" id="btn-pick-kernel">选择…</button>
-      </div>
     </section>
 
     <!-- 高级 -->
@@ -240,6 +234,14 @@
         <button class="ghost" id="btn-import-config" title="从 JSON 文件导入配置（不含密钥）">导入配置</button>
         <button class="ghost" id="btn-export-progress" title="打包聊天记录与引擎状态，供移动端导入接续进度">导出移动端进度包</button>
       </div>
+      <details class="set-details">
+        <summary>兼容设置</summary>
+        <label>旧版内核文件路径</label>
+        <div class="row">
+          <input id="set-kernel" type="text" placeholder="kernel.md" />
+          <button class="mini" id="btn-pick-kernel">选择…</button>
+        </div>
+      </details>
     </section>
   </div>
 

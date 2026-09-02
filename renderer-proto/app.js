@@ -1,7 +1,7 @@
-/* ======== 六面世界 · 极简桌面聊天窗 ========
- * 【维护策略】本目录（renderer/）＝「经典界面」方案，已冻结为维护态：
- *  只修阻断性 bug 与数据安全问题，不再新增功能；功能演进集中在 renderer-proto/（原型工作台方案，
- *  视觉以 design-prototypes/zcode-platform-v2 为准）。两方案共享同一份 localStorage 与引擎数据，
+/* ======== 六面世界 · 原型工作台方案 ========
+ * 【维护策略】本目录（renderer-proto/）＝「原型工作台」方案，是功能演进的活跃线：
+ *  视觉与交互以 design-prototypes/zcode-platform-v2（已补齐全部功能的高保真原型）为基准落地。
+ *  renderer/（经典界面）已冻结为维护态——只修阻断性 bug。两方案共享同一份 localStorage 与引擎数据，
  *  涉及共享数据结构（会话/世界线/设置/引擎 IPC）的改动必须两侧同步。
  */
 (() => {
@@ -644,6 +644,8 @@
     const ws = curWs()
     $('ws-name').textContent = ws ? ws.name : '工作区'
     $('btn-ws').title = '当前工作区：' + (ws ? ws.name : '') + '（点击切换/管理）'
+    const brandWorld = $('brand-world-name')
+    if (brandWorld) brandWorld.textContent = ws ? ws.name : '默认世界'
   }
 
   function renderWsMenu() {
@@ -2632,9 +2634,39 @@
     toast('思考程度：' + label + '（提供商不支持时自动回退默认）', 'info', 2200)
   })
 
-  // ============ Toast 通知 ============
+  // ============ Toast 通知 + V2 灵动岛 ============
+  let islandTimer = 0
+  let islandResetTimer = 0
+  function announceIsland(message, kind, persistent) {
+    const island = $('dynamic-island')
+    const copy = $('island-copy')
+    if (!island || !copy) return
+    if (islandTimer) clearTimeout(islandTimer)
+    if (islandResetTimer) clearTimeout(islandResetTimer)
+    const text = String(message || '').replace(/\s+/g, ' ').trim()
+    copy.textContent = text || '所有更改已保存'
+    island.dataset.tone = kind || 'info'
+    island.classList.toggle('attention', !!persistent || text.length > 22 || kind === 'err')
+    const mark = island.querySelector('.island-mark')
+    if (mark) {
+      mark.className = 'island-mark ' + (kind || 'info')
+      mark.innerHTML = kind === 'ok'
+        ? '<svg class="ic"><use href="#i-check"/></svg>'
+        : kind === 'err'
+          ? '<svg class="ic"><path d="M4 4l8 8M12 4l-8 8"/></svg>'
+          : '<svg class="ic"><circle cx="8" cy="8" r="2.5"/></svg>'
+    }
+    islandTimer = setTimeout(() => {
+      if (island.classList.contains('busy')) return
+      island.classList.remove('attention')
+      copy.textContent = '所有更改已保存'
+      island.dataset.tone = 'ok'
+      if (mark) { mark.className = 'island-mark ok'; mark.innerHTML = '<svg class="ic"><use href="#i-check"/></svg>' }
+    }, persistent ? 30000 : 2600)
+  }
   function toast(msg, kind, dur) {
     kind = kind || 'info' // ok | err | info
+    announceIsland(msg, kind, false)
     let wrap = document.querySelector('.toast-wrap')
     if (!wrap) {
       wrap = document.createElement('div')
@@ -2671,6 +2703,14 @@
   // R76：忙碌灵动岛（生成中顶部胶囊；独立 DOM——不进 .toast-wrap、不用 .toast 类，
   // 完全避开 e2e 的 toast 选择器与 aria 通告区，纯视觉元素）
   function showBusyIsland() {
+    const island = $('dynamic-island')
+    if (island) {
+      island.classList.add('busy', 'attention')
+      const copy = $('island-copy')
+      if (copy) copy.textContent = '世界正在书写这一幕…'
+      const mark = island.querySelector('.island-mark')
+      if (mark) { mark.className = 'island-mark busy'; mark.innerHTML = '<svg class="ic"><use href="#i-spark"/></svg>' }
+    }
     const el = document.createElement('div')
     el.className = 'island-busy'
     el.id = 'island-busy'
@@ -2689,6 +2729,11 @@
         closed = true
         el.classList.add('leaving')
         setTimeout(() => el.remove(), 320)
+        const island = $('dynamic-island')
+        if (island) {
+          island.classList.remove('busy')
+          announceIsland('所有更改已保存', 'ok', false)
+        }
       }
     }
   }
@@ -2956,12 +3001,14 @@
   let kernelDesignChats = loadKernelDesignChats()
   let kernelRenderSeq = 0
   let kernelSearchTimer = null
+  let kernelFilter = 'all'
+  let kernelAutoSaveTimer = 0
+  const KERNEL_RELEASES_KEY = 'sixworlds.kernel.releases.v1'
+  let kernelReleases = (() => { try { const v = JSON.parse(localStorage.getItem(KERNEL_RELEASES_KEY) || '{}'); return v && typeof v === 'object' ? v : {} } catch { return {} } })()
   let kernelCheckpointAccepted = false
   let kernelValidation = { source: '', result: null }
   let kernelLayerReturnFocus = null
   let kernelSourceView = 'editor'
-  let kernelStage = 'welcome'
-  const KERNEL_WELCOME_SEEN_KEY = 'sixworlds.kernel.design.welcome.v1'
   const commandMask = $('command-mask')
   const commandInput = $('command-input')
   let commandReturnFocus = null
@@ -2978,6 +3025,18 @@
     try { localStorage.setItem(KERNEL_DESIGN_KEY, JSON.stringify(kernelDesignChats)) } catch { /* 忽略本地存储失败 */ }
   }
 
+  function saveKernelReleases() {
+    try { localStorage.setItem(KERNEL_RELEASES_KEY, JSON.stringify(kernelReleases)) } catch { /* optional presentation metadata */ }
+  }
+
+  function kernelReleaseFor(k, meta) {
+    const saved = kernelReleases[k.id]
+    if (saved && typeof saved === 'object') return saved
+    const version = meta && (meta.version || meta.release)
+    const archived = !!(meta && (meta.archived || meta.status === 'archived'))
+    return { status: archived ? 'archived' : (k.source === 'builtin' ? 'published' : 'draft'), version: version || (k.source === 'builtin' ? '1.0' : '0.1') }
+  }
+
   function kernelChatKey() { return kernelHubSourceId || KERNEL_DRAFT_KEY }
 
   function kernelChatMessages() {
@@ -2988,47 +3047,6 @@
   function setKernelChatMessages(list) {
     kernelDesignChats[kernelChatKey()] = list.slice(-40)
     saveKernelDesignChats()
-  }
-
-  function kernelWelcomeSeen() {
-    try { return localStorage.getItem(KERNEL_WELCOME_SEEN_KEY) === '1' } catch { return false }
-  }
-
-  function markKernelWelcomeSeen() {
-    try { localStorage.setItem(KERNEL_WELCOME_SEEN_KEY, '1') } catch {}
-  }
-
-  function setKernelStage(stage) {
-    const valid = ['welcome', 'intent', 'shape', 'rules', 'test', 'release']
-    kernelStage = valid.includes(stage) ? stage : 'intent'
-    const hub = $('kernel-hub')
-    if (hub) hub.dataset.kernelStage = kernelStage
-    const welcome = $('kernel-welcome-page')
-    const editor = $('kernel-editor-stage')
-    const pages = {
-      shape: $('kernel-stage-shape'),
-      rules: $('kernel-stage-rules'),
-      test: $('kernel-stage-test'),
-      release: $('kernel-stage-release')
-    }
-    if (welcome) welcome.classList.toggle('active', kernelStage === 'welcome')
-    if (editor) editor.classList.toggle('active', kernelStage === 'intent')
-    Object.entries(pages).forEach(([key, page]) => {
-      if (page) page.classList.toggle('active', kernelStage === key)
-    })
-    document.querySelectorAll('.kernel-rail-step').forEach((step) => {
-      step.classList.toggle('active', step.dataset.kernelStage === kernelStage)
-    })
-    const meta = parseKernelMeta($('kernel-edit-text') ? $('kernel-edit-text').value : '')
-    const displayName = (meta && meta.title) || ($('kernel-edit-name') && $('kernel-edit-name').value.trim()) || '当前内核'
-    const releaseName = $('kernel-stage-release-name')
-    if (releaseName) releaseName.textContent = displayName
-    if (kernelStage !== 'welcome') markKernelWelcomeSeen()
-    if (kernelStage === 'intent') {
-      renderKernelAiMessages()
-      renderKernelDesignSurface()
-      window.setTimeout(() => $('kernel-ai-input') && $('kernel-ai-input').focus(), 40)
-    }
   }
 
   function setKernelDirty(dirty, label) {
@@ -3109,7 +3127,22 @@
       const strong = document.createElement('strong'); strong.textContent = check.present ? check.title + ' · 已识别' : check.title + ' · 待补全'
       head.append(dot, strong)
       const p = document.createElement('p'); p.textContent = check.detail
-      item.append(head, p); list.appendChild(item)
+      const locate = document.createElement('button')
+      locate.type = 'button'
+      locate.className = 'kernel-audit-locate'
+      locate.textContent = '定位到规则正文'
+      locate.title = '切换到源码并定位相关规则'
+      locate.addEventListener('click', () => {
+        const source = $('kernel-edit-text')
+        if (!source) return
+        const needle = String(check.title || '').split(/[与、 ·]/)[0]
+        const offset = Math.max(0, source.value.toLocaleLowerCase().indexOf(needle.toLocaleLowerCase()))
+        setKernelSourceView('editor')
+        source.focus()
+        source.setSelectionRange(offset, Math.min(source.value.length, offset + needle.length))
+        announceIsland('已定位到“' + check.title + '”', 'info', false)
+      })
+      item.append(head, p, locate); list.appendChild(item)
     })
   }
 
@@ -3229,9 +3262,9 @@
     if (source) { source.setAttribute('aria-hidden', String(kind !== 'source')); source.inert = kind !== 'source' }
     if (canvas) canvas.inert = true
     if (head) head.inert = true
+    document.querySelectorAll('.topbar, .command-dock, .sidebar').forEach((el) => { el.inert = true })
     scrim.hidden = false
     if (kind === 'library') {
-      markKernelWelcomeSeen()
       window.setTimeout(() => $('kernel-search') && $('kernel-search').focus(), 30)
     } else {
       setKernelSourceView('editor')
@@ -3265,6 +3298,7 @@
     if (source) { source.setAttribute('aria-hidden', 'true'); source.inert = true }
     if (canvas) canvas.inert = false
     if (head) head.inert = false
+    document.querySelectorAll('.topbar, .command-dock, .sidebar').forEach((el) => { el.inert = false })
     if (scrim) scrim.hidden = true
     if (restoreFocus && kernelLayerReturnFocus && typeof kernelLayerReturnFocus.focus === 'function') {
       try { kernelLayerReturnFocus.focus() } catch {}
@@ -3299,13 +3333,15 @@
       designTab.setAttribute('aria-selected', String(isDesign))
       designTab.tabIndex = isDesign ? 0 : -1
     }
+    document.querySelectorAll('.dock-button[data-dock-action]').forEach((button) => {
+      button.classList.toggle('active', button.dataset.dockAction === (isDesign ? 'design' : 'content'))
+    })
   }
 
   function openKernelHub() {
     $('kernel-hub').hidden = false
     setKernelAreaTab('design')
     closeKernelLayer(false)
-    setKernelStage(kernelWelcomeSeen() ? 'intent' : 'welcome')
     renderKernelHub()
     renderKernelAiMessages()
     renderKernelDesignSurface()
@@ -3402,12 +3438,25 @@
     commandOptions().forEach((option) => option.addEventListener('click', () => runCommand(option.dataset.command)))
   }
 
+  // V2 command dock keeps the existing commands discoverable on desktop and mobile.
+  document.querySelectorAll('.dock-button[data-dock-action]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const action = button.dataset.dockAction
+      if (action === 'content') closeKernelHub()
+      else if (action === 'design') openKernelHub()
+      else if (action === 'search') openSearch()
+      else if (action === 'command') openCommandPanel()
+      else if (action === 'settings') openSettings()
+    })
+  })
+
   async function renderKernelHub() {
     const renderSeq = ++kernelRenderSeq
     const cards = $('kernel-cards')
     cards.innerHTML = ''
     const bound = currentKernelRef()
     const query = String($('kernel-search') && $('kernel-search').value || '').trim().toLocaleLowerCase()
+    const activeFilter = kernelFilter || 'all'
     try {
       const lr = await api.kernelLibList()
       const list = (lr && lr.ok && lr.kernels) ? lr.kernels : []
@@ -3417,14 +3466,26 @@
         return (r && r.ok) ? { k, text: r.text } : { k, text: '' }
       }))
       if (renderSeq !== kernelRenderSeq) return
+      const counts = { all: list.length, published: 0, draft: 0, archived: 0 }
+      metas.forEach(({ k, text }) => {
+        const release = kernelReleaseFor(k, parseKernelMeta(text))
+        if (counts[release.status] !== undefined) counts[release.status]++
+      })
+      ;[['all', 'kernel-filter-all-count'], ['published', 'kernel-filter-published-count'], ['draft', 'kernel-filter-draft-count'], ['archived', 'kernel-filter-archived-count']].forEach(([key, id]) => {
+        const el = $(id)
+        if (el) el.textContent = String(counts[key] || 0)
+      })
       let visible = 0
       for (const { k, text } of metas) {
         const meta = parseKernelMeta(text)
+        const release = kernelReleaseFor(k, meta)
         const searchText = [k.name, meta && meta.title, meta && meta.tagline].filter(Boolean).join(' ').toLocaleLowerCase()
         if (query && !searchText.includes(query)) continue
+        if (activeFilter !== 'all' && release.status !== activeFilter) continue
         visible++
         const card = document.createElement('div')
-        card.className = 'kernel-card' + (k.id === bound ? ' current' : '') + (k.id === kernelHubSourceId ? ' selected' : '')
+        card.className = 'kernel-card kernel-row' + (k.id === bound ? ' current' : '') + (k.id === kernelHubSourceId ? ' selected' : '')
+        card.dataset.status = release.status
         card.tabIndex = 0
         card.setAttribute('role', 'button')
         card.setAttribute('aria-label', '编辑内核：' + ((meta && meta.title) || k.name))
@@ -3439,7 +3500,11 @@
         title.textContent = (meta && meta.title) || k.name
         const badge = document.createElement('span')
         badge.className = 'kernel-badge' + (k.source === 'user' ? ' user' : '')
-        badge.textContent = k.source === 'user' ? '自定义' : '内置'
+        // Keep the source marker stable for existing users while exposing
+        // release state separately in the card metadata below.
+        badge.textContent = k.source === 'builtin'
+          ? '内置'
+          : (release.status === 'archived' ? '归档' : release.status === 'published' ? ('已发布 · v' + release.version) : '草稿')
         head.appendChild(title)
         card.appendChild(head)
         const tags = document.createElement('div')
@@ -3456,6 +3521,10 @@
         sub.className = 'kernel-card-sub'
         sub.textContent = k.name + ' · ' + ((meta && meta.tagline) ? meta.tagline : '未声明简介') + ' · ' + (k.size / 1024).toFixed(1) + ' KB'
         card.appendChild(sub)
+        const metaLine = document.createElement('div')
+        metaLine.className = 'kernel-card-meta'
+        metaLine.textContent = release.status === 'published' ? '可应用到任意世界线' : release.status === 'archived' ? '已归档 · 仅可查看' : '草稿 · 继续设计'
+        card.appendChild(metaLine)
         const ops = document.createElement('div')
         ops.className = 'kernel-card-ops'
         const mkBtn = (label, title, fn, cls) => {
@@ -3465,7 +3534,7 @@
           b.addEventListener('click', (e) => { e.stopPropagation(); fn() })
           return b
         }
-        if (k.id !== bound) ops.appendChild(mkBtn('应用到当前内容', '把该内核设为当前内容工作区的世界规则', () => bindKernel(k.id), 'kernel-bind'))
+        if (k.id !== bound && release.status !== 'archived') ops.appendChild(mkBtn('应用到「' + ((curWs() && curWs().name) || '当前世界') + '」', '把该内核设为当前工作区的世界规则', () => bindKernel(k.id), 'kernel-bind'))
         ops.appendChild(mkBtn('编辑', k.source === 'user' ? '编辑该内核' : '查看内置内核（保存将创建副本）', () => editKernel(k.id)))
         if (k.source === 'user') ops.appendChild(mkBtn('删除', '从内核库删除（不可恢复）', () => deleteKernel(k.id)))
         card.appendChild(ops)
@@ -3543,10 +3612,9 @@
     renderKernelAiMessages()
     renderKernelHub()
     renderKernelDesignSurface()
-    setKernelStage('intent')
     if (openedFromLibrary) {
-      openKernelLayer('source')
-      $('kernel-edit-name').focus()
+      closeKernelLayer(false)
+      $('kernel-ai-input').focus()
     } else if ($('kernel-hub').classList.contains('source-open')) {
       $('kernel-edit-name').focus()
     } else {
@@ -3559,6 +3627,15 @@
     const n = $('kernel-edit-text').value.length
     $('kernel-edit-meta').textContent = (meta && meta.title ? '标题：' + meta.title + ' · ' : '') + (meta && meta.origins ? '出身 ' + meta.origins.length + ' 条 · ' : '') + (n / 1024).toFixed(1) + ' KB'
     $('kernel-ai-context').textContent = (meta && meta.title) || $('kernel-edit-name').value.trim() || '未命名内核'
+  }
+
+  function scheduleKernelAutoSave() {
+    if (kernelAutoSaveTimer) clearTimeout(kernelAutoSaveTimer)
+    if (!kernelEditorDirty || !kernelHubEditingId || !$('kernel-edit-name').value.trim() || !$('kernel-edit-text').value.trim()) return
+    kernelAutoSaveTimer = setTimeout(() => {
+      kernelAutoSaveTimer = 0
+      if (kernelEditorDirty && !kernelAiBusy) saveKernelEdit()
+    }, 1100)
   }
 
   async function saveKernelEdit() {
@@ -3579,12 +3656,14 @@
     }
     $('kernel-edit-name').value = name
     setKernelDirty(false)
+    if (!kernelReleases[r.id]) kernelReleases[r.id] = { status: 'draft', version: '0.1' }
+    else if (kernelReleases[r.id].status !== 'published') kernelReleases[r.id].status = 'draft'
+    saveKernelReleases()
     // 若当前世界线正绑定该内核，热重载
     if (currentKernelRef() === r.id) await loadKernel()
     renderKernelAiMessages()
     renderKernelHub()
     renderKernelDesignSurface()
-    if (kernelStage === 'welcome') setKernelStage('intent')
   }
 
   async function publishKernel() {
@@ -3597,9 +3676,14 @@
     }
     if (kernelEditorDirty || !kernelHubEditingId) await saveKernelEdit()
     if (kernelEditorDirty) return
+    const release = kernelReleaseFor({ id: kernelHubEditingId, source: 'user' }, parseKernelMeta($('kernel-edit-text').value))
+    const parts = String(release.version || '0.1').split('.').map((v) => Number(v) || 0)
+    const nextVersion = (parts[0] || 0) + '.' + ((parts[1] || 0) + 1)
+    kernelReleases[kernelHubEditingId] = { status: 'published', version: nextVersion, publishedAt: Date.now() }
+    saveKernelReleases()
     kernelCheckpointAccepted = true
     renderKernelDesignSurface()
-    toast('内核已发布，可应用到任意世界线', 'ok', 5000)
+    toast('内核 v' + nextVersion + ' 已发布，可应用到任意世界线', 'ok', 5000)
   }
 
   async function acceptKernelCheckpoint() {
@@ -3695,6 +3779,8 @@
 
   function setKernelAiBusy(on) {
     kernelAiBusy = !!on
+    if (on) announceIsland('设计助手正在整理规则草稿…', 'info', true)
+    else announceIsland('规则草稿已更新', 'ok', false)
     $('kernel-ai-input').disabled = kernelAiBusy
     $('btn-kernel-ai-reset').disabled = kernelAiBusy
     $('btn-kernel-ai-send').innerHTML = kernelAiBusy
@@ -3839,49 +3925,6 @@
   $('btn-kernel-hub').addEventListener('click', openKernelHub)
   $('btn-content-area').addEventListener('click', closeKernelHub)
   $('btn-kernel-hub-close').addEventListener('click', closeKernelHub)
-  document.querySelectorAll('.kernel-rail-step, [data-kernel-stage]').forEach((step) => {
-    step.addEventListener('click', () => {
-      const next = step.dataset.kernelStage
-      if (next) setKernelStage(next)
-    })
-  })
-  $('btn-kernel-rail-library').addEventListener('click', () => openKernelLayer('library'))
-  $('btn-kernel-start-design').addEventListener('click', async () => {
-    markKernelWelcomeSeen()
-    setKernelStage('intent')
-    await newKernel()
-  })
-  $('btn-kernel-use-recommended').addEventListener('click', () => openKernelLayer('library'))
-  $('btn-kernel-import-start').addEventListener('click', async () => {
-    markKernelWelcomeSeen()
-    openKernelLayer('library')
-    await importKernelFile()
-  })
-  $('btn-kernel-recommended-all').addEventListener('click', () => openKernelLayer('library'))
-  document.querySelectorAll('.kernel-row-action').forEach((button) => button.addEventListener('click', async () => {
-    const id = button.dataset.kernelRecommend
-    if (id) await bindKernel(id)
-    setKernelStage('intent')
-  }))
-  $('btn-kernel-stage-rules').addEventListener('click', () => setKernelStage('rules'))
-  $('btn-kernel-stage-test').addEventListener('click', () => setKernelStage('test'))
-  $('btn-kernel-stage-release').addEventListener('click', () => setKernelStage('release'))
-  $('btn-kernel-stage-rules-source').addEventListener('click', () => openKernelLayer('source'))
-  document.querySelectorAll('[data-kernel-rule-edit]').forEach((button) => button.addEventListener('click', () => {
-    openKernelLayer('source')
-  }))
-  $('btn-kernel-stage-run-test').addEventListener('click', async () => {
-    const result = await runKernelValidation(true)
-    if (!result) return
-    const checks = result.checks || []
-    checks.slice(0, 4).forEach((check, index) => {
-      const el = $('kernel-test-check-' + (index + 1))
-      if (el) { el.textContent = check.present ? '已通过' : '待补全'; el.className = check.present ? 'passed' : 'pending' }
-    })
-    const state = $('kernel-stage-test-state')
-    if (state) { state.className = 'kernel-stage-state ' + (result.blocking ? 'error' : result.attention ? 'warning' : 'ready'); state.innerHTML = '<i></i>' + (result.blocking ? '需要补全' : result.attention ? '有待决定' : '检查通过') }
-  })
-  $('btn-kernel-stage-publish').addEventListener('click', publishKernel)
   document.querySelectorAll('.area-switch-btn').forEach((tab, index, tabs) => {
     tab.addEventListener('keydown', (e) => {
       if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'].includes(e.key)) return
@@ -3938,6 +3981,17 @@
     clearTimeout(kernelSearchTimer)
     kernelSearchTimer = setTimeout(renderKernelHub, 120)
   })
+  document.querySelectorAll('[data-kernel-filter]').forEach((button) => {
+    button.addEventListener('click', () => {
+      kernelFilter = button.dataset.kernelFilter || 'all'
+      document.querySelectorAll('[data-kernel-filter]').forEach((item) => {
+        const active = item === button
+        item.classList.toggle('active', active)
+        item.setAttribute('aria-pressed', String(active))
+      })
+      renderKernelHub()
+    })
+  })
   $('kernel-ai-input').addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendKernelAi() }
   })
@@ -3946,10 +4000,10 @@
     $('kernel-ai-input').focus()
   }))
   $('kernel-edit-text').addEventListener('input', () => {
-    updateKernelEditMeta(); setKernelDirty(true); kernelCheckpointAccepted = false; kernelValidation = { source: '', result: null }; renderKernelDesignSurface()
+    updateKernelEditMeta(); setKernelDirty(true); kernelCheckpointAccepted = false; kernelValidation = { source: '', result: null }; renderKernelDesignSurface(); scheduleKernelAutoSave()
   })
   $('kernel-edit-name').addEventListener('input', () => {
-    updateKernelEditMeta(); setKernelDirty(true); kernelCheckpointAccepted = false; renderKernelDesignSurface()
+    updateKernelEditMeta(); setKernelDirty(true); kernelCheckpointAccepted = false; renderKernelDesignSurface(); scheduleKernelAutoSave()
   })
 
   // 桌面宽屏下可拖动 AI / 源码分隔线；窄窗仍按上下布局自动重排。
@@ -4254,15 +4308,7 @@
     setHelpTab('play')
   }
   function closeGuide() {
-    closeModalAnim($('guide'), guideMask, () => {
-      guideMask.hidden = true
-      $('guide').hidden = true
-      // 首次配置完成后，帮助页关闭即进入通用内核设计起点；普通帮助关闭不改变当前区域。
-      if (guideMask.dataset.afterOnboarding === 'kernel') {
-        delete guideMask.dataset.afterOnboarding
-        openKernelHub()
-      }
-    })
+    closeModalAnim($('guide'), guideMask, () => { guideMask.hidden = true; $('guide').hidden = true })
   }
   $('btn-help').addEventListener('click', openGuide)
   $('btn-guide-close').addEventListener('click', closeGuide)
@@ -4619,7 +4665,7 @@
   themeMaskEl.addEventListener('click', closeThemePop)
   // ---- 界面方案（经典 / 原型工作台）：读取当前方案点亮对应磁贴，点击后由主进程重载入口 ----
   async function refreshUiSchemeTiles() {
-    let scheme = 'classic'
+    let scheme = 'proto'
     try { scheme = await api.uiScheme() } catch { /* noop */ }
     themePopEl.querySelectorAll('[data-ui-scheme]').forEach((tile) => {
       tile.classList.toggle('on', tile.dataset.uiScheme === scheme)
@@ -4631,7 +4677,7 @@
     tile.addEventListener('click', async (e) => {
       e.stopPropagation()
       const target = tile.dataset.uiScheme
-      let current = 'classic'
+      let current = 'proto'
       try { current = await api.uiScheme() } catch { /* noop */ }
       if (target === current) return
       try { await api.setUiScheme(target) } catch { /* noop */ }
@@ -5254,7 +5300,6 @@
       if (!(window.api && window.api.isTest)) {
         await showSetupWizard()
         await showDisclaimer()
-        guideMask.dataset.afterOnboarding = 'kernel'
         openGuide()
       }
       try { localStorage.setItem(OB_KEY, '1') } catch {}

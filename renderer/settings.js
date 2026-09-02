@@ -89,6 +89,49 @@
   // 写回前重读一次：主窗口运行期间可能改过会话等运行态键，逐一保留，避免设置窗口的旧快照覆盖
   // RUNTIME_KEYS = 主窗口运行时可改且不在设置表单里的键；model 有专门分支；models 清单只在本窗口维护不在此列
   const RUNTIME_KEYS = ['currentSessionId', 'currentWsId', 'thinkLevel', 'sidebarWidth', 'sidebarCollapsed']
+  let savedSecretsSignature = null
+  function publicConfig(value) {
+    const out = Object.assign({}, value)
+    delete out.apiKey
+    delete out.illustApiKey
+    return out
+  }
+  function persistSecrets() {
+    if (!api.saveSecrets) return Promise.resolve({ ok: false })
+    const secrets = { apiKey: String(cfg.apiKey || ''), illustApiKey: String(cfg.illustApiKey || '') }
+    const signature = JSON.stringify(secrets)
+    if (signature === savedSecretsSignature) return Promise.resolve({ ok: true })
+    return api.saveSecrets(secrets).then((r) => {
+      if (r && r.ok) savedSecretsSignature = signature
+      else toast('密钥未保存：' + ((r && r.error) || '系统安全存储不可用'), 'err', 6000)
+      return r
+    }).catch(() => ({ ok: false }))
+  }
+  async function hydrateSecrets() {
+    const legacy = { apiKey: String(cfg.apiKey || ''), illustApiKey: String(cfg.illustApiKey || '') }
+    let secured = { apiKey: '', illustApiKey: '' }
+    if (api.loadSecrets) {
+      const r = await api.loadSecrets()
+      if (r && r.ok && r.secrets) secured = r.secrets
+    }
+    const preferLegacy = !!api.isTest
+    cfg.apiKey = preferLegacy ? (legacy.apiKey || secured.apiKey || '') : (secured.apiKey || legacy.apiKey || '')
+    cfg.illustApiKey = preferLegacy ? (legacy.illustApiKey || secured.illustApiKey || '') : (secured.illustApiKey || legacy.illustApiKey || '')
+    savedSecretsSignature = JSON.stringify(secured)
+    if (JSON.stringify({ apiKey: cfg.apiKey, illustApiKey: cfg.illustApiKey }) !== savedSecretsSignature) await persistSecrets()
+    if (!api.isTest) {
+      for (const key of [STORE_KEY, 'sixworlds.codex.state.v2']) {
+        try {
+          const value = JSON.parse(localStorage.getItem(key) || 'null')
+          if (value && typeof value === 'object') {
+            delete value.apiKey
+            delete value.illustApiKey
+            localStorage.setItem(key, JSON.stringify(value))
+          }
+        } catch {}
+      }
+    }
+  }
   function persistCfg() {
     try {
       const fresh = JSON.parse(localStorage.getItem(STORE_KEY) || 'null')
@@ -100,11 +143,18 @@
         if ($('set-model').value.trim() === openedModel && fresh.model) cfg.model = fresh.model
       }
     } catch { /* 忽略 */ }
-    try { localStorage.setItem(STORE_KEY, JSON.stringify(cfg)) } catch { /* 忽略 */ }
+    try { localStorage.setItem(STORE_KEY, JSON.stringify(api.isTest ? cfg : publicConfig(cfg))) } catch { /* 忽略 */ }
+    persistSecrets()
   }
 
   // 读取共享会话数（清空世界线确认框用）
-  function sessionCount() {
+  async function sessionCount() {
+    if (!api.isTest && api.loadSessions) {
+      try {
+        const r = await api.loadSessions()
+        if (r && r.ok && Array.isArray(r.sessions)) return r.sessions.length
+      } catch {}
+    }
     try {
       const arr = JSON.parse(localStorage.getItem(SESSIONS_KEY) || '[]')
       return Array.isArray(arr) ? arr.length : 0
@@ -723,16 +773,17 @@
   })
 
   // ============ 清空全部世界线（会话存 localStorage，与主窗口共享） ============
-  $('btn-clear-sessions').addEventListener('click', () => {
-    const cnt = sessionCount()
+  $('btn-clear-sessions').addEventListener('click', async () => {
+    const cnt = await sessionCount()
     confirmDialog({
       title: '清空全部世界线？',
       body: '将永久删除所有 ' + cnt + ' 条世界线与其中全部插图，无法恢复。',
       danger: true,
       okText: '全部清空'
-    }).then((ok) => {
+    }).then(async (ok) => {
       if (!ok) return
-      try { localStorage.setItem(SESSIONS_KEY, '[]') } catch { /* 忽略 */ }
+      if (api.clearSessions) await api.clearSessions()
+      try { localStorage.removeItem(SESSIONS_KEY); localStorage.removeItem('sixworlds.sessions.v1') } catch { /* 忽略 */ }
       api.settingsChanged({ persisted: true, clearSessions: true })
       toast('已清空全部世界线', 'info')
     })
@@ -770,7 +821,8 @@
   })
 
   // ============ 启动 ============
-  ;(function boot() {
+  ;(async function boot() {
+    await hydrateSecrets()
     syncSettingsForm()
     applyThemeLocal(cfg.theme)
     let initialTab = 'text'

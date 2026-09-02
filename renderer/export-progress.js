@@ -1,5 +1,5 @@
 /* 六面世界 · 移动端进度包导出（独立脚本，不侵入 app.js）
- * 悬浮按钮 → 收集 localStorage 会话/工作区 → 经主进程读取引擎文件 → 保存 JSON 进度包。
+ * 悬浮按钮 → 收集文件存储会话/工作区 → 经主进程读取引擎文件 → 保存 JSON 进度包。
  * 手机端「设置 → 续玩码导入（进度包）」即可接续电脑进度。
  */
 ;(function () {
@@ -12,7 +12,8 @@
 
   async function exportProgress() {
     try {
-      const sessions = readJSON('sixworlds.sessions.v2', [])
+      const stored = window.api && window.api.loadSessions ? await window.api.loadSessions() : null
+      const sessions = stored && stored.ok ? stored.sessions : readJSON('sixworlds.sessions.v2', [])
       const workspaces = readJSON('sixworlds.workspaces.v1', [])
       const state = readJSON('sixworlds.codex.state.v3', {}) || {}
       if (!window.api || !window.api.exportProgress) {
