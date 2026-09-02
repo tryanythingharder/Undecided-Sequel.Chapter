@@ -10,6 +10,7 @@ const unit = [
   'scripts-dev/test-sessions-db.cjs',
   'scripts-dev/test-patch-reliability.cjs',
   'scripts-dev/test-access.cjs',
+  'scripts-dev/test-bloub.cjs',
   'scripts-dev/audit-acceptance.cjs',
   'scripts-dev/validate-kernel-xianxia.cjs',
   'mobile/tools/bridge-test.mjs'
@@ -23,7 +24,8 @@ const desktop = [
   'scripts-dev/test-ui-scheme.cjs',
   'scripts-dev/test-choices.cjs',
   'scripts-dev/test-engine-e2e.cjs',
-  'scripts-dev/e2e-mock.cjs'
+  'scripts-dev/e2e-mock.cjs',
+  'scripts-dev/test-bloub-e2e.cjs'
 ]
 const mode = process.argv[2] || 'all'
 const files = mode === 'unit' ? unit : (mode === 'desktop' ? desktop : unit.concat(desktop))

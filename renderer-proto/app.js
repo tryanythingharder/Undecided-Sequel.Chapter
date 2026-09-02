@@ -1571,9 +1571,14 @@
     if (total === 0 && !busy) {
       const empty = document.createElement('div')
       empty.className = 'empty'
+      // bloub 世界之灵：静态几何印章 → 活体机器人（待机循环 + 视线跟随光标）。
+      // 生命周期免簿记：挂载层逐帧检测 svg.isConnected，引导区被 renderMessages
+      // 全量重绘移除时自动停帧自清理；引擎缺失时回退原印章
       const sigil = document.createElement('div')
       sigil.className = 'empty-sigil'
-      sigil.innerHTML = '<svg width="44" height="44" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1" stroke-linejoin="round"><path d="M8 1.5 14.5 8 8 14.5 1.5 8Z"/><path d="M8 4.5 11.5 8 8 11.5 4.5 8Z"/></svg>'
+      try {
+        if (window.BloubMount && window.Bloub) window.BloubMount.mount(sigil, { size: 76 })
+      } catch { sigil.innerHTML = '<svg width="44" height="44" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1" stroke-linejoin="round"><path d="M8 1.5 14.5 8 8 14.5 1.5 8Z"/><path d="M8 4.5 11.5 8 8 11.5 4.5 8Z"/></svg>' }
       const kMeta = parseKernelMeta(kernel && kernel.text)
       const title = document.createElement('div')
       title.className = 'empty-title'
@@ -2645,6 +2650,8 @@
 
   // R76：忙碌灵动岛（生成中顶部胶囊；独立 DOM——不进 .toast-wrap、不用 .toast 类，
   // 完全避开 e2e 的 toast 选择器与 aria 通告区，纯视觉元素）
+  // bloub 机器人（shared/bloub*.js）：圆点指示升级为思考中的小机器人（thinking 三点脉动），
+  // 降级保护——引擎缺失时回退原呼吸圆点，不阻断生成提示
   function showBusyIsland() {
     const island = $('dynamic-island')
     if (island) {
@@ -2660,6 +2667,14 @@
     el.setAttribute('aria-hidden', 'true')
     const dot = document.createElement('span')
     dot.className = 'island-dot'
+    let bot = null
+    try {
+      if (window.BloubMount && window.Bloub) {
+        bot = window.BloubMount.mount(dot, { size: 22, cycle: null, follow: false, aria: null })
+        bot.setBusy(true)
+        dot.classList.add('bloub-host')
+      }
+    } catch { bot = null }
     const m = document.createElement('span')
     m.className = 'island-txt'
     m.textContent = '世界正在书写这一幕…'
@@ -2670,6 +2685,7 @@
       close() {
         if (closed) return
         closed = true
+        if (bot) { try { bot.close() } catch {} bot = null }
         el.classList.add('leaving')
         setTimeout(() => el.remove(), 320)
         const island = $('dynamic-island')

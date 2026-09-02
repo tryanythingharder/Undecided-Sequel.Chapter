@@ -2340,6 +2340,13 @@ html[data-theme="light"] .illust { box-shadow: 0 18px 50px rgba(0, 0, 0, .14), 0
 .empty-quick-chip:hover { transform: translateY(-2px); border-color: var(--accent-dim); color: var(--text); background: var(--glass-strong); }
 .empty-sigil { opacity: .45; filter: drop-shadow(0 0 26px var(--accent-glow)); }
 
+/* bloub 世界之灵（空状态活体机器人 + 忙碌岛思考小机器人；引擎见 shared/bloub*.js）
+ * 挂载层逐帧重读主题 CSS 变量填色（--text 身体 / --canvas 眼洞、--bg 兜底），这里只管布局 */
+.empty-sigil .bloub-svg { display: block; }
+.island-busy .island-dot.bloub-host { background: transparent; }
+.island-busy .island-dot.bloub-host::before { display: none; }
+.island-busy .island-dot .bloub-svg { display: block; }
+
 /* ---- 灵动岛通知（toast 视觉重构：玻璃胶囊 + spring；类名/aria 保持 e2e 兼容） ---- */
 .toast-wrap { top: 46px; }
 .toast {

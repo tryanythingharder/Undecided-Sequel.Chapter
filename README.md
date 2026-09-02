@@ -91,7 +91,11 @@ AI 逐幕推进叙事、每幕给出 A/B/C 选项按钮，也可自由行动；�
 - **7 套调色板**（经典琥珀 / 羊皮纸 / 林间 / 紫晶 / 海渊 / 蔷薇 / 高对比）× **明暗三态**（跟随系统 / 深 / 浅）；
 - 全部 14 组合关键对比度实测 WCAG AA；
 - 字体（无衬线/衬线）、圆角、密度、阅读列宽、字号（Ctrl+=/-/0）全部可调、即时预览；
-- 布局三模式（标准 / 专注 / 沉浸）+ 侧栏左右换向 + 灵动岛通知。
+- 布局三模式（标准 / 专注 / 沉浸）+ 侧栏左右换向 + 灵动岛通知；
+- **世界之灵小机器人**（原型工作台）：空会话引导区的活体化身——呼吸、眨眼、思考、视线跟随鼠标，
+  颜色随主题 / 调色板逐帧联动；生成叙事时灵动岛内化作 thinking 三点姿态。引擎为 bloub
+  （[jeremy-prt/bloub](https://github.com/jeremy-prt/bloub)，MIT）的一次性内嵌转译，详见
+  `docs/bloub-vendor.md`。
 
 ### 模型与配置
 
@@ -182,6 +186,7 @@ npm run dist   # 打包 NSIS 安装版 + 便携版单文件（产物在 dist/）
 │   ├── settings.js       # 设置窗口逻辑（双窗口实时同步）
 │   └── styles.css        # 全部样式（CSS 变量驱动 7 调色板 × 明暗）
 ├── renderer-proto/       # 原型工作台方案（与 renderer/ 共享数据与设置，主题抽屉可切换）
+├── shared/               # 双方案共享层（会话持久化 / bloub 机器人引擎与挂载层）
 ├── sessions-db.cjs       # 会话 SQLite 主存（sessions.json 保留为兼容镜像）
 ├── kernel.md             # 内核《六面世界：人生模拟器》
 ├── kernel-xianxia.md     # 内核《玄寰界：修真人生模拟器》
@@ -197,6 +202,7 @@ npm run dist   # 打包 NSIS 安装版 + 便携版单文件（产物在 dist/）
 - `npm start` — 开发运行；所有脚本以 `SIXWORLDS_TEST=1` 启动并重定向 userData 到 `test-profile/`，**永不触碰真实用户配置**；
 - UI 回归：`verify.cjs`（34 项）、`e2e-mock.cjs`（mock 服务端全链路）、`test-choices.cjs`（选项解析）；
 - 内核工作台：`test-kernel-hub.cjs`（内核库 / AI 设计 / 保存 / 绑定 / 重启恢复 / 导入 / 删除回落）；
+- 世界之灵机器人：`test-bloub.cjs`（引擎快照 40 项：15 状态 / 3000 帧确定性）、`test-bloub-e2e.cjs`（真实渲染 11 项：挂载 / 动画 / 视线跟随 / 主题翻转 / 自清理）；
 - 引擎测试：`test-story-engine.cjs`（42 项）、`test-access.cjs`（24 项权限）、`test-patch-reliability.cjs`（46 项协议容错）、`test-engine-e2e.cjs`；
 - 长篇压测：`stress-run.cjs`（1001 回合真实演进 / 3410 断言）、`stress-e2e.cjs`（真实 Electron 100 回合 + 重启 + 记忆挑战）；
 - 性能与记忆基准：`bench.cjs`（100~5000 回合）、`bench-fe.cjs`（前端大历史）、`bench-recall.cjs`（七类查询 × 距离分层 Recall）；
