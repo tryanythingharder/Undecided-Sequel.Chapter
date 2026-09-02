@@ -16,7 +16,8 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm test
-      - run: npm run dist
+      # CI 环境下 electron-builder 会隐式发布 Release（缺 GH_TOKEN 即报错）——显式关闭，只出产物
+      - run: npm run dist -- --publish never
       - run: npm run test:packaged
 
   android:
