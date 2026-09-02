@@ -116,11 +116,17 @@ async function main() {
     return {
       visible: !document.getElementById('theme-pop').classList.contains('hidden'),
       right: Math.round(r.right), width: Math.round(r.width), height: Math.round(r.height),
+      viewportW: Math.round(window.innerWidth), viewportH: Math.round(window.innerHeight),
       controls: document.querySelectorAll('#theme-pop [data-setting]').length,
       mask: !document.getElementById('theme-drawer-mask').hidden
     }
   })
-  check('theme drawer geometry', themeDrawer.visible && themeDrawer.mask && themeDrawer.right === 1120 && themeDrawer.width >= 380 && themeDrawer.height >= 650, JSON.stringify(themeDrawer))
+  // 几何不变量而非绝对像素：抽屉右缘贴齐视口右缘 + 高度贴满视口（40px 标题栏让位）。
+  // 不写死 1120/760——CI 的 windows runner 显示器只有 1024×768，setSize 被钳制，绝对断言必炸。
+  check('theme drawer geometry', themeDrawer.visible && themeDrawer.mask
+    && themeDrawer.right === themeDrawer.viewportW && themeDrawer.width >= 380
+    && themeDrawer.height >= themeDrawer.viewportH - 60
+    && themeDrawer.viewportW >= 1000, JSON.stringify(themeDrawer))
   check('theme drawer visual controls', themeDrawer.controls >= 25, 'controls=' + themeDrawer.controls)
   await win.screenshot({ path: path.join(__dirname, 'shot-theme-drawer.png') })
   await win.setViewportSize({ width: 480, height: 700 })
