@@ -1,8 +1,8 @@
 // 为 README 捕获产品截图：入场动画 / 主界面(深) / 主题弹层 / 浅色 / 画廊 / 设置窗
 const path = require('node:path')
 const fs = require('node:fs')
-const PLAYWRIGHT = 'C:\\Users\\Administrator\\AppData\\Local\\npm-cache\\_npx\\31e32ef8478fbf80\\node_modules\\playwright'
-const { _electron: electron } = require(PLAYWRIGHT)
+const { _electron: electron } = require('playwright')
+const electronExecutable = require('electron')
 
 const OUT = path.join(__dirname, '..', 'docs', 'shots')
 fs.mkdirSync(OUT, { recursive: true })
@@ -55,7 +55,7 @@ async function passSplash(w) {
 
 async function main() {
   const app = await electron.launch({
-    executablePath: path.join(__dirname, '..', 'node_modules', 'electron', 'dist', 'electron.exe'),
+    executablePath: electronExecutable,
     args: ['.'], cwd: path.join(__dirname, '..'), env: { ...process.env, ELECTRON_DISABLE_SECURITY_WARNINGS: 'true' }
   })
   const win = await app.firstWindow()

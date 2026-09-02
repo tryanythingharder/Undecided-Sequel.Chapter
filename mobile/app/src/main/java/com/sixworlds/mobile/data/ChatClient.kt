@@ -63,7 +63,7 @@ class ChatClient {
             val call = client.newCall(req)
             currentCall = call
             call.execute().use { resp ->
-                val body = resp.body?.string() ?: ""
+                val body = resp.body.string()
                 if (!resp.isSuccessful) {
                     Pair(emptyList(), "HTTP ${resp.code} ${body.take(200)}")
                 } else {
@@ -97,7 +97,7 @@ class ChatClient {
                 .build()
             val call = client.newCall(req); currentCall = call
             call.execute().use { resp ->
-                val body = resp.body?.string() ?: ""
+                val body = resp.body.string()
                 if (!resp.isSuccessful) return@withContext Pair(null, friendlyError("HTTP ${resp.code} ${body.take(300)}"))
                 val item = runCatching { JSONObject(body).optJSONArray("data")?.optJSONObject(0) }.getOrNull()
                     ?: return@withContext Pair(null, "响应无图像数据")
@@ -118,7 +118,7 @@ class ChatClient {
             val req = Request.Builder().url(url).build()
             client.newCall(req).execute().use { resp ->
                 if (!resp.isSuccessful) return@use null
-                val bytes = resp.body?.bytes() ?: return@use null
+                val bytes = resp.body.bytes()
                 val mime = resp.header("Content-Type") ?: "image/png"
                 "data:$mime;base64," + android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)
             }
@@ -135,7 +135,7 @@ class ChatClient {
             val call = client.newCall(req)
             currentCall = call
             call.execute().use { resp ->
-                val body = resp.body?.string() ?: ""
+                val body = resp.body.string()
                 if (!resp.isSuccessful) {
                     val msg = runCatching { JSONObject(body).optJSONObject("error")?.optString("message") }.getOrNull()
                     "HTTP ${resp.code}" + (if (!msg.isNullOrBlank()) " · $msg" else "") + " " + body.take(120)
@@ -182,7 +182,7 @@ class ChatClient {
                 val ctype = resp.header("Content-Type") ?: ""
                 if (!ctype.contains("text/event-stream")) {
                     // 非流式响应：按普通 JSON 处理
-                    val body = resp.body?.string() ?: ""
+                    val body = resp.body.string()
                     val data = runCatching { JSONObject(body) }.getOrNull()
                     if (!resp.isSuccessful) {
                         val errObj = data?.optJSONObject("error")
@@ -196,12 +196,12 @@ class ChatClient {
                     return Result.Ok(content, data?.optJSONObject("usage"), aborted = false, partial = false)
                 }
                 if (!resp.isSuccessful) {
-                    val body = resp.body?.string() ?: ""
+                    val body = resp.body.string()
                     return Result.Err(friendlyError("HTTP ${resp.code} ${body.take(400)}"))
                 }
 
                 // 流式：逐行解析 SSE
-                val source = resp.body?.source() ?: return Result.Err("空响应")
+                val source = resp.body.source()
                 val full = StringBuilder()
                 var usage: JSONObject? = null
                 try {

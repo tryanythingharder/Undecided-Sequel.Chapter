@@ -418,14 +418,15 @@ class StoryChatController(
         viewModelScope.launch {
             val res = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                 runCatching {
+                    require(json.toByteArray(Charsets.UTF_8).size <= 128 * 1024 * 1024) { "导入文件过大（上限 128MB）" }
                     val obj = JSONObject(json)
                     if (obj.optString("type") == "sixworlds-progress") {
-                        val n = sessionStore.importProgressSessions(
-                            obj.optJSONArray("sessions") ?: org.json.JSONArray()
-                        )
+                        val importedSessions = obj.optJSONArray("sessions") ?: org.json.JSONArray()
+                        sessionStore.validateProgressSessions(importedSessions)
                         obj.optJSONObject("engine")?.optJSONObject("files")?.let {
                             engineRuntime.importEngineFiles(it)
                         }
+                        val n = sessionStore.importProgressSessions(importedSessions)
                         bridge.restartEngine()
                         sessionId = null
                         if (n > 0) "已导入 " + n + " 条世界线（含引擎进度）" else "已导入引擎进度"

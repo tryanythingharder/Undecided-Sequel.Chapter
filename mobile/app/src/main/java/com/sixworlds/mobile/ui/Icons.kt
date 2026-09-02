@@ -63,9 +63,9 @@ fun IconSparkle(size: Dp = 22.dp, color: Color) {
         withTransform({ scale(k, k, pivot = Offset.Zero) }) {
             val path = Path().apply {
                 moveTo(12f, 2f)
-                quadraticBezierTo(13.5f, 10.5f, 22f, 12f)
-                quadraticBezierTo(10.5f, 13.5f, 12f, 22f)
-                quadraticBezierTo(10.5f, 10.5f, 2f, 12f)
+                quadraticTo(13.5f, 10.5f, 22f, 12f)
+                quadraticTo(10.5f, 13.5f, 12f, 22f)
+                quadraticTo(10.5f, 10.5f, 2f, 12f)
                 close()
             }
             drawPath(path, color)

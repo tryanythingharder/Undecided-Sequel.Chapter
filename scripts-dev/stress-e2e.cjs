@@ -14,8 +14,8 @@ const fs = require('node:fs')
 const os = require('node:os')
 const path = require('node:path')
 const http = require('node:http')
-const PLAYWRIGHT = 'C:\\Users\\Administrator\\AppData\\Local\\npm-cache\\_npx\\31e32ef8478fbf80\\node_modules\\playwright'
-const { _electron: electron } = require(PLAYWRIGHT)
+const { _electron: electron } = require('playwright')
+const electronExecutable = require('electron')
 
 const TURNS = Number(process.env.STRESS_E2E_TURNS) || 100
 
@@ -205,7 +205,7 @@ async function main() {
   check('清档 · 引擎测试数据已清空', true)
 
   const launch = () => electron.launch({
-    executablePath: path.join(__dirname, '..', 'node_modules', 'electron', 'dist', 'electron.exe'),
+    executablePath: electronExecutable,
     args: ['.'], cwd: path.join(__dirname, '..'),
     env: { ...process.env, ELECTRON_DISABLE_SECURITY_WARNINGS: 'true', SIXWORLDS_TEST: '1' }
   })

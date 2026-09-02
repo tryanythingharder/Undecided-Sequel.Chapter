@@ -82,7 +82,7 @@ fun IllGalleryEmpty(modifier: Modifier = Modifier, lineColor: Color = Color(0xFF
                 style = Stroke(1f, pathEffect = PathEffect.dashPathEffect(floatArrayOf(4f, 3f))),
             )
             // 挂线 + 挂点
-            drawPath(Path().apply { moveTo(72f, 52f); quadraticBezierTo(100f, 38f, 128f, 52f) }, lineColor, style = Stroke(2f, cap = StrokeCap.Round))
+            drawPath(Path().apply { moveTo(72f, 52f); quadraticTo(100f, 38f, 128f, 52f) }, lineColor, style = Stroke(2f, cap = StrokeCap.Round))
             drawCircle(lineColor, 3.5f, Offset(100f, 37f))
             // 星辰
             drawPath(star8(), Color(GOLD).copy(alpha = 0.85f))

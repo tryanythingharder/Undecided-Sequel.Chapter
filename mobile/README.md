@@ -62,7 +62,13 @@ node tools/bridge-test.mjs
 ```bash
 cd mobile
 ./gradlew assembleDebug          # 产物：app/build/outputs/apk/debug/app-debug.apk
+./gradlew assembleRelease        # 未提供签名环境变量时产出 unsigned release APK
 ```
+
+正式签名通过 `SIXWORLDS_RELEASE_STORE_FILE`、`SIXWORLDS_RELEASE_STORE_PASSWORD`、
+`SIXWORLDS_RELEASE_KEY_ALIAS`、`SIXWORLDS_RELEASE_KEY_PASSWORD` 四个环境变量注入，
+不会把 keystore 或密码写入仓库。Release 默认启用 R8/资源压缩，并只打包 `arm64-v8a`；
+Debug 保留 `x86_64` 供模拟器运行。
 
 仓库已配置阿里云 Google 镜像优先、官方源兜底；Gradle 分发包走腾讯镜像
 （`gradle/wrapper/gradle-wrapper.properties`），国内网络实测 5MB/s。
@@ -86,9 +92,9 @@ cd mobile
 ## 体积注意
 
 Javet 的 `javet-v8-android` 自带 4 个 ABI 的 V8 native 库（每个约 100MB）。
-`app/build.gradle.kts` 已用 `abiFilters` 裁剪到 arm64-v8a（真机）+ x86_64（模拟器），
-Debug 包仍会比较大；只发真机时把 x86_64 一行删掉即可，AGP 打包时也会对
-native 库做 strip 瘦身。
+`app/build.gradle.kts` 已用 `abiFilters` 将 Debug 裁剪到 arm64-v8a（真机）+
+x86_64（模拟器），Release 则只保留 arm64-v8a。`npm run test:android-release`
+会构建 Release 并自动检查 ABI，防止模拟器原生库误入发布包。
 
 ## MVP 范围与后续迭代
 
@@ -100,9 +106,9 @@ API Key、双内核切换、端点连通性测试、**选项点击**（parseChoi
 
 已知 TODO：
 
-- 桌面端更细的结构化渲染样式（场景行等）与多选模式（Ctrl/勾选组合发送）
+- 移动端更细的结构化渲染样式（场景行等）与多选模式（勾选组合发送）
 - 插图生成与保存到相册、系统通知、上下文轮数设置
 - 上下文轮数当前固定 24（与桌面默认一致）
 - 桌面 ↔ 手机进度同步：**已实现**。桌面端「设置 → 数据管理 → 导出移动端进度包」（聊天记录 + 引擎状态 + 快照打成单个 JSON）→ 微信/网盘传到手机 → 设置 · 数据 →「进度包 / 续玩码导入」。反向同理（手机进度包导出）。
 - 真机验证（V8 原生库加载、流式、引擎提交）——APK 已产出，待设备实测
-- Release 链路：签名 keystore、混淆、ABI 裁剪（砍掉 x86_64 约省 110MB）
+- Release 签名材料与 Play 商店配置（构建已支持环境变量签名，实际 keystore 不入库）

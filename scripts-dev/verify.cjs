@@ -1,6 +1,6 @@
 const path = require('node:path')
-const PLAYWRIGHT = 'C:\\Users\\Administrator\\AppData\\Local\\npm-cache\\_npx\\31e32ef8478fbf80\\node_modules\\playwright'
-const { _electron: electron } = require(PLAYWRIGHT)
+const { _electron: electron } = require('playwright')
+const electronExecutable = require('electron')
 
 const checks = []
 
@@ -21,11 +21,21 @@ async function settingsWindow(app, closed) {
 
 async function main() {
   const app = await electron.launch({
-    executablePath: path.join(__dirname, '..', 'node_modules', 'electron', 'dist', 'electron.exe'),
+    executablePath: electronExecutable,
     args: ['.'], cwd: path.join(__dirname, '..'), env: { ...process.env, ELECTRON_DISABLE_SECURITY_WARNINGS: 'true', SIXWORLDS_TEST: '1' }
   })
-  const win = await app.firstWindow()
+  let win = await app.firstWindow()
   await win.waitForTimeout(1200)
+  // verify 断言的是经典入口；清理测试档前先固定界面方案，避免上次方案选择污染布局断言。
+  const scheme = await win.evaluate(() => window.api.uiScheme()).catch(() => 'classic')
+  if (scheme !== 'classic') {
+    await win.evaluate(() => window.api.setUiScheme('classic')).catch(() => {})
+    await win.waitForTimeout(1800)
+    win = await app.firstWindow()
+  }
+  // 布局断言使用桌面基准尺寸，避免共享测试档恢复了上一次的窄窗口状态。
+  await app.evaluate(({ BrowserWindow }) => { const w = BrowserWindow.getAllWindows()[0]; w.setSize(1120, 760); w.center() })
+  await win.waitForTimeout(220)
   // 清空持久化配置，验证「首次启动」的默认状态（其他 e2e 会写入共享 localStorage）
   await win.evaluate(() => localStorage.clear())
   await win.reload()
@@ -101,6 +111,34 @@ async function main() {
   // 主窗口主题弹层：选择 dark / light 立即生效
   await win.click('#btn-theme')
   await win.waitForTimeout(400)
+  const themeDrawer = await win.evaluate(() => {
+    const r = document.getElementById('theme-pop').getBoundingClientRect()
+    return {
+      visible: !document.getElementById('theme-pop').classList.contains('hidden'),
+      right: Math.round(r.right), width: Math.round(r.width), height: Math.round(r.height),
+      controls: document.querySelectorAll('#theme-pop [data-setting]').length,
+      mask: !document.getElementById('theme-drawer-mask').hidden
+    }
+  })
+  check('theme drawer geometry', themeDrawer.visible && themeDrawer.mask && themeDrawer.right === 1120 && themeDrawer.width >= 380 && themeDrawer.height >= 650, JSON.stringify(themeDrawer))
+  check('theme drawer visual controls', themeDrawer.controls >= 25, 'controls=' + themeDrawer.controls)
+  await win.screenshot({ path: path.join(__dirname, 'shot-theme-drawer.png') })
+  await win.setViewportSize({ width: 480, height: 700 })
+  await win.waitForTimeout(250)
+  const narrowTheme = await win.evaluate(() => {
+    const panel = document.getElementById('theme-pop')
+    const pr = panel.getBoundingClientRect()
+    const tiles = [...panel.querySelectorAll('.appearance-tile')].map((el) => el.getBoundingClientRect())
+    return {
+      left: Math.round(pr.left), right: Math.round(pr.right), width: Math.round(pr.width),
+      overflow: panel.scrollWidth > panel.clientWidth + 1,
+      tileOverflow: tiles.some((r) => r.left < pr.left - 1 || r.right > pr.right + 1)
+    }
+  })
+  check('theme drawer narrow fit', narrowTheme.left === 0 && narrowTheme.right === 480 && !narrowTheme.overflow && !narrowTheme.tileOverflow, JSON.stringify(narrowTheme))
+  await win.screenshot({ path: path.join(__dirname, 'shot-theme-drawer-narrow.png') })
+  await win.setViewportSize({ width: 1120, height: 760 })
+  await win.waitForTimeout(250)
   const popModeDark = await win.evaluate(() => {
     const b = document.querySelector('#theme-pop [data-mode="dark"]')
     if (b) b.click()
@@ -109,6 +147,13 @@ async function main() {
   await win.waitForTimeout(400)
   const themeAttrDark = await win.getAttribute('html', 'data-theme')
   check('theme pick -> dark', popModeDark && themeAttrDark === 'dark', 'data-theme=' + themeAttrDark)
+  await win.screenshot({ path: path.join(__dirname, 'shot-theme-drawer-dark.png') })
+  await win.click('#theme-pop [data-setting="palette"][data-value="ocean"]')
+  check('theme palette visual pick', (await win.getAttribute('html', 'data-palette')) === 'ocean')
+  await win.click('#theme-pop [data-setting="radius"][data-value="round"]')
+  check('theme radius visual pick', (await win.getAttribute('html', 'data-radius')) === 'round')
+  await win.click('#theme-pop [data-setting="palette"][data-value="classic"]')
+  await win.click('#theme-pop [data-setting="radius"][data-value="standard"]')
   await win.click('#btn-theme')
   await win.waitForTimeout(300)
   await win.evaluate(() => { const b = document.querySelector('#theme-pop [data-mode="light"]'); if (b) b.click() })

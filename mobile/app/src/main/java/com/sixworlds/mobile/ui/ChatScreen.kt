@@ -78,6 +78,7 @@ fun ChatScreen(controller: StoryChatController, onOpen: (String) -> Unit) {
     val settings by controller.settingsFlow.collectAsState()
     val wsVersion by controller.wsVersion.collectAsState()
 
+    @Suppress("DEPRECATION")
     val clipboard = LocalClipboardManager.current
     var input by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf("") }
     var selected by remember { mutableStateOf(setOf<String>()) }

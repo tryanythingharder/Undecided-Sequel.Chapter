@@ -151,6 +151,7 @@ function main() {
     }
     console.log('  合计 Retrieval Recall: ' + rHit + '/' + rTot + ' (' + Math.round(100 * rHit / rTot) + '%) · Context Recall: ' + cHit + '/' + cTot + ' (' + Math.round(100 * cHit / cTot) + '%)')
     all.runs.push({ n, rows, rHit, rTot, cHit, cTot })
+    try { engine.close() } catch {}
     fs.rmSync(dir, { recursive: true, force: true })
   }
 
@@ -199,6 +200,7 @@ function main() {
   engine.restoreSnapshot('isoA', snap.snapshot_id)
   const res5 = engine.buildContext('isoA', { playerInput: PROBE })
   check('快照恢复 · 缓存失效（恢复点后的记录不可见）', res5.block.indexOf('恢复点之后立了新功') < 0)
+  try { engine.close() } catch {}
   fs.rmSync(dir, { recursive: true, force: true })
   console.log(fails === 0 ? '\nISO_ALL_PASS' : '\nISO_FAILED: ' + fails)
   process.exitCode = fails ? 1 : 0

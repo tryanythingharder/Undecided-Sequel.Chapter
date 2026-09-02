@@ -18,6 +18,7 @@ function check(name, cond, extra) {
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'sw-engine-test-'))
 const engine = createEngine(tmp)
+const enginesCreated = [engine] // 统一收口：收尾时释放各引擎的 SQLite 句柄
 const KERNEL = '示例内核 v1：无职转生系风格。'
 const patchOf = (o) => Object.assign({ turn_summary: 't' }, o)
 
@@ -192,6 +193,7 @@ engine.ensureStory({ storyId: 'storyC', title: '故事C', kernelId: 'k2', kernel
   check('t11: 性能 合格（平均 ' + (dt / 1000).toFixed(2) + 'ms/回合 < 100ms）', dt / 1000 < 100, dt)
   // 持久化：重新加载引擎（模拟重启）后记忆仍在
   const engine2 = createEngine(tmp)
+  enginesCreated.push(engine2)
   const s3 = engine2.getStory('storyA')
   check('t11: 重启后（重新 createEngine）状态完整恢复', s3 && s3.counters.turn === engine.getStory('storyA').counters.turn)
   const ctx3 = engine2.buildContext('storyA', { playerInput: '雾林 妹妹' })
@@ -207,5 +209,8 @@ for (const group of ['t1', 't2', 't3', 't4', 't5', 't7', 't8', 't9', 't10', 't11
   console.log(group + ' ' + (pass ? 'OK ' : 'FAIL') + '  (' + g.filter((r) => r.pass).length + '/' + g.length + ')')
 }
 console.log('总计: ' + (results.length - failures) + '/' + results.length + ' 通过')
+// 释放语义索引的 SQLite 句柄（Windows 下目录可删）；engine2 在 t11 作用域内，
+// 通过其 store 所在引擎列表统一关闭
+for (const e of enginesCreated) { try { e.close() } catch {} }
 fs.rmSync(tmp, { recursive: true, force: true })
 process.exit(failures ? 1 : 0)

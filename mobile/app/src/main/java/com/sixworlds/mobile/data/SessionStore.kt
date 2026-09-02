@@ -56,33 +56,51 @@ class SessionStore(context: Context) {
 
     /** 进度包导入：保留桌面端原始 id（与引擎故事文件对应）；返回导入条数 */
     fun importProgressSessions(arr: org.json.JSONArray): Int {
-        var n = 0
+        val imported = parseProgressSessions(arr)
+        sessions.addAll(0, imported)
+        if (imported.isNotEmpty()) currentId = imported.first().id
+        persist()
+        return imported.size
+    }
+
+    fun validateProgressSessions(arr: org.json.JSONArray): Int = parseProgressSessions(arr).size
+
+    private fun parseProgressSessions(arr: org.json.JSONArray): List<StorySession> {
+        require(arr.length() <= 50 && sessions.size + arr.length() <= 50) { "世界线数量超过上限（50）" }
+        val imported = mutableListOf<StorySession>()
+        val seen = sessions.mapTo(mutableSetOf()) { it.id }
+        var totalBytes = 0
         for (i in 0 until arr.length()) {
-            val so = arr.optJSONObject(i) ?: continue
-            var id = so.optString("id").ifBlank { "WS-" + java.lang.Long.toString(System.currentTimeMillis(), 36) + "-" + (100..999).random() }
-            while (sessions.any { it.id == id }) id += "-" + (10..99).random()
+            val so = arr.optJSONObject(i) ?: throw IllegalArgumentException("世界线格式不正确")
+            val id = so.optString("id")
+            require(Regex("^[A-Za-z0-9_-]{1,120}$").matches(id)) { "世界线 id 非法" }
+            require(seen.add(id)) { "世界线 id 重复：$id" }
             val msgs = mutableListOf<ChatMessage>()
             so.optJSONArray("messages")?.let { ma ->
+                require(ma.length() <= 5000) { "单条世界线消息过多" }
                 for (j in 0 until ma.length()) {
-                    val mo = ma.optJSONObject(j) ?: continue
-                    msgs.add(ChatMessage(mo.optString("role"), mo.optString("content"), mo.optLong("at", System.currentTimeMillis())))
+                    val mo = ma.optJSONObject(j) ?: throw IllegalArgumentException("消息格式不正确")
+                    val role = mo.optString("role")
+                    require(role == "user" || role == "assistant") { "消息角色不受支持" }
+                    val content = mo.optString("content")
+                    val bytes = content.toByteArray(Charsets.UTF_8).size
+                    require(bytes <= 2 * 1024 * 1024) { "单条消息过大" }
+                    totalBytes += bytes
+                    require(totalBytes <= 32 * 1024 * 1024) { "导入会话文本总量过大" }
+                    msgs.add(ChatMessage(role, content, mo.optLong("at", System.currentTimeMillis())))
                 }
             }
-            sessions.add(
-                0,
+            imported.add(
                 StorySession(
                     id = id, wsId = currentWsId,
-                    title = so.optString("title").ifEmpty { "导入的世界线" },
+                    title = so.optString("title").take(200).ifEmpty { "导入的世界线" },
                     createdAt = so.optLong("createdAt", System.currentTimeMillis()),
                     updatedAt = so.optLong("updatedAt", System.currentTimeMillis()),
                     messages = msgs,
                 ),
             )
-            currentId = id
-            n++
         }
-        persist()
-        return n
+        return imported
     }
     fun currentWorkspace(): Workspace = workspaces.firstOrNull { it.id == currentWsId } ?: workspaces.first()
     fun sessionsOf(wsId: String): List<StorySession> =

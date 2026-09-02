@@ -150,6 +150,8 @@ function runBench(n, seed) {
     ctx_block_chars: stats(blockChars),
     ledgers: { decisions: story2.decisions.length, facts: story2.facts.length, events: story2.events.length, commitments: story2.commitments.length, entities: story2.entities.length, relationships: story2.relationships.length, causal: story2.causal.length, threads: story2.threads.length }
   }
+  try { engine.close() } catch {}
+  try { engine2.close() } catch {}
   fs.rmSync(dir, { recursive: true, force: true })
   return out
 }
@@ -174,6 +176,7 @@ function benchPersistScale(sizes) {
     const bytes = fs.statSync(path.join(dir, 'stories', 'persistBench.json')).size
     out.push({ events: nEvents, flush_ms: Number(ms.toFixed(1)), file_mb: Number((bytes / 1048576).toFixed(2)) })
   }
+  try { engine.close() } catch {}
   fs.rmSync(dir, { recursive: true, force: true })
   return out
 }

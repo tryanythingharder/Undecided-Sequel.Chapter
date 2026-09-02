@@ -3,7 +3,7 @@ import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 /* app 模块 —— 关键点：
  * 1. engine/ 与 kernel*.md 不复制进仓库，构建时从仓库根实时拷入 assets（桌面端改动自动同步）
  * 2. Javet（javet-v8-android）自带 4 个 ABI 的 V8 native 库（每个约 100MB），
- *    用 abiFilters 裁剪到 arm64-v8a（真机）+ x86_64（模拟器）；仅发真机版时可只留 arm64-v8a
+ *    debug 裁剪到 arm64-v8a（真机）+ x86_64（模拟器），release 仅保留 arm64-v8a
  */
 plugins {
     id("com.android.application")
@@ -21,6 +21,12 @@ val prepareEngineAssets = tasks.register<Copy>("prepareEngineAssets") {
     into(genAssets)
 }
 
+val releaseStorePath = providers.environmentVariable("SIXWORLDS_RELEASE_STORE_FILE").orNull
+val releaseStorePassword = providers.environmentVariable("SIXWORLDS_RELEASE_STORE_PASSWORD").orNull
+val releaseKeyAlias = providers.environmentVariable("SIXWORLDS_RELEASE_KEY_ALIAS").orNull
+val releaseKeyPassword = providers.environmentVariable("SIXWORLDS_RELEASE_KEY_PASSWORD").orNull
+val releaseSigningReady = listOf(releaseStorePath, releaseStorePassword, releaseKeyAlias, releaseKeyPassword).all { !it.isNullOrBlank() }
+
 android {
     namespace = "com.sixworlds.mobile"
     compileSdk = 36
@@ -33,15 +39,32 @@ android {
         versionName = "1.0.0"
         ndk {
             abiFilters.add("arm64-v8a")
-            abiFilters.add("x86_64")
         }
     }
 
     sourceSets["main"].assets.srcDir(genAssets)
 
+    signingConfigs {
+        if (releaseSigningReady) {
+            create("release") {
+                storeFile = file(releaseStorePath!!)
+                storePassword = releaseStorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
+            }
+        }
+    }
+
     buildTypes {
+        debug {
+            ndk {
+                abiFilters.add("x86_64")
+            }
+        }
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
+            if (releaseSigningReady) signingConfig = signingConfigs.getByName("release")
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
     }
@@ -77,5 +100,6 @@ dependencies {
     implementation("com.squareup.okhttp3:okhttp:5.4.0")
     // 内嵌 V8：运行桌面版故事状态引擎（engine/*.js）
     implementation("com.caoccao.javet:javet-v8-android:5.0.11")
+    testImplementation("junit:junit:4.13.2")
     debugImplementation("androidx.compose.ui:ui-tooling")
 }

@@ -35,9 +35,25 @@ import com.sixworlds.mobile.chat.StoryChatController
 import com.sixworlds.mobile.ui.theme.LocalSwColors
 import org.json.JSONObject
 import java.io.File
+import java.io.ByteArrayOutputStream
+import java.io.InputStream
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
+
+private fun readUtf8Limited(input: InputStream, maxBytes: Int): String = input.use { source ->
+    val out = ByteArrayOutputStream(minOf(maxBytes, 64 * 1024))
+    val buffer = ByteArray(16 * 1024)
+    var total = 0
+    while (true) {
+        val n = source.read(buffer)
+        if (n < 0) break
+        total += n
+        require(total <= maxBytes) { "文件过大" }
+        out.write(buffer, 0, n)
+    }
+    out.toString(Charsets.UTF_8.name())
+}
 
 /** iOS 分组设置（对齐新原型 SettingsScreen） */
 @Composable
@@ -64,7 +80,7 @@ fun SettingsScreen(controller: StoryChatController, onBack: () -> Unit, onOpen: 
     val importConfig = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         uri ?: return@rememberLauncherForActivityResult
         runCatching {
-            val obj = JSONObject(ctx.contentResolver.openInputStream(uri)!!.readBytes().toString(Charsets.UTF_8))
+            val obj = JSONObject(readUtf8Limited(ctx.contentResolver.openInputStream(uri)!!, 2 * 1024 * 1024))
             controller.saveSettings(
                 settings.copy(
                     baseUrl = obj.optString("baseUrl", settings.baseUrl), model = obj.optString("model", settings.model),
@@ -81,8 +97,8 @@ fun SettingsScreen(controller: StoryChatController, onBack: () -> Unit, onOpen: 
     val importCode = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         uri ?: return@rememberLauncherForActivityResult
         runCatching {
-            val text = ctx.contentResolver.openInputStream(uri)!!.readBytes().toString(Charsets.UTF_8)
-            controller.toastPublic(if (controller.importSaveCode(text)) "已导入" else "无效续玩码")
+            val text = readUtf8Limited(ctx.contentResolver.openInputStream(uri)!!, 128 * 1024 * 1024)
+            controller.importProgress(text) { _, message -> controller.toastPublic(message) }
         }
     }
 
@@ -122,7 +138,7 @@ fun SettingsScreen(controller: StoryChatController, onBack: () -> Unit, onOpen: 
         Grp("数据") {
             SRow("配置导入 / 导出") { exportConfig.launch("sixworlds-config.json") }
             SRow("续玩码导出") { exportCode.launch("sixworlds-savecode.json") }
-            SRow("续玩码导入") { importCode.launch(arrayOf("application/json")) }
+            SRow("进度包 / 续玩码导入") { importCode.launch(arrayOf("application/json")) }
             SRow("存储占用", value = storage)
             // 危险操作两段确认：第一次点击只进入待确认态，避免误触直接删除整个世界集
             SRow(if (dangerStep == 1) "再次点击确认清空" else "清空当前世界集", danger = true) {

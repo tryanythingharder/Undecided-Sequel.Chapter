@@ -9,8 +9,8 @@
  * 运行：node scripts-dev/bench-fe.cjs [消息数=5000]
  */
 const path = require('node:path')
-const PLAYWRIGHT = 'C:\\Users\\Administrator\\AppData\\Local\\npm-cache\\_npx\\31e32ef8478fbf80\\node_modules\\playwright'
-const { _electron: electron } = require(PLAYWRIGHT)
+const { _electron: electron } = require('playwright')
+const electronExecutable = require('electron')
 
 const N = Number(process.argv[2]) || 5000
 
@@ -24,7 +24,7 @@ function msgText(i, role) {
 
 async function main() {
   const app = await electron.launch({
-    executablePath: path.join(__dirname, '..', 'node_modules', 'electron', 'dist', 'electron.exe'),
+    executablePath: electronExecutable,
     args: ['.'], cwd: path.join(__dirname, '..'),
     env: { ...process.env, ELECTRON_DISABLE_SECURITY_WARNINGS: 'true', SIXWORLDS_TEST: '1' }
   })

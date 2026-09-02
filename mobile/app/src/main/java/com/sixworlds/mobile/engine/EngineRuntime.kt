@@ -52,19 +52,27 @@ class EngineRuntime(context: Context) {
         runtime = null
     }
 
-    /** 写入进度包携带的引擎文件（相对 story-engine 目录；跳过 tmp），在 IO 线程调用 */
+    /** 写入进度包携带的引擎文件（严格限制在 story-engine 受支持目录），在 IO 线程调用 */
     fun importEngineFiles(files: org.json.JSONObject): Int {
-        var n = 0
+        val pending = mutableListOf<Pair<File, String>>()
+        var totalBytes = 0
         val keys = files.keys()
         while (keys.hasNext()) {
             val rel = keys.next()
-            if (rel.startsWith("tmp/")) continue
-            val target = File(engineDir, rel)
-            target.parentFile?.mkdirs()
-            target.writeText(files.optString(rel), Charsets.UTF_8)
-            n++
+            require(pending.size < EngineImportPolicy.MAX_FILES) { "进度包中的引擎文件数量过多" }
+            val raw = files.opt(rel)
+            require(raw is String) { "进度包中的引擎文件内容必须是文本" }
+            val bytes = raw.toByteArray(Charsets.UTF_8).size
+            totalBytes += bytes
+            require(totalBytes <= EngineImportPolicy.MAX_TOTAL_BYTES) { "进度包中的引擎数据总量过大" }
+            val target = EngineImportPolicy.resolveTarget(engineDir, rel, bytes)
+            pending += target to raw
         }
-        return n
+        for ((target, content) in pending) {
+            target.parentFile?.mkdirs()
+            atomicWrite(target, content)
+        }
+        return pending.size
     }
 
     /** 仅在 js-engine 线程上调用。 */
