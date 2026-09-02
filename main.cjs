@@ -503,6 +503,10 @@ ipcMain.handle('secrets:save', (_evt, value) => {
 const { createSessionsDb } = require('./sessions-db.cjs')
 let sessionsDb = null
 function sessionsDbFor() {
+  // 测试接缝：SIXWORLDS_TEST 下可强制禁用 SQLite 主存，验证纯文件降级路径（test-sessions-persistence）
+  if (process.env.SIXWORLDS_TEST === '1' && process.env.SIXWORLDS_SESSIONS_DB === 'off') {
+    return { enabled: false, load() { return null }, importDoc() {}, clear() {}, close() {} }
+  }
   if (!sessionsDb) sessionsDb = createSessionsDb(app.getPath('userData'))
   return sessionsDb
 }
