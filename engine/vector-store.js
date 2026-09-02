@@ -145,6 +145,7 @@ function createVectorStore(dataDir, opts) {
   let embedderId = (opts && opts.embedder) || activeEmbedderId
   let db = null
   let cosine = false
+  let partitioned = false
   let synced = false
   function ensureMeta() {
     if (synced) return
@@ -193,12 +194,31 @@ function createVectorStore(dataDir, opts) {
       CREATE INDEX IF NOT EXISTS idx_chunks_story ON chunks(story_id);
       CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(text, content='chunks', content_rowid='cid', tokenize='trigram');
     `)
-    try {
-      db.exec('CREATE VIRTUAL TABLE IF NOT EXISTS chunks_vec USING vec0(embedding FLOAT[' + EMBED_DIM + '] distance_metric=cosine);')
-    } catch {
-      db.exec('CREATE VIRTUAL TABLE IF NOT EXISTS chunks_vec USING vec0(embedding FLOAT[' + EMBED_DIM + ']);') // 旧版扩展无 cosine 选项：退化为 L2
-    }
     ensureMeta()
+    /* 存量库结构升级（v1 无分区 → v2 按故事分区）：派生层重建——向量/倒排/水位全弃、
+     * 正本不动，各故事下次 flush/检索兜底同步时全量重嵌（零数据损失）。 */
+    let oldVecSql = null
+    try { oldVecSql = db.prepare("SELECT sql FROM sqlite_master WHERE name='chunks_vec'").get().sql } catch {}
+    if (oldVecSql && !/partition key/i.test(oldVecSql)) {
+      try { db.exec('DROP TABLE chunks_vec') } catch {}
+      try { db.exec("INSERT INTO chunks_fts(chunks_fts) VALUES('delete-all')") } catch {}
+      db.exec('DELETE FROM chunks')
+      db.exec("DELETE FROM meta WHERE key LIKE 'wm:%'")
+      console.warn('[vector-store] 向量表升级为按故事分区（v1→v2），旧索引已弃，将按需全量重嵌')
+    }
+    /* 分区表：KNN 天然限定在单故事分区内，采样窗口不被其他故事稀释。
+     * 旧版扩展无分区能力 → 退化为旧表（KNN 超采样后过滤），再无 cosine → L2。 */
+    try {
+      db.exec('CREATE VIRTUAL TABLE IF NOT EXISTS chunks_vec USING vec0(embedding FLOAT[' + EMBED_DIM + '] distance_metric=cosine, story_id TEXT PARTITION KEY);')
+      partitioned = true
+    } catch {
+      partitioned = false
+      try {
+        db.exec('CREATE VIRTUAL TABLE IF NOT EXISTS chunks_vec USING vec0(embedding FLOAT[' + EMBED_DIM + '] distance_metric=cosine);')
+      } catch {
+        db.exec('CREATE VIRTUAL TABLE IF NOT EXISTS chunks_vec USING vec0(embedding FLOAT[' + EMBED_DIM + ']);')
+      }
+    }
     const quick = db.prepare('PRAGMA quick_check').get()
     if (!quick || !String(quick.quick_check || '').startsWith('ok')) throw new Error('memory.db quick_check failed: ' + (quick && quick.quick_check))
     cosine = (() => { try { return String(db.prepare("SELECT sql FROM sqlite_master WHERE name='chunks_vec'").get().sql).includes('cosine') } catch { return false } })()
@@ -262,8 +282,12 @@ function createVectorStore(dataDir, opts) {
     if (storedEmb !== embedderId) {
       db.exec('BEGIN')
       try {
-        for (const c of [...db.prepare('SELECT cid FROM chunks').iterate()]) {
-          db.prepare('DELETE FROM chunks_vec WHERE rowid=' + cidInt(c.cid)).run()
+        if (partitioned) {
+          db.exec('DELETE FROM chunks_vec')
+        } else {
+          for (const c of [...db.prepare('SELECT cid FROM chunks').iterate()]) {
+            db.prepare('DELETE FROM chunks_vec WHERE rowid=' + cidInt(c.cid)).run()
+          }
         }
         db.exec("INSERT INTO chunks_fts(chunks_fts) VALUES('delete-all')")
         db.exec('DELETE FROM chunks')
@@ -278,6 +302,11 @@ function createVectorStore(dataDir, opts) {
     const embedFn = EMBEDDERS[embedderId].fn
     const wm = structuralWatermark(story)
     if (watermark(story.story_id) === wm) return
+    /* 向量写入：分区表带 story_id 列（TEXT 可绑定；rowid 仍需内联——vec0 主键不接受 REAL 绑定，
+     * node:sqlite 把 JS 数字绑定为 real）；旧表（无分区）只写向量。 */
+    const insVec = (cid, vec) => partitioned
+      ? db.prepare('INSERT INTO chunks_vec(rowid, story_id, embedding) VALUES (' + cid + ', ?, ?)').run(story.story_id, vec)
+      : db.prepare('INSERT INTO chunks_vec(rowid, embedding) VALUES (' + cid + ', ?)').run(vec)
     const rows = storyTexts(story)
     const seen = new Set()
     db.exec('BEGIN')
@@ -293,14 +322,14 @@ function createVectorStore(dataDir, opts) {
         if (!cur) {
           const info = insChunk.run(story.story_id, r.kind, r.rec_id, r.turn, r.importance, r.text)
           const cid = cidInt(info.lastInsertRowid)
-          db.prepare('INSERT INTO chunks_vec(rowid, embedding) VALUES (' + cid + ',?)').run(vecVal)
+          insVec(cid, vecVal)
           db.prepare('INSERT INTO chunks_fts(rowid, text) VALUES (?,?)').run(cid, r.text)
         } else {
           updChunk.run(r.turn, r.importance, r.text, cur.cid)
           if (cur.text !== r.text) { // 文本变化才重算向量与倒排
             const cid = cidInt(cur.cid)
             db.prepare('DELETE FROM chunks_vec WHERE rowid=' + cid).run()
-            db.prepare('INSERT INTO chunks_vec(rowid, embedding) VALUES (' + cid + ',?)').run(vecVal)
+            insVec(cid, vecVal)
             db.prepare("INSERT INTO chunks_fts(chunks_fts, rowid, text) VALUES ('delete', ?, ?)").run(cid, cur.text)
             db.prepare('INSERT INTO chunks_fts(rowid, text) VALUES (?,?)').run(cid, r.text)
           }
@@ -339,12 +368,17 @@ function createVectorStore(dataDir, opts) {
     try {
       const knn = Math.max(limit * 4, 64)
       const qv = JSON.stringify(Array.from(EMBEDDERS[embedderId].fn(q)))
-      // 超采样后按故事过滤（vec0 不带元数据过滤时，其他故事的命中视为噪声丢弃）
-      const vecRows = [...db.prepare('SELECT rowid AS cid, distance AS d FROM chunks_vec WHERE embedding MATCH ? ORDER BY d LIMIT ?').iterate(qv, knn)]
+      /* 分区表：KNN 天然限定单故事分区（采样窗口不被其他故事稀释），无需再按故事过滤；
+       * 旧表（扩展无分区能力）：超采样后按故事过滤（rowid → chunks 反查）。 */
+      const vecRows = partitioned
+        ? [...db.prepare('SELECT rowid AS cid, distance AS d FROM chunks_vec WHERE story_id = ? AND embedding MATCH ? AND k = ?').iterate(storyId, qv, knn)]
+        : [...db.prepare('SELECT rowid AS cid, distance AS d FROM chunks_vec WHERE embedding MATCH ? ORDER BY d LIMIT ?').iterate(qv, knn)]
       const cidMap = db.prepare('SELECT kind, rec_id FROM chunks WHERE cid=? AND story_id=?')
       for (const r of vecRows) {
-        const m = cidMap.get(r.cid, storyId)
-        if (!m) continue
+        const m = partitioned
+          ? { kind: null, rec_id: null, ...(cidMap.get(r.cid, storyId) || {}) }
+          : cidMap.get(r.cid, storyId)
+        if (!m || !m.rec_id) continue
         // cosine 距离直接用；L2 退化模式下换算回等价余弦距离（单位向量：L2² = 2 - 2cos）
         bump(m.kind, m.rec_id, semScore(cosine ? r.d : (r.d * r.d) / 2))
       }
@@ -406,9 +440,9 @@ function createVectorStore(dataDir, opts) {
   function stats() {
     try {
       const chunks = db.prepare('SELECT COUNT(*) AS n FROM chunks').get().n
-      const stories = db.prepare('SELECT COUNT(DISTINCT story_id) AS n FROM chunks').get().n
-      return { enabled: true, chunks, stories, dim: EMBED_DIM, metric: cosine ? 'cosine' : 'l2', embedder: embedderId }
-    } catch { return { enabled: true, chunks: 0, stories: 0, dim: EMBED_DIM, metric: cosine ? 'cosine' : 'l2', embedder: embedderId } }
+      const stories = db.prepare('SELECT COUNT(DISTINCT story_id) FROM chunks').get()['COUNT(DISTINCT story_id)']
+      return { enabled: true, chunks, stories, dim: EMBED_DIM, metric: cosine ? 'cosine' : 'l2', partitioned, embedder: embedderId }
+    } catch { return { enabled: true, chunks: 0, stories: 0, dim: EMBED_DIM, metric: cosine ? 'cosine' : 'l2', partitioned, embedder: embedderId } }
   }
 
   function close() { try { db.close() } catch {} }

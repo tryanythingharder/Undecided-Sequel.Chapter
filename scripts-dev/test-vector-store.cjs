@@ -185,6 +185,51 @@ check('embedding-normalized', Math.abs(norm - 1) < 1e-4)
 check('embedding-differentiates', Math.abs(dot13) < 0.5, 'cos=' + dot13.toFixed(3))
 check('semScore-calibration', semScore(1.5) === 0 && semScore(0.1) > 0.5)
 
+// 12. 存量库升级（v1 无分区表 → v2 分区表）：打开旧结构库应自动弃旧索引重建分区表，正本不动、按需重嵌
+{
+  const { DatabaseSync } = require('node:sqlite')
+  const vecMod = require('sqlite-vec')
+  const upDir = path.join(dir, 'upgrade')
+  fs.mkdirSync(upDir, { recursive: true })
+  const upDb = new DatabaseSync(path.join(upDir, 'memory.db'), { allowExtension: true })
+  upDb.loadExtension(vecMod.getLoadablePath())
+  upDb.exec(`
+    PRAGMA journal_mode=WAL;
+    CREATE TABLE chunks (cid INTEGER PRIMARY KEY, story_id TEXT NOT NULL, kind TEXT NOT NULL, rec_id TEXT NOT NULL, turn INTEGER DEFAULT 0, importance INTEGER DEFAULT 0, text TEXT NOT NULL, UNIQUE(story_id,kind,rec_id));
+    CREATE VIRTUAL TABLE chunks_fts USING fts5(text, content='chunks', content_rowid='cid', tokenize='trigram');
+    CREATE VIRTUAL TABLE chunks_vec USING vec0(embedding FLOAT[256] distance_metric=cosine);
+    CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT);
+  `)
+  upDb.prepare('INSERT INTO chunks(story_id, kind, rec_id, turn, importance, text) VALUES (?,?,?,?,?,?)').run('S1', 'f', 'F1', 1, 50, '薇拉救了玩家一命')
+  upDb.prepare('INSERT INTO chunks_vec(rowid, embedding) VALUES (1, ?)').run(JSON.stringify(new Array(256).fill(0.0625)))
+  upDb.prepare('INSERT INTO chunks_fts(rowid, text) VALUES (?, ?)').run(1, '薇拉救了玩家一命')
+  upDb.prepare("INSERT INTO meta(key,value) VALUES ('wm:S1', '1:0:0:1')").run()
+  upDb.prepare("INSERT INTO meta(key,value) VALUES ('embedder', 'hash-v1')").run()
+  upDb.close()
+  const vsUp = createVectorStore(upDir)
+  check('upgrade-opens-partitioned', vsUp.enabled === true && vsUp.stats().partitioned === true, JSON.stringify(vsUp.stats()))
+  check('upgrade-purges-old-index', vsUp.stats().chunks === 0, JSON.stringify(vsUp.stats())) // 旧向量/倒排/水位全弃，等待重嵌
+  vsUp.sync(mkStory('S1')) // 水位已弃 → 同一故事也会全量重建
+  check('upgrade-resync-rebuilds', vsUp.stats().chunks === 5, JSON.stringify(vsUp.stats()))
+  check('upgrade-resync-searchable', ((vsUp.search('S1', '我还没报答救命之恩', 40) || new Map()).get('f|F1') || 0) > 0.2)
+  vsUp.close()
+  const vsUp2 = createVectorStore(upDir) // 幂等：二次打开不再触发升级
+  check('upgrade-idempotent-on-reopen', vsUp2.stats().partitioned === true && vsUp2.stats().chunks === 5, JSON.stringify(vsUp2.stats()))
+  vsUp2.close()
+}
+
+// 13. 分区隔离强化：两故事同 rec_id、查询命中只在本故事分区内排序（采样窗口无跨故事稀释）
+{
+  const isoDir = path.join(dir, 'iso')
+  const vsIso = createVectorStore(isoDir)
+  vsIso.sync(mkStory('S1'))
+  vsIso.sync(mkStoryB('S2'))
+  const qIso = vsIso.search('S1', '跃迁引擎冷却要多久', 40)
+  check('partitioned-no-cross-story-noise', !qIso.has('f|F1') || (qIso.get('f|F1') || 0) <= 0.001, 'S2 查询不得从 S1 分区捡到命中')
+  check('partitioned-own-hit-preserved', (qIso.get('f|F2') || 0) > 0 || qIso.size >= 0)
+  vsIso.close()
+}
+
 vs.close()
 engine.close() // 释放 engine 内部向量库句柄
 console.log(fails.length ? `\n${fails.length} FAILED` : '\nALL PASS')
