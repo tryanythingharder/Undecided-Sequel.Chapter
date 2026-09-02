@@ -18,6 +18,14 @@ function createEngine(dataDir) {
   /* 语义索引（SQLite + sqlite-vec，派生层可重建）：不可用时自动降级，检索管线不受影响 */
   const vectorStore = createVectorStore(dataDir)
   engine.vectorStore = vectorStore
+  /* 派生索引随正本落盘同步（flushStory 挂点）：commit/事务/恢复等全部写入路径统一在此覆盖，
+   * 检索路径不再做同步。retrieve 侧仅留兜底——首查/外部改档时由 store 版本水位判断是否补同步。 */
+  store.onAfterFlush((story) => {
+    vectorStore.sync(story)
+    _storeVers.set(story.story_id, store.retrVersion(story.story_id)) // 挂点已同步 → retrieve 兜底不再重跑水位全遍历
+  })
+  const _storeVers = new Map() // storyId → store 缓存版本（用于检索兜底同步的脏判断）
+  const storeVersionOf = (storyId) => store.retrVersion(storyId)
 
   /* 创建或获取故事。kernelText 用于计算内核版本绑定（条款 39） */
   engine.ensureStory = ({ storyId, title, kernelId, kernelText }) => {
@@ -63,6 +71,18 @@ function createEngine(dataDir) {
   engine.retrieve = (storyId, opts) => {
     const story = store.getStory(storyId)
     if (!story) throw new Error('story not found: ' + storyId)
+    /* 检索兜底同步：正常同步已挂在 flushStory（落盘即同步），这里只处理未走引擎写入的变更
+     * （外部改档/直改 stories 目录后的首查）。以 store 缓存版本为脏信号——版本没动、
+     * 同步过的 story 直接跳过，把每查一次的水位全量遍历降为版本号比较。 */
+    if (vectorStore.enabled) {
+      try {
+        const ver = storeVersionOf(storyId)
+        if (_storeVers.get(storyId) !== ver) {
+          vectorStore.sync(story)
+          _storeVers.set(storyId, ver)
+        }
+      } catch { /* 兜底失败不阻断检索 */ }
+    }
     /* 注入检索缓存槽（规范二十五/四十三）：版本随 flushStory/恢复/删除自动失效，按 story 隔离；
      * 注入语义索引（SQLite + sqlite-vec）：同步与查询失败时由 retriever 静默回退 */
     return retrieve(story, Object.assign({ storyId }, opts || {}, { _retr: { slot: store.retrSlot(storyId) }, _vec: vectorStore }))

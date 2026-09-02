@@ -173,11 +173,12 @@ function retrieve(story, opts) {
   sceneEids = sceneEntities(story)
 
   /* ---- 语义信号（SQLite + sqlite-vec 派生索引，经 _vec 注入，可选）----
-   * 双通道（向量 KNN + FTS5）产出 0~1 语义分；任一异常静默回退为纯词面+实体管线。 */
+   * 双通道（向量 KNN + FTS5）产出 0~1 语义分；任一异常静默回退为纯词面+实体管线。
+   * 同步不在此处：常规同步挂在 store.flushStory（落盘即同步，engine/index.js 注入），
+   * 引擎侧另有首查兜底——retriever 只做纯读检索。 */
   let semMap = null
   if (opts._vec && opts._vec.enabled) {
     try {
-      opts._vec.sync(story)
       semMap = opts._vec.search(story.story_id, String(opts.playerInput || ''), 40)
     } catch { semMap = null }
   }

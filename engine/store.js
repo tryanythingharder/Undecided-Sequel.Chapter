@@ -28,6 +28,7 @@ class StateStore {
     /* 检索层缓存槽（规范二十四/二十五/四十三）：storyId → { version, entityIndex, queries }
      * store 只负责持有与版本递增（flushStory 即状态变更点），结构与失效策略由 retriever 管理。 */
     this._retrCache = new Map()
+    this._onAfterFlush = null // 派生索引挂点（见 onAfterFlush）
     this._recover()
   }
 
@@ -39,6 +40,11 @@ class StateStore {
   }
   _dropRetrCache(storyId) {
     this._retrCache.delete(storyId)
+  }
+  /* 检索缓存版本只读访问（story 未接触过返回 0）：引擎侧据此判断派生索引是否需要兜底同步 */
+  retrVersion(storyId) {
+    const c = this._retrCache.get(storyId)
+    return c ? c.version : 0
   }
 
   // 崩溃自愈：孤儿 tmp 直接清掉
@@ -114,6 +120,14 @@ class StateStore {
     if (c) this.flushStory(storyId)
   }
 
+  /* 派生索引挂点（语义索引 vector-store）：正本落盘后同步派生层。
+   * 引擎创建时注入（engine/index.js）——store 自身不依赖 vector-store，保持单向。
+   * 挂在 flushStory：所有状态变更路径（commit/事务/快照恢复/pendings）最终都经这里落盘，
+   * 一次挂钩覆盖全部写入点。同步失败不阻断落盘（派生索引可重建，检索时 watermark 自愈）。 */
+  onAfterFlush(fn) {
+    this._onAfterFlush = fn
+  }
+
   flushStory(storyId) {
     const story = this.getStory(storyId)
     if (!story) return
@@ -125,6 +139,7 @@ class StateStore {
     this._cache.set(storyId, { story })
     const rc = this._retrCache.get(storyId)
     if (rc) { rc.version += 1; rc.queries.clear() } // 缓存一致性（规范四十三）：状态变更即失效；实体索引按水位增量续建（retriever 管理）
+    try { if (this._onAfterFlush) this._onAfterFlush(story) } catch { /* 派生层失败不阻断正本（下次 flush/查询自愈） */ }
   }
 
   /* 故事元信息侧车（规范三十二：列表/首屏不解析全量正文） */
