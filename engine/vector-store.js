@@ -222,6 +222,16 @@ function createVectorStore(dataDir, opts) {
     const quick = db.prepare('PRAGMA quick_check').get()
     if (!quick || !String(quick.quick_check || '').startsWith('ok')) throw new Error('memory.db quick_check failed: ' + (quick && quick.quick_check))
     cosine = (() => { try { return String(db.prepare("SELECT sql FROM sqlite_master WHERE name='chunks_vec'").get().sql).includes('cosine') } catch { return false } })()
+    /* 例行维护：批量删档/嵌入器重嵌后空闲页高，文件只增不减——启动时一次性 VACUUM 压缩。
+     * 阈值：空闲页 ≥64 页且 ≥ 总页数 1/4（确实浪费才做，常规启动不拖慢）。 */
+    try {
+      const pc = db.prepare('PRAGMA page_count').get().page_count
+      const fc = db.prepare('PRAGMA freelist_count').get().freelist_count
+      if (fc >= 64 && fc * 4 >= pc) {
+        db.exec('VACUUM')
+        console.warn('[vector-store] 例行维护：空闲页 ' + fc + '/' + pc + '，已 VACUUM 压缩 memory.db')
+      }
+    } catch { /* 维护失败不影响功能 */ }
   }
 
   /* 损坏自愈：索引是正本的派生层，删库重建零风险（下次检索自动重新同步） */
@@ -441,11 +451,22 @@ function createVectorStore(dataDir, opts) {
     try {
       const chunks = db.prepare('SELECT COUNT(*) AS n FROM chunks').get().n
       const stories = db.prepare('SELECT COUNT(DISTINCT story_id) FROM chunks').get()['COUNT(DISTINCT story_id)']
-      return { enabled: true, chunks, stories, dim: EMBED_DIM, metric: cosine ? 'cosine' : 'l2', partitioned, embedder: embedderId }
+      let pages = null, freelist = null, dbBytes = null
+      try {
+        pages = db.prepare('PRAGMA page_count').get().page_count
+        freelist = db.prepare('PRAGMA freelist_count').get().freelist_count
+        dbBytes = pages * db.prepare('PRAGMA page_size').get().page_size
+      } catch { /* 诊断字段缺失不阻断 */ }
+      return { enabled: true, chunks, stories, dim: EMBED_DIM, metric: cosine ? 'cosine' : 'l2', partitioned, embedder: embedderId, pages, freelist, dbBytes }
     } catch { return { enabled: true, chunks: 0, stories: 0, dim: EMBED_DIM, metric: cosine ? 'cosine' : 'l2', partitioned, embedder: embedderId } }
   }
 
-  function close() { try { db.close() } catch {} }
+  /* 收尾维护：checkpoint 把 WAL 并回主库并截断（否则 -wal 文件随使用无限增长），
+   * 再关闭句柄（Windows 上句柄不锁目录，rmSync 会 EPERM） */
+  function close() {
+    try { db.exec('PRAGMA wal_checkpoint(TRUNCATE)') } catch {}
+    try { db.close() } catch {}
+  }
 
   return { enabled: true, sync, search, forgetStory, stats, close }
 }

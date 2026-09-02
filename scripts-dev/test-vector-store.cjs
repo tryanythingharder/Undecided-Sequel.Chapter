@@ -230,6 +230,31 @@ check('semScore-calibration', semScore(1.5) === 0 && semScore(0.1) > 0.5)
   vsIso.close()
 }
 
+// 14. 例行维护：批量删档后空闲页高 → 重开自动 VACUUM 压缩；close 截断/回收 WAL；紧凑库不重复触发
+{
+  const mDir = path.join(dir, 'maint')
+  const vsM = createVectorStore(mDir)
+  const bigStory = (id, n) => ({ story_id: id, counters: { turn: n }, facts: Array.from({ length: n }, (_, i) => ({ fact_id: 'MF' + i, story_id: id, statement: '第' + i + '条例行维护记录：薇拉与旧桥的人情往来', key: 'k' + i, importance: 50, turn: i })), events: [], decisions: [] })
+  vsM.sync(bigStory('M1', 40))
+  vsM.sync(bigStory('M2', 40))
+  vsM.sync(bigStory('M3', 40))
+  const peak = vsM.stats()
+  check('maint-stats-diagnostics', typeof peak.pages === 'number' && typeof peak.freelist === 'number' && typeof peak.dbBytes === 'number' && peak.chunks === 120, JSON.stringify(peak))
+  vsM.forgetStory('M1')
+  vsM.forgetStory('M2')
+  const afterDel = vsM.stats()
+  check('maint-bulk-delete-leaves-free-pages', afterDel.freelist >= 64, 'freelist=' + afterDel.freelist + '/' + afterDel.pages) // 高空闲页（确实浪费）才触发，阈值 64 页 + 1/4 占比
+  vsM.close()
+  check('maint-close-reclaims-wal', !fs.existsSync(path.join(mDir, 'memory.db-wal')) || fs.statSync(path.join(mDir, 'memory.db-wal')).size === 0, 'close 后 -wal 应被 checkpoint 截断/回收')
+  const vsM2 = createVectorStore(mDir)
+  const afterVac = vsM2.stats()
+  check('maint-startup-vacuum-compacts', afterVac.freelist === 0 && afterVac.pages < afterDel.pages, afterDel.pages + '→' + afterVac.pages + ' 页, freelist=' + afterVac.freelist)
+  vsM2.close()
+  const vsM3 = createVectorStore(mDir) // 已紧凑：不得重复 VACUUM
+  check('maint-idempotent-no-revacuum', vsM3.stats().pages === afterVac.pages && vsM3.stats().freelist === 0, JSON.stringify(vsM3.stats()))
+  vsM3.close()
+}
+
 vs.close()
 engine.close() // 释放 engine 内部向量库句柄
 console.log(fails.length ? `\n${fails.length} FAILED` : '\nALL PASS')
