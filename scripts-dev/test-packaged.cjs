@@ -12,6 +12,7 @@ async function main() {
   // ---- 打包产物静态检查：原型方案已入 asar；sqlite-vec dll 已解包 ----
   const asarBuf = fs.readFileSync(path.join(resources, 'app.asar'))
   if (!asarBuf.includes('renderer-proto')) throw new Error('app.asar 缺少 renderer-proto（原型方案未打包）')
+  if (!asarBuf.includes(Buffer.from('sessions-client.js'))) throw new Error('app.asar 缺少 shared/sessions-client.js（双方案共享会话数据层未打包——两侧启动即崩）')
   if (!asarBuf.includes(Buffer.from('cat.png'))) throw new Error('app.asar 缺少 build/cat.png（品牌图未打包）')
   const dll = path.join(resources, 'app.asar.unpacked', 'node_modules', 'sqlite-vec-windows-x64', 'vec0.dll')
   if (!fs.existsSync(dll)) throw new Error('sqlite-vec 的 vec0.dll 未解包到 app.asar.unpacked')

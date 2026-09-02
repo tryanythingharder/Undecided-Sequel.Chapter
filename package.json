@@ -39,6 +39,7 @@
       "build/icon.ico",
       "build/cat.png",
       "engine/**",
+      "shared/**",
       "renderer/**",
       "renderer-proto/**",
       "package.json"

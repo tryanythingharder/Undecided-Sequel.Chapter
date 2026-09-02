@@ -278,76 +278,19 @@
     } catch { warnSaveFail('应用设置') }
     persistSecrets()
   }
+  /* ---- 会话数据层（读取合并迁移 + 防抖保存）——双界面方案共享实现：
+   *    shared/sessions-client.js 是唯一实现处；此处只绑定本方案的可变状态与提示回调，
+   *    归属修复/迁移逻辑的改动不再需要双边人工同步。 ---- */
+  const sessionsLib = SessionsClient.createSessionsPersistence({ getSessions: () => sessions }, {
+    api, warnSaveFail, onSaved: () => { saveFailWarned = false }
+  })
+  sessionsLib.bindAutoFlush() // 页面隐藏/关闭强制冲刷（规范八：不丢尾部消息）
   async function loadSessions() {
-    let localSessions = []
-    try {
-      localSessions = JSON.parse(localStorage.getItem(SESSIONS_KEY) || '[]')
-      if (!Array.isArray(localSessions)) localSessions = []
-    } catch { localSessions = [] }
-    let disk = null
-    if (api.loadSessions) {
-      try { disk = await api.loadSessions() } catch {}
-    }
-    sessions = (!api.isTest && !api.isStorageTest && disk && disk.ok && disk.exists) ? disk.sessions : localSessions
-    if (!Array.isArray(sessions)) sessions = []
-    // 迁移 v1（无 createdAt）→ 补全
-    for (const s of sessions) if (!s.createdAt) s.createdAt = s.updatedAt || Date.now()
-    // 迁移旧 key 的会话
-    if (sessions.length === 0) {
-      try {
-        const old = JSON.parse(localStorage.getItem('sixworlds.sessions.v1') || '[]')
-        if (Array.isArray(old) && old.length) {
-          sessions = old.map((s) => Object.assign({ createdAt: s.updatedAt || Date.now() }, s))
-        }
-      } catch {}
-    }
-    // 迁移：无工作区归属的旧会话 → 归入第一个工作区（默认世界）
-    if (sessions.some((s) => !s.ws)) {
-      const homeWs = (workspaces[0] && workspaces[0].id) || currentWsId
-      for (const s of sessions) if (!s.ws) s.ws = homeWs
-      saveSessions()
-    }
-    // 自愈：归属的工作区已不存在（工作区列表曾丢失重建）的孤儿会话 → 重新归入第一个工作区
-    // 没有这条，用户旧对话会被隔离逻辑永久隐藏
-    const orphaned = sessions.filter((s) => s.ws && !workspaces.some((w) => w.id === s.ws))
-    if (orphaned.length) {
-      const homeWs = (workspaces[0] && workspaces[0].id) || currentWsId
-      for (const s of orphaned) s.ws = homeWs
-      saveSessions()
-    }
-    // 首次升级时把 localStorage 会话与插图迁入文件存储，成功后移除配额受限副本。
-    if (!api.isTest && ((!disk || !disk.exists) || api.isStorageTest) && sessions.length && api.saveSessions) {
-      const migrated = await api.saveSessions(sessions.slice(0, 50))
-      if (migrated && migrated.ok) {
-        try { localStorage.removeItem(SESSIONS_KEY); localStorage.removeItem('sixworlds.sessions.v1') } catch {}
-      } else warnSaveFail('旧世界线迁移')
-    }
+    const r = await sessionsLib.loadSessions(() => workspaces, currentWsId)
+    sessions = r.sessions
+    if (r.needsSave) saveSessions() // 归属修复（无 ws / 孤儿会话）后一次防抖落盘
   }
-  /* 会话保存（规范八：前端不无限写）——防抖合并高频写入（每回合多次调用 → 400ms 一次全量落盘）；
-   * immediate=true 用于删除/导入/工作区切换等关键点；页面隐藏/关闭时强制冲刷，不丢尾部消息。 */
-  let _saveTimer = 0
-  function _doSaveSessions() {
-    const snapshot = sessions.slice(0, 50)
-    if (api.isTest) {
-      try { localStorage.setItem(SESSIONS_KEY, JSON.stringify(snapshot)) } catch { warnSaveFail('最新世界线进度') }
-    }
-    if (!api.saveSessions) return Promise.resolve()
-    return api.saveSessions(snapshot).then((r) => {
-      if (r && r.ok) {
-        saveFailWarned = false
-        if (!api.isTest) {
-          try { localStorage.removeItem(SESSIONS_KEY) } catch {}
-        }
-      } else warnSaveFail('最新世界线进度')
-    }).catch(() => warnSaveFail('最新世界线进度'))
-  }
-  function saveSessions(immediate) {
-    if (immediate) { if (_saveTimer) { clearTimeout(_saveTimer); _saveTimer = 0 } _doSaveSessions(); return }
-    if (_saveTimer) return
-    _saveTimer = setTimeout(() => { _saveTimer = 0; _doSaveSessions() }, 400)
-  }
-  window.addEventListener('pagehide', () => { if (!api.isStorageTest && _saveTimer) { clearTimeout(_saveTimer); _saveTimer = 0; _doSaveSessions() } })
-  document.addEventListener('visibilitychange', () => { if (!api.isStorageTest && document.visibilityState === 'hidden' && _saveTimer) { clearTimeout(_saveTimer); _saveTimer = 0; _doSaveSessions() } })
+  const saveSessions = sessionsLib.saveSessions
   function curSession() { return sessions.find((s) => s.id === currentId) || null }
 
   function newSession() {
