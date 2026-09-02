@@ -61,11 +61,14 @@ server.listen(0, '127.0.0.1', async () => {
   const stW = vs.stats()
   check('warm-resync-semantic-hit', warmed, '补嵌后语义命中 F1')
   check('warm-chunks-stable', stW.chunks === 2, JSON.stringify(stW))
+  // 3b. 等本轮补嵌批次彻底结束（warm 轮询读到的命中可能来自 resync 前一瞬，慢机器上 calls 有滞后）
+  const callsSettle = Date.now() + 5000
+  while (calls < 1 && Date.now() < callsSettle) await new Promise((r) => setTimeout(r, 150))
   const callsAfterWarm = calls
   check('batched-requests', callsAfterWarm >= 1 && callsAfterWarm <= 3, 'mock 请求次数=' + callsAfterWarm)
-  // 4. 再 sync 幂等（缓存已热）：无新请求
+  // 4. 再 sync 幂等（缓存已热）：无新请求——等待窗口须覆盖慢机器上 150ms 补嵌调度
   vs.sync(mk())
-  await new Promise((r) => setTimeout(r, 500))
+  await new Promise((r) => setTimeout(r, 1500))
   check('cached-no-refetch', calls === callsAfterWarm, '重复 sync 请求 ' + callsAfterWarm + '→' + calls)
   // 5. 近邻检索：查询向量同样走缓存——首次查询未热（跳过向量通道+入队补嵌），补嵌后再查命中
   vs.search('S1', '我还没报答的恩情，那位恩人是谁', 40)
