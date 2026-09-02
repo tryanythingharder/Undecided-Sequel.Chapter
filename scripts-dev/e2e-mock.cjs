@@ -103,6 +103,16 @@ async function main() {
   const base = 'http://127.0.0.1:' + mock.port
   const fails = []
   const check = (name, cond, extra) => { console.log((cond ? 'PASS' : 'FAIL') + '  ' + name + (extra ? '  ' + extra : '')); if (!cond) fails.push(name) }
+  /* 动画驱动关闭的元素（closeModalAnim：CSS 动画结束或 220ms 兜底后才置 hidden）
+   * 不能用固定 sleep 后断言——慢机器上必竞态。轮询状态直到 hidden 或超时。 */
+  const waitForHidden = async (selector, timeout = 2500) => {
+    const deadline = Date.now() + timeout
+    while (Date.now() < deadline) {
+      if (await win.locator(selector).evaluate((el) => el.hidden).catch(() => true)) return true
+      await win.waitForTimeout(80)
+    }
+    return await win.locator(selector).evaluate((el) => el.hidden).catch(() => false)
+  }
   let ok = false
 
   const app = await electron.launch({
@@ -298,7 +308,7 @@ async function main() {
   check('search-active-mark', activeCnt === 1, 'active=' + activeCnt)
   // Esc 关闭搜索并清除高亮
   await win.keyboard.press('Escape')
-  await win.waitForTimeout(200)
+  await waitForHidden('#search-bar')
   check('search-bar-closes', await win.locator('#search-bar').evaluate((el) => el.hidden))
   const marksAfter = await win.locator('.msg-body mark').count()
   check('search-clears-highlights', marksAfter === 0, 'leftover=' + marksAfter)
@@ -464,7 +474,7 @@ async function main() {
   const opts = await win.locator('#gallery-session option').count()
   check('gallery-session-options', opts >= 2, 'opts=' + opts)
   await win.click('#btn-gallery-close')
-  await win.waitForTimeout(200)
+  await waitForHidden('#gallery')
   check('gallery-closes', await win.locator('#gallery').evaluate((el) => el.hidden))
 
   // ---- 快捷键：Ctrl+G 开关画廊、Ctrl+, 打开设置（独立窗口）----
@@ -472,7 +482,7 @@ async function main() {
   await win.waitForTimeout(300)
   check('shortcut-ctrl-g-opens-gallery', await win.locator('#gallery').isVisible())
   await win.keyboard.press('Control+g')
-  await win.waitForTimeout(200)
+  await waitForHidden('#gallery')
   check('shortcut-ctrl-g-closes-gallery', await win.locator('#gallery').evaluate((el) => el.hidden))
   await win.keyboard.press('Control+,')
   const sw3 = await settingsWindow(app)
