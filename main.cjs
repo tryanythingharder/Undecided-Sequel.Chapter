@@ -1312,6 +1312,9 @@ ipcMain.handle('progress:export', async (evt, payload) => {
     const storyEngineDir = path.join(app.getPath('userData'), 'story-engine')
     const files = {}
     let engineBytes = 0
+    /* 只打包正本与记录（stories/snapshots/pendings/logs，且仅 .json）——与移动端 EngineImportPolicy
+     * 白名单对称。memory.db* 是派生索引（二进制、可由正本重建）：打进包既损坏内容（按 utf8 读二进制）
+     * 又会让移动端导入整体失败（深度-1 路径被策略拒绝）。 */
     const walk = (dir) => {
       for (const f of fs.readdirSync(dir)) {
         const full = path.join(dir, f)
@@ -1324,6 +1327,8 @@ ipcMain.handle('progress:export', async (evt, payload) => {
           engineBytes += st.size
           if (engineBytes > 128 * 1024 * 1024) throw new Error('引擎状态总量过大（上限 128MB）')
           const rel = path.relative(storyEngineDir, full).split(path.sep).join('/')
+          const segs = rel.split('/')
+          if (!['stories', 'snapshots', 'pendings', 'logs'].includes(segs[0]) || segs[segs.length - 1].slice(-5) !== '.json') continue
           files[rel] = fs.readFileSync(full, 'utf8')
         }
       }
@@ -1340,6 +1345,9 @@ ipcMain.handle('progress:export', async (evt, payload) => {
     }
     const serialized = JSON.stringify(bundle)
     if (Buffer.byteLength(serialized) > 128 * 1024 * 1024) throw new Error('进度包过大（上限 128MB）')
+    // 测试接缝：SIXWORLDS_TEST 下用注入路径替代原生保存对话框（自动化无法驱动）
+    const testOut = process.env.SIXWORLDS_TEST === '1' && payload && typeof payload.__testPath === 'string' ? payload.__testPath : null
+    if (testOut) { fs.writeFileSync(testOut, serialized); return { ok: true, path: testOut } }
     const res = await dialog.showSaveDialog(windowForEvent(evt), {
       title: '导出移动端进度包',
       defaultPath: '六面世界-进度包.json',
@@ -1347,6 +1355,112 @@ ipcMain.handle('progress:export', async (evt, payload) => {
     if (res.canceled || !res.filePath) return { ok: false, canceled: true }
     fs.writeFileSync(res.filePath, serialized)
     return { ok: true, path: res.filePath }
+  } catch (e) {
+    return { ok: false, error: String((e && e.message) || e) }
+  }
+})
+
+// ---- 进度包导入（移动端导出的包 → 桌面接续；与移动端 EngineImportPolicy 同一防线）----
+const IMPORT_MAX_FILE_BYTES = 8 * 1024 * 1024
+const IMPORT_MAX_TOTAL_BYTES = 128 * 1024 * 1024
+const IMPORT_MAX_FILES = 5000
+const IMPORT_ALLOWED_ROOTS = new Set(['stories', 'snapshots', 'pendings', 'logs'])
+const IMPORT_SAFE_SEG = /^[A-Za-z0-9_.-]{1,180}$/
+
+/* 引擎文件路径防线（与移动端 EngineImportPolicy 逐条对应）：
+ * 限额（单文件 8MB / 总量 128MB / 件数 5000）+ 路径白名单（仅 stories/snapshots/pendings/logs，
+ * 拒绝 tmp/绝对路径/../非法片段）+ 越界校验（resolve 后必须仍位于引擎目录内）。 */
+function resolveImportTarget(engineDir, rel) {
+  if (typeof rel !== 'string' || !rel || rel.length > 512 || rel.includes('\u0000')) throw new Error('进度包路径为空或过长')
+  const norm = rel.replace(/\\/g, '/')
+  if (norm.startsWith('/') || /^[A-Za-z]:/.test(norm)) throw new Error('不允许绝对路径')
+  const segs = norm.split('/')
+  if (segs.length < 2 || segs.length > 3) throw new Error('引擎文件目录层级不正确')
+  if (segs.some((s) => !s || s === '.' || s === '..' || !IMPORT_SAFE_SEG.test(s))) throw new Error('引擎文件路径包含非法片段')
+  if (!IMPORT_ALLOWED_ROOTS.has(segs[0])) throw new Error('不支持的引擎文件目录')
+  if (segs[segs.length - 1].slice(-5) !== '.json') throw new Error('不支持的引擎文件类型')
+  const target = path.resolve(engineDir, ...segs)
+  if (!target.startsWith(path.resolve(engineDir) + path.sep)) throw new Error('引擎文件路径越界')
+  return target
+}
+
+ipcMain.handle('progress:import', async (evt) => {
+  try {
+    /* 测试接缝：SIXWORLDS_TEST 下用注入路径替代原生打开对话框（自动化无法驱动）。
+     * 仅测试态生效——progress:import 本无渲染层参数，注入走全局 env 不引入生产面。 */
+    const testIn = process.env.SIXWORLDS_TEST === '1' && process.env.SIXWORLDS_TEST_IMPORT_PATH ? process.env.SIXWORLDS_TEST_IMPORT_PATH : null
+    let raw = null
+    if (testIn && fs.existsSync(testIn)) {
+      raw = fs.readFileSync(testIn)
+    } else {
+      const res = await dialog.showOpenDialog(windowForEvent(evt), {
+        title: '导入进度包',
+        properties: ['openFile'],
+        filters: [{ name: '六面世界进度包', extensions: ['json'] }],
+      })
+      if (res.canceled || !res.filePaths || !res.filePaths[0]) return { ok: false, canceled: true }
+      raw = fs.readFileSync(res.filePaths[0])
+    }
+    if (raw.length > IMPORT_MAX_TOTAL_BYTES) throw new Error('导入文件过大（上限 128MB）')
+    const bundle = JSON.parse(raw.toString('utf8'))
+    if (!bundle || bundle.type !== 'sixworlds-progress') throw new Error('不是有效的进度包（type 不符）')
+    if (bundle.v !== 1) throw new Error('进度包版本不支持（v=' + bundle.v + '，需要 v1）')
+    if (!Array.isArray(bundle.workspaces)) throw new Error('进度包工作区数据不正确')
+    // 会话在渲染层合并（页面持有内存态）；主进程只校验形状
+    if (bundle.sessions != null && !Array.isArray(bundle.sessions)) throw new Error('进度包世界线数据不正确')
+    const sessions = Array.isArray(bundle.sessions) ? bundle.sessions : []
+    if (sessions.length > MAX_SESSIONS) throw new Error('进度包世界线数量超过上限（50）')
+    for (const s of sessions) {
+      if (!s || typeof s !== 'object' || !Array.isArray(s.messages)) throw new Error('进度包会话数据不完整')
+    }
+    // 引擎状态：先全部校验并收集，全部通过后一次性落盘（不留半写状态）
+    const engineDir = path.join(app.getPath('userData'), 'story-engine')
+    const files = (bundle.engine && bundle.engine.files) || {}
+    const keys = Object.keys(files)
+    if (keys.length > IMPORT_MAX_FILES) throw new Error('进度包中的引擎文件数量过多')
+    const pending = []
+    let totalBytes = 0
+    for (const rel of keys) {
+      const content = files[rel]
+      if (typeof content !== 'string') throw new Error('进度包中的引擎文件内容必须是文本')
+      /* 旧版包兼容：早期导出会把派生索引 memory.db* 一并打进包（按 utf8 读已损坏、且可由正本重建）——
+       * 明确跳过这三个键，其余任何白名单外路径仍硬拒绝（旧包可导入，攻击面不放松）。 */
+      if (/^memory\.db(-wal|-shm)?$/.test(rel)) continue
+      const bytes = Buffer.byteLength(content, 'utf8')
+      if (bytes > IMPORT_MAX_FILE_BYTES) throw new Error('进度包中的引擎文件过大')
+      totalBytes += bytes
+      if (totalBytes > IMPORT_MAX_TOTAL_BYTES) throw new Error('进度包中的引擎数据总量过大')
+      pending.push([resolveImportTarget(engineDir, rel), content])
+    }
+    /* 引擎句柄重建：文件级替换后，内存缓存/检索槽/语义索引全部指向旧状态——
+     * 直接弃旧引擎（关句柄），下一次使用时按新文件重建（派生索引随 flushStory/检索兜底自动同步）。 */
+    if (storyEngine) { try { storyEngine.close() } catch {} ; storyEngine = null }
+    for (const [target, content] of pending) {
+      fs.mkdirSync(path.dirname(target), { recursive: true })
+      atomicWriteFile(target, content)
+    }
+    /* 会话合并（按 id 保留较新 updatedAt，上限 50）：主进程单一实现——
+     * 主窗口在内存持有会话权威副本，若由设置窗口直接写 localStorage，主窗口的下一次防抖
+     * 保存会整包覆盖导入数据。落库后广播 progressImported，主窗口重载内存态并重新渲染。 */
+    const merged = (() => {
+      try {
+        const db = sessionsDbFor()
+        const cur = db.enabled ? db.load() : null
+        const curDoc = cur ? cur.doc : null
+        const curArr = Array.isArray(curDoc) ? curDoc : (curDoc && curDoc.sessions) || []
+        const byId = new Map(curArr.filter((s) => s && s.id).map((s) => [s.id, s]))
+        for (const s of sessions) {
+          const old = byId.get(s.id)
+          if (!old || Number(s.updatedAt || 0) >= Number(old.updatedAt || 0)) byId.set(s.id, s)
+        }
+        const out = [...byId.values()].sort((a, b) => Number(b.updatedAt || 0) - Number(a.updatedAt || 0)).slice(0, MAX_SESSIONS)
+        if (db.enabled) db.importDoc({ v: 1, sessions: out })
+        atomicWriteFile(sessionsFile(), JSON.stringify({ v: 1, sessions: out }))
+        return out
+      } catch (e) { throw new Error('会话合并失败：' + String((e && e.message) || e)) }
+    })()
+    if (win && !win.isDestroyed()) win.webContents.send('cfg:updated', { progressImported: true })
+    return { ok: true, count: merged.length, files: pending.length, engineFiles: pending.length, workspaces: bundle.workspaces, sessions: merged, world: bundle.world || null }
   } catch (e) {
     return { ok: false, error: String((e && e.message) || e) }
   }

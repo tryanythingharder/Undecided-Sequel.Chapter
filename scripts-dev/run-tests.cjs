@@ -18,6 +18,7 @@ const desktop = [
   'scripts-dev/test-kernel-hub.cjs',
   'scripts-dev/test-secure-storage.cjs',
   'scripts-dev/test-sessions-persistence.cjs',
+  'scripts-dev/test-progress-import.cjs',
   'scripts-dev/test-ui-scheme.cjs',
   'scripts-dev/test-choices.cjs',
   'scripts-dev/test-engine-e2e.cjs',

@@ -78,4 +78,6 @@ contextBridge.exposeInMainWorld('api', {
   },
   // 移动端进度包导出（渲染层收集 localStorage，主进程读引擎文件落盘）
   exportProgress: (payload) => ipcRenderer.invoke('progress:export', payload),
+  // 进度包导入（移动端导出的包 → 桌面接续）：主进程校验并写引擎文件，会话数据由渲染层合并
+  importProgress: () => ipcRenderer.invoke('progress:import'),
 })

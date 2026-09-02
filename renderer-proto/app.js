@@ -2823,6 +2823,20 @@
       updateTitle()
       return
     }
+    // 进度包导入完成（设置窗口触发，主进程已合并落库）：重载内存态并校正当前选中世界线
+    if (data.progressImported) {
+      loadWorkspaces() // 导入的工作区（若有）先就位，孤儿会话自愈才能正确归属
+      await loadSessions()
+      const wsS = wsSessions()
+      if (!wsS.length) newSession()
+      else if (!wsS.some((s) => s.id === currentId)) currentId = wsS[0].id
+      saveStore()
+      renderWsBtn()
+      renderSessionList()
+      renderMessages()
+      updateTitle()
+      return
+    }
     // 外观相关键：保存/预览/回滚统一处理（多预设调色板 / 字体 / 圆角 / 密度 / 布局 / 侧栏方向 / 字号 / 栏宽 / 置顶）
     const APP_KEYS = ['theme', 'palette', 'fontUI', 'radius', 'density', 'layout', 'sbSide', 'fontSize', 'readWidth', 'pin']
     function applyAllAppearance() {
