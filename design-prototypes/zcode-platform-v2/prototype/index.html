@@ -1,0 +1,428 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="dark" data-density="comfortable">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="dark light">
+  <title>六面世界 - 通用内核平台原型</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Noto+Sans+SC:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="icon" href="../../../build/cat.png">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <svg class="icon-sprite" aria-hidden="true">
+    <symbol id="i-library" viewBox="0 0 24 24"><path d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z"/></symbol>
+    <symbol id="i-lines" viewBox="0 0 24 24"><path d="M5 6h14M5 12h14M5 18h9"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6"/><path d="m16 16 4 4"/></symbol>
+    <symbol id="i-command" viewBox="0 0 24 24"><path d="M9 6v12a3 3 0 1 1-3-3h12a3 3 0 1 1-3 3V6a3 3 0 1 1 3 3H6a3 3 0 1 1 3-3Z"/></symbol>
+    <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></symbol>
+    <symbol id="i-send" viewBox="0 0 24 24"><path d="m5 12 14-7-4 14-3-6-7-1Z"/><path d="m12 13 7-8"/></symbol>
+    <symbol id="i-spark" viewBox="0 0 24 24"><path d="m12 3 1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8L12 3ZM19 16l.7 2.3L22 19l-2.3.7L19 22l-.7-2.3L16 19l2.3-.7L19 16Z"/></symbol>
+    <symbol id="i-code" viewBox="0 0 24 24"><path d="m8 5-5 7 5 7M16 5l5 7-5 7M14 3l-4 18"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></symbol>
+    <symbol id="i-x" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></symbol>
+    <symbol id="i-arrow-left" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></symbol>
+    <symbol id="i-more" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1" fill="currentColor"/><circle cx="12" cy="12" r="1" fill="currentColor"/><circle cx="19" cy="12" r="1" fill="currentColor"/></symbol>
+    <symbol id="i-filter" viewBox="0 0 24 24"><path d="M4 6h16M7 12h10M10 18h4"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="i-import" viewBox="0 0 24 24"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></symbol>
+    <symbol id="i-chevron" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></symbol>
+    <symbol id="i-gallery" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="1"/><circle cx="8.5" cy="10" r="1.5"/><path d="m3 16 5-4 4 3 5-5 4 4"/></symbol>
+    <symbol id="i-settings" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M18.7 5.3l-2.1 2.1M7.4 16.6l-2.1 2.1"/></symbol>
+    <symbol id="i-world" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M3.5 12h17M12 3.5c2.8 2.7 2.8 14.3 0 17M12 3.5c-2.8 2.7-2.8 14.3 0 17"/></symbol>
+    <symbol id="i-session" viewBox="0 0 24 24"><path d="M4 5h16v11H9l-5 4V5Z"/></symbol>
+    <symbol id="i-export" viewBox="0 0 24 24"><path d="M12 15V4M8 8l4-4 4 4M5 15v5h14v-5"/></symbol>
+    <symbol id="i-history" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 7v5l3.5 2"/></symbol>
+    <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3M7 7l1 13h8l1-13M10 11v6M14 11v6"/></symbol>
+    <symbol id="i-archive" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="5"/><path d="M5 9v11h14V9M10 13h4"/></symbol>
+    <symbol id="i-edit" viewBox="0 0 24 24"><path d="m4 20 1-4L16 5l3 3L8 19l-4 1ZM14 7l3 3"/></symbol>
+    <symbol id="i-template" viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12"/><path d="M16 4H4v12"/></symbol>
+    <symbol id="i-chip" viewBox="0 0 24 24"><rect x="7" y="7" width="10" height="10"/><path d="M9 4v3M15 4v3M9 17v3M15 17v3M4 9h3M4 15h3M17 9h3M17 15h3"/></symbol>
+    <symbol id="i-gauge" viewBox="0 0 24 24"><path d="M5 17a7.5 7.5 0 1 1 14 0"/><path d="m12 17 3.5-4.5"/></symbol>
+    <symbol id="i-keyboard" viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="12" rx="1"/><path d="M7 10h.01M11 10h.01M15 10h.01M7 14h10"/></symbol>
+    <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 7a1 1 0 0 1 1-1h5l2 2h9a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V7Z"/></symbol>
+  </svg>
+
+  <div class="splash" id="splash" aria-hidden="true">
+    <div class="splash-grid"></div>
+    <div class="splash-lockup">
+      <div class="splash-title"><span>六面世界</span><strong>自己的故事</strong></div>
+      <div class="splash-signal"><i></i></div>
+      <p>SIX WORLDS · UNIVERSAL KERNEL PLATFORM</p>
+    </div>
+  </div>
+
+  <div class="app-shell" id="app-shell">
+    <header class="topbar">
+      <div class="brand-block">
+        <img src="../../../build/cat.png" alt="六面世界黑猫图标">
+        <div class="brand-copy"><strong>六面世界</strong><span>暮色边境</span></div>
+      </div>
+
+      <nav class="mode-switch" role="tablist" aria-label="主要工作区域">
+        <button class="mode-tab active" id="tab-content" role="tab" aria-selected="true" aria-controls="view-content" data-mode="content">内容</button>
+        <button class="mode-tab" id="tab-design" role="tab" aria-selected="false" aria-controls="view-design" data-mode="design">内核设计</button>
+      </nav>
+
+      <div class="top-actions">
+        <button class="icon-button" type="button" data-open="library" title="内核库" aria-label="打开内核库"><svg><use href="#i-library"/></svg></button>
+        <button class="icon-button" type="button" data-open="command" title="命令面板" aria-label="打开命令面板"><svg><use href="#i-command"/></svg></button>
+        <button class="icon-button" type="button" data-open="gallery" title="画廊" aria-label="打开画廊"><svg><use href="#i-gallery"/></svg></button>
+        <button class="icon-button" id="theme-toggle" type="button" title="切换主题" aria-label="切换主题"><svg><use href="#i-sun"/></svg></button>
+        <button class="icon-button" type="button" data-open="settings" title="设置" aria-label="打开设置"><svg><use href="#i-settings"/></svg></button>
+        <button class="profile-button" type="button" data-open="settings" title="账户与设置" aria-label="账户与设置"><span>楚</span></button>
+      </div>
+    </header>
+
+    <div class="dynamic-island" id="dynamic-island" role="status" aria-live="polite" aria-atomic="true">
+      <span class="island-mark"><svg><use href="#i-check"/></svg></span>
+      <span class="island-copy" id="island-copy">玄雾纪行 v2.4 已载入</span>
+      <button class="island-action" id="island-action" type="button" hidden>撤销</button>
+    </div>
+
+    <aside class="command-dock" aria-label="快捷入口">
+      <button class="dock-button active" type="button" data-mode="content" title="内容画布"><svg><use href="#i-lines"/></svg><span>内容</span></button>
+      <button class="dock-button" type="button" data-open="library" title="内核库"><svg><use href="#i-library"/></svg><span>内核</span></button>
+      <button class="dock-button" type="button" data-open="gallery" title="画廊"><svg><use href="#i-gallery"/></svg><span>画廊</span></button>
+      <button class="dock-button" type="button" data-open="story-search" title="搜索正文"><svg><use href="#i-search"/></svg><span>搜索</span></button>
+      <div class="dock-spacer"></div>
+      <button class="dock-button" type="button" data-open="command" title="命令面板"><svg><use href="#i-command"/></svg><span>命令</span></button>
+    </aside>
+
+    <main class="workstage">
+      <section class="mode-view content-view active" id="view-content" role="tabpanel" aria-labelledby="tab-content">
+        <div class="content-scroller" id="content-scroller">
+          <article class="story-canvas">
+            <header class="story-heading">
+              <div><span class="overline">暮色边境 · 第 12 幕</span><h1>雾灯越过旧城墙</h1></div>
+              <button class="text-button subtle" type="button" data-open="world-menu">玄雾纪行 v2.4 <svg><use href="#i-chevron"/></svg></button>
+            </header>
+
+            <div class="pending-banner" id="pending-banner" role="status">
+              <span class="pending-mark"><svg><use href="#i-edit"/></svg></span>
+              <p><strong>2 处细节待补录</strong> · 河谷钟声的来源、旅人的姓名尚未登记</p>
+              <span class="pending-actions"><button class="link-button" id="pending-resolve" type="button">去补录</button><button class="link-button" id="pending-dismiss" type="button">稍后</button></span>
+            </div>
+
+            <figure class="world-figure">
+              <img src="world-scene.png" alt="月光下的黑色高塔与层叠山影">
+              <figcaption>
+                <div class="figure-meta"><span>世界时间 09:57</span><span>河谷北岸 · 轻雾</span><span class="engine-state"><i></i>引擎运行中</span></div>
+                <div class="figure-tools">
+                  <button class="tool-button" type="button" id="figure-regen" title="重绘插图"><svg><use href="#i-gallery"/></svg><span>重绘</span></button>
+                  <button class="tool-button" type="button" id="figure-manual" title="使用本地插图"><svg><use href="#i-import"/></svg><span>手动插图</span></button>
+                </div>
+              </figcaption>
+            </figure>
+
+            <div class="story-copy">
+              <p>铜钟在河谷里响了第三次。你认出桥对面的旅人，也认出他手中那枚只在旧约里出现的印章。</p>
+              <p>“你说过，所有交易都必须留下见证。”他没有走近，只让声音穿过雾气。</p>
+              <blockquote>内核记住了那份承诺，但没有替你决定该如何回应。</blockquote>
+            </div>
+
+            <section class="choice-block" aria-labelledby="choice-title">
+              <div class="choice-heading"><span id="choice-title">下一步</span><span class="choice-heading-tools"><span>3 个可选行动</span><button class="link-button" id="choices-toggle" type="button" aria-expanded="true">收起</button></span></div>
+              <div class="choice-rows" id="choice-rows"><button class="choice-row" type="button" data-choice="我走上桥，先问清印章从何而来。"><span>A</span><strong>走上桥，先问印章的来历</strong><svg><use href="#i-chevron"/></svg></button>
+              <button class="choice-row" type="button" data-choice="我留在雾中，观察旅人身后的动静。"><span>B</span><strong>留在雾中，观察旅人的同伴</strong><em class="choice-tag">条件 · 持有旧约</em><svg><use href="#i-chevron"/></svg></button>
+              <button class="choice-row" type="button" data-choice="我不回应，而是取出旧约的另一半。"><span>C</span><strong>取出旧约的另一半</strong><svg><use href="#i-chevron"/></svg></button></div>
+            </section>
+
+            <section class="choice-block multi-block" aria-labelledby="multi-title">
+              <div class="choice-heading"><span id="multi-title">出发前的准备 · 可多选</span><span id="multi-count">已选 1 项</span></div>
+              <button class="choice-row multi" type="button" aria-pressed="true" data-multi="整理行囊与口粮"><span class="multi-mark" aria-hidden="true">✓</span><strong>整理行囊与三天口粮</strong></button>
+              <button class="choice-row multi" type="button" aria-pressed="false" data-multi="给桥灯添满灯油"><span class="multi-mark" aria-hidden="true">✓</span><strong>给桥灯添满灯油</strong></button>
+              <button class="choice-row multi" type="button" aria-pressed="false" data-multi="把旧约誊抄一份留底"><span class="multi-mark" aria-hidden="true">✓</span><strong>把旧约誊抄一份留底</strong></button>
+            </section>
+          </article>
+        </div>
+
+        <div class="story-search" id="story-search" role="search" aria-label="搜索正文" hidden>
+          <svg><use href="#i-search"/></svg>
+          <label class="sr-only" for="story-search-input">搜索正文</label>
+          <input id="story-search-input" type="search" placeholder="在当前会话中搜索…">
+          <span class="story-search-count" id="story-search-count">0 / 0</span>
+          <button class="icon-button" id="story-search-prev" type="button" title="上一个" aria-label="上一个匹配"><svg class="flip-h"><use href="#i-chevron"/></svg></button>
+          <button class="icon-button" id="story-search-next" type="button" title="下一个" aria-label="下一个匹配"><svg><use href="#i-chevron"/></svg></button>
+          <button class="icon-button" id="story-search-close" type="button" title="关闭搜索" aria-label="关闭搜索"><svg><use href="#i-x"/></svg></button>
+        </div>
+
+        <div class="story-rail" id="story-rail">
+          <button class="rail-track" type="button" id="rail-track" aria-haspopup="menu" aria-label="状态与进度">
+            <i class="rail-fill" id="rail-fill" style="--rail-fill: 68%"></i>
+            <b class="rail-node done"></b><b class="rail-node done"></b><b class="rail-node done"></b><b class="rail-node current"></b>
+          </button>
+        </div>
+
+        <form class="composer content-composer" id="content-composer">
+          <label class="sr-only" for="content-input">描述你的行动</label>
+          <textarea id="content-input" rows="2" placeholder="描述你的行动…"></textarea>
+          <div class="composer-meta"><div class="chip-row"><span class="context-chip"><i></i>玄雾纪行</span><button class="model-chip" type="button" data-model-menu="text" data-prefix="文本" data-value="远山 v4"><svg><use href="#i-chip"/></svg><span>文本 · 远山 v4</span></button><button class="model-chip" type="button" data-model-menu="image" data-prefix="插图" data-value="雾笔 v2"><svg><use href="#i-gallery"/></svg><span>插图 · 雾笔 v2</span></button><button class="model-chip" type="button" data-model-menu="think" data-prefix="思考" data-value="标准"><svg><use href="#i-gauge"/></svg><span>思考 · 标准</span></button><button class="tool-button" type="button" title="获取灵感"><svg><use href="#i-spark"/></svg><span>灵感</span></button></div><button class="send-button" type="submit"><span>发送</span><svg><use href="#i-send"/></svg></button></div>
+        </form>
+      </section>
+
+      <section class="mode-view design-view" id="view-design" role="tabpanel" aria-labelledby="tab-design" hidden>
+        <div class="design-scroller">
+          <div class="design-canvas">
+            <header class="design-heading">
+              <div><span class="overline">草稿 · 自动保存</span><h1>玄雾纪行</h1></div>
+              <div class="design-actions"><button class="text-button" type="button" id="version-chip" title="版本历史"><svg><use href="#i-history"/></svg><span id="version-chip-text">v2.5 · 草稿</span></button><button class="text-button" type="button" data-open="source"><svg><use href="#i-code"/></svg>源码</button><button class="text-button primary" type="button" id="publish-kernel" title="发布内核 v2.5"><svg><use href="#i-check"/></svg>发布 v2.5</button></div>
+            </header>
+
+            <ol class="progress-track" aria-label="内核设计进度">
+              <li class="complete"><span>01</span><strong>体验意图</strong></li>
+              <li class="active"><span>02</span><strong>规则骨架</strong></li>
+              <li><span>03</span><strong>运行检查</strong></li>
+              <li><span>04</span><strong>发布版本</strong></li>
+            </ol>
+
+            <div class="design-thread" id="design-thread">
+              <div class="thread-message user-message"><div class="message-label">你</div><p>我想做一个偏调查与关系博弈的通用内核。角色可以隐瞒信息，但系统不能替玩家做关键决定。</p></div>
+              <div class="thread-message ai-message"><div class="message-label"><span class="ai-mark"><svg><use href="#i-spark"/></svg></span>设计代理</div><p>我先把体验拆成三条可测试契约。第二条仍有一个会影响长期记忆的决策，需要你确认。</p></div>
+
+              <section class="kernel-checkpoint" aria-labelledby="checkpoint-title">
+                <header><div><span class="overline">检查点 02 · 规则骨架</span><h2 id="checkpoint-title">先确认内核如何对待“真相”</h2></div><span class="validation-state"><svg><use href="#i-check"/></svg>结构有效</span></header>
+                <div class="contract-list">
+                  <article class="contract-row"><span class="contract-index">01</span><div><h3>玩家主权</h3><p>关键立场、承诺与不可逆行动必须由玩家确认。</p></div><span class="contract-status fixed">已确认</span></article>
+                  <article class="contract-row attention"><span class="contract-index">02</span><div><h3>信息可信度</h3><p>角色陈述可以不可靠。系统事实需要来源，但冲突事实的优先级尚未定义。</p></div><span class="contract-status">待决定</span></article>
+                  <article class="contract-row"><span class="contract-index">03</span><div><h3>世界推进</h3><p>世界事件按时间、地点和条件推进，不等待玩家触发。</p></div><span class="contract-status fixed">已确认</span></article>
+                  <article class="contract-row"><span class="contract-index">04</span><div><h3>元数据完整</h3><p>KERNEL_META、能力声明与开局出身预设字段全部登记。</p></div><span class="contract-status fixed">已确认</span></article>
+                  <article class="contract-row attention"><span class="contract-index">05</span><div><h3>因果与失败</h3><p>失败与惩罚路径存在，但暂停后的恢复条件还没有定义。</p></div><span class="contract-status">待决定</span></article>
+                  <article class="contract-row"><span class="contract-index">06</span><div><h3>输出契约</h3><p>正文篇幅、选项数量与插图时机已约定，结构与样例一致。</p></div><span class="contract-status fixed">已确认</span></article>
+                </div>
+                <footer><button class="text-button" type="button" id="revise-checkpoint">要求修订</button><button class="text-button" type="button" data-open="source"><svg><use href="#i-code"/></svg>检查源码</button><button class="text-button primary" type="button" id="accept-checkpoint"><svg><use href="#i-check"/></svg>接受检查点</button></footer>
+              </section>
+            </div>
+          </div>
+        </div>
+
+        <form class="composer design-composer" id="design-composer">
+          <div class="prompt-row" role="group" aria-label="快速提示">
+            <button class="prompt-chip" type="button" data-prompt="梳理这个内核的核心体验，列出三条可测试的契约。">梳理核心体验</button>
+            <button class="prompt-chip" type="button" data-prompt="检查当前规则骨架的漏洞，重点是失败、惩罚与恢复路径。">检查规则漏洞</button>
+            <button class="prompt-chip" type="button" data-prompt="设计开局出身预设，包含资源、关系与一条隐藏线索。">设计开局出身</button>
+          </div>
+          <label class="sr-only" for="design-input">说明要改变的体验或规则</label>
+          <textarea id="design-input" rows="2" placeholder="说明要改变的体验、规则或边界…"></textarea>
+          <div class="composer-meta"><span class="context-chip"><i></i>设计代理 · 规则骨架</span><button class="send-button" type="submit"><span>发送</span><svg><use href="#i-send"/></svg></button></div>
+        </form>
+      </section>
+    </main>
+  </div>
+
+  <div class="scrim" id="scrim" hidden></div>
+
+  <aside class="library-sheet focus-layer" id="library-sheet" role="dialog" aria-modal="true" aria-labelledby="library-title" aria-hidden="true" inert>
+    <header class="sheet-header"><div><span class="overline" id="library-count">6 个内核</span><h2 id="library-title">内核库</h2></div><button class="icon-button close-layer" type="button" data-close title="关闭内核库" aria-label="关闭内核库"><svg><use href="#i-x"/></svg></button></header>
+    <div class="sheet-actions"><button class="text-button primary" type="button" data-mode="design" data-close><svg><use href="#i-plus"/></svg>新建设计</button><button class="text-button" type="button" id="new-template"><svg><use href="#i-template"/></svg>新建模板</button><button class="text-button" type="button" id="import-kernel"><svg><use href="#i-import"/></svg>导入</button></div>
+    <label class="search-field"><svg><use href="#i-search"/></svg><span class="sr-only">搜索内核</span><input id="kernel-search" type="search" placeholder="搜索名称、能力或标签"></label>
+    <div class="filter-row" role="group" aria-label="内核筛选"><button class="filter active" type="button" data-filter="all" aria-pressed="true">全部 <span>6</span></button><button class="filter" type="button" data-filter="published" aria-pressed="false">已发布 <span>3</span></button><button class="filter" type="button" data-filter="draft" aria-pressed="false">草稿 <span>2</span></button><button class="filter" type="button" data-filter="archived" aria-pressed="false">归档 <span>1</span></button></div>
+    <div class="kernel-list" id="kernel-list">
+      <article class="kernel-row selected" data-status="published" data-name="玄雾纪行 调查 关系博弈"><button class="kernel-select" type="button" aria-pressed="true"><span class="kernel-leading"><i></i><strong>玄雾纪行</strong><span class="sr-only selection-label">已选择</span></span><span class="kernel-version">v2.4</span><p>调查 · 关系博弈 · 持续世界事件</p><span class="kernel-meta">已选择 · 兼容当前世界</span></button><div class="kernel-row-actions"><button class="link-button" type="button" data-open="source">检查源码</button><button class="link-button apply-kernel" type="button">应用到暮色边境</button><button class="link-button row-menu-btn" type="button" data-row-menu aria-haspopup="menu">更多</button></div></article>
+      <article class="kernel-row" data-status="published" data-name="群星航路 舰队 外交 经营"><button class="kernel-select" type="button" aria-pressed="false"><span class="kernel-leading"><i></i><strong>群星航路</strong><span class="sr-only selection-label"></span></span><span class="kernel-version">v1.8</span><p>舰队经营 · 分支外交 · 资源压力</p><span class="kernel-meta">3 个世界正在使用</span></button><div class="kernel-row-actions"><button class="link-button" type="button">查看详情</button><button class="link-button row-menu-btn" type="button" data-row-menu aria-haspopup="menu">更多</button></div></article>
+      <article class="kernel-row" data-status="draft" data-name="无名草稿 生存 社会模拟"><button class="kernel-select" type="button" aria-pressed="false"><span class="kernel-leading"><i></i><strong>无名草稿</strong><span class="sr-only selection-label"></span></span><span class="kernel-version">草稿 62%</span><p>生存 · 社会模拟</p><span class="kernel-meta">缺少状态迁移与终止条件</span></button><div class="kernel-row-actions"><button class="link-button" type="button" data-mode="design" data-close>继续设计</button><button class="link-button row-menu-btn" type="button" data-row-menu aria-haspopup="menu">更多</button></div></article>
+      <article class="kernel-row" data-status="draft" data-name="雾港之谜 调查 悬疑"><button class="kernel-select" type="button" aria-pressed="false"><span class="kernel-leading"><i></i><strong>雾港之谜</strong><span class="sr-only selection-label"></span></span><span class="kernel-version">草稿 31%</span><p>调查 · 港口悬疑 · 单线真相</p><span class="kernel-meta">由模板新建 · 上次编辑 2 小时前</span></button><div class="kernel-row-actions"><button class="link-button" type="button" data-mode="design" data-close>继续设计</button><button class="link-button row-menu-btn" type="button" data-row-menu aria-haspopup="menu">更多</button></div></article>
+      <article class="kernel-row" data-status="archived" data-name="群星航路 旧版 归档"><button class="kernel-select" type="button" aria-pressed="false"><span class="kernel-leading"><i></i><strong>群星航路 · 旧版</strong><span class="sr-only selection-label"></span></span><span class="kernel-version">v1.2 · 归档</span><p>舰队经营 · 已被 v1.8 取代</p><span class="kernel-meta">归档于 08-12 · 可随时恢复</span></button><div class="kernel-row-actions"><button class="link-button" type="button" data-row-restore>恢复</button><button class="link-button row-menu-btn" type="button" data-row-menu aria-haspopup="menu">更多</button></div></article>
+    </div>
+  </aside>
+
+  <section class="source-layer focus-layer" id="source-layer" role="dialog" aria-modal="true" aria-labelledby="source-title" aria-hidden="true" inert>
+    <header class="source-header"><button class="text-button close-layer" type="button" data-close><svg><use href="#i-arrow-left"/></svg>返回设计</button><div><h2 id="source-title">玄雾纪行 / source.md</h2><span id="source-save-state">已保存 · UTF-8 · 15.1 KB</span></div><div class="source-actions"><button class="text-button" id="validate-source" type="button"><svg><use href="#i-check"/></svg>验证</button><button class="text-button primary" type="button" data-close>完成</button></div></header>
+    <div class="source-tabs" role="tablist" aria-label="源码视图"><button class="source-tab active" role="tab" type="button" data-source-tab="editor" aria-selected="true" aria-controls="source-editor-panel">源码</button><button class="source-tab" role="tab" type="button" data-source-tab="audit" aria-selected="false" aria-controls="source-audit-panel">审计 <span>2</span></button></div>
+    <div class="source-workspace">
+      <section class="source-editor-pane active" id="source-editor-panel" role="tabpanel" data-source-panel="editor"><div class="source-pane-label"><span>规则源码</span><span>Markdown</span></div><label class="sr-only" for="source-editor">内核规则源码</label><textarea id="source-editor" spellcheck="false"># KERNEL_META
+name: 玄雾纪行
+version: 2.5.0-draft
+capabilities: [memory, world_tick, relationships]
+
+## PLAYER_AUTHORITY
+关键立场、承诺与不可逆行动必须由玩家确认。
+系统不得将建议伪装为玩家已经采取的行动。
+
+## INFORMATION_TRUST
+- 角色陈述可以不可靠
+- 系统事实必须记录来源
+- 未知信息不得伪装为确定事实
+
+## WORLD_TICK
+世界事件按时间、地点和条件推进。
+事件不等待玩家触发，但不得跳过玩家可感知的后果。</textarea></section>
+      <aside class="audit-pane" id="source-audit-panel" role="tabpanel" data-source-panel="audit"><div class="audit-summary"><span class="overline">结构审计</span><strong>2 项需要决定</strong><p>没有阻止保存的问题。</p></div><button class="audit-issue" type="button" data-line="12"><span class="severity decision">决定</span><strong>冲突事实优先级</strong><p>多个来源相互冲突时，尚未定义采信与保留策略。</p><span>定位到第 12 行 <svg><use href="#i-chevron"/></svg></span></button><button class="audit-issue" type="button" data-line="18"><span class="severity suggestion">建议</span><strong>事件恢复条件</strong><p>世界事件有推进规则，但缺少暂停后的恢复条件。</p><span>定位到第 18 行 <svg><use href="#i-chevron"/></svg></span></button></aside>
+    </div>
+  </section>
+
+  <div class="menu-pop" id="world-menu-pop" role="menu" aria-label="世界与会话" hidden>
+    <div class="menu-section">
+      <span class="menu-label">世界线</span>
+      <button class="menu-item" type="button" role="menuitemradio" aria-pressed="true" data-worldline="暮色边境"><svg><use href="#i-world"/></svg>暮色边境<span class="menu-note">玄雾纪行 v2.4</span></button>
+      <button class="menu-item" type="button" role="menuitemradio" aria-pressed="false" data-worldline="白霜航道"><svg><use href="#i-world"/></svg>白霜航道<span class="menu-note">群星航路 v1.8</span></button>
+      <button class="menu-item" type="button" role="menuitemradio" aria-pressed="false" data-worldline="灰烬王庭"><svg><use href="#i-world"/></svg>灰烬王庭<span class="menu-note">未绑定内核</span></button>
+      <button class="menu-item accent" type="button" role="menuitem" id="worldline-new"><svg><use href="#i-plus"/></svg>新建世界线</button>
+      <button class="menu-item subtle" type="button" role="menuitem" data-manage="worldline"><svg><use href="#i-settings"/></svg>管理世界线…</button>
+    </div>
+    <div class="menu-section">
+      <span class="menu-label">会话</span>
+      <button class="menu-item" type="button" role="menuitemradio" aria-pressed="true" data-session="第 12 幕 · 雾灯越过旧城墙"><svg><use href="#i-session"/></svg>第 12 幕 · 雾灯越过旧城墙<span class="menu-note">当前</span></button>
+      <button class="menu-item" type="button" role="menuitemradio" aria-pressed="false" data-session="第 11 幕 · 河谷的钟声"><svg><use href="#i-session"/></svg>第 11 幕 · 河谷的钟声</button>
+      <button class="menu-item" type="button" role="menuitemradio" aria-pressed="false" data-session="试玩 · 雾港之谜"><svg><use href="#i-session"/></svg>试玩 · 雾港之谜</button>
+      <button class="menu-item accent" type="button" role="menuitem" id="session-new"><svg><use href="#i-plus"/></svg>新建会话</button>
+      <button class="menu-item subtle" type="button" role="menuitem" data-manage="session"><svg><use href="#i-settings"/></svg>管理会话…</button>
+    </div>
+    <div class="menu-section">
+      <button class="menu-item" type="button" role="menuitem" id="export-package"><svg><use href="#i-export"/></svg>导出进度包</button>
+      <button class="menu-item" type="button" role="menuitem" data-open="guide"><svg><use href="#i-keyboard"/></svg>新手引导</button>
+      <button class="menu-item" type="button" role="menuitem" data-open="settings"><svg><use href="#i-settings"/></svg>世界设置</button>
+    </div>
+  </div>
+
+  <div class="menu-pop" id="row-menu-pop" role="menu" aria-label="内核操作" hidden>
+    <button class="menu-item" type="button" role="menuitem" data-row-action="source"><svg><use href="#i-code"/></svg>检查源码</button>
+    <button class="menu-item" type="button" role="menuitem" data-row-action="versions"><svg><use href="#i-history"/></svg>版本历史</button>
+    <button class="menu-item" type="button" role="menuitem" data-row-action="template"><svg><use href="#i-template"/></svg>另存为模板</button>
+    <button class="menu-item" type="button" role="menuitem" data-row-action="rename"><svg><use href="#i-edit"/></svg>重命名</button>
+    <button class="menu-item" type="button" role="menuitem" data-row-action="archive"><svg><use href="#i-archive"/></svg><span id="row-archive-label">归档</span></button>
+    <button class="menu-item danger" type="button" role="menuitem" data-row-action="delete"><svg><use href="#i-trash"/></svg>删除</button>
+  </div>
+
+  <div class="menu-pop version-pop" id="version-pop" role="menu" aria-label="版本历史" hidden>
+    <div class="menu-section">
+      <span class="menu-label">版本历史</span>
+      <div id="version-list">
+        <button class="menu-item version-item" type="button" data-version="v2.5" aria-pressed="true"><strong>v2.5 · 草稿</strong><span class="menu-note">当前编辑</span></button>
+        <button class="menu-item version-item" type="button" data-version="v2.4" aria-pressed="false"><strong>v2.4 · 已发布</strong><span class="menu-note">当前世界使用</span></button>
+        <button class="menu-item version-item" type="button" data-version="v2.3" aria-pressed="false"><strong>v2.3 · 已发布</strong><span class="menu-note">08-02 归档副本</span></button>
+        <button class="menu-item version-item" type="button" data-version="v2.1" aria-pressed="false"><strong>v2.1 · 已发布</strong><span class="menu-note">06-18 归档副本</span></button>
+      </div>
+    </div>
+  </div>
+
+  <div class="menu-pop" id="model-menu-pop" role="menu" aria-label="模型选择" hidden></div>
+
+  <div class="menu-pop manage-pop" id="manage-pop" role="menu" aria-label="管理" hidden></div>
+
+  <div class="menu-pop" id="rail-pop" role="menu" aria-label="状态与进度" hidden>
+    <div class="menu-section">
+      <span class="menu-label">当前进度</span>
+      <div class="rail-detail">
+        <strong>第 12 幕 · 雾灯越过旧城墙</strong>
+        <span>剧情进度 68% · 世界时间 09:57</span>
+        <span class="rail-detail-row"><i class="ok"></i>引擎运行中 · 状态同步正常</span>
+        <span class="rail-detail-row"><i class="warn"></i>2 处细节待补录</span>
+        <span class="rail-detail-row"><i class="ok"></i>玄雾纪行 v2.4 · 记忆与承诺已登记</span>
+      </div>
+    </div>
+  </div>
+
+  <dialog class="confirm-dialog" id="confirm-dialog" aria-labelledby="confirm-title">
+    <h2 id="confirm-title">删除内核？</h2>
+    <p id="confirm-text">此操作不可撤销。</p>
+    <label class="confirm-input-wrap" id="confirm-input-wrap" hidden><span class="field-label" for="confirm-input">名称</span><input class="select-field" id="confirm-input" type="text"></label>
+    <div class="dialog-actions"><button class="text-button" type="button" id="confirm-cancel">取消</button><button class="text-button danger" type="button" id="confirm-ok">删除</button></div>
+  </dialog>
+
+  <section class="guide-layer focus-layer" id="guide-layer" role="dialog" aria-modal="true" aria-labelledby="guide-title" aria-hidden="true" inert>
+    <div class="guide-card">
+      <header><span class="overline">新手引导</span><h2 id="guide-title">三分钟上手六面世界</h2></header>
+      <ol class="guide-steps">
+        <li class="guide-step active"><span class="guide-dot">01</span><div><h3>在内容画布推进故事</h3><p>阅读正文，从行动选项中抉择，或直接描述你的行动。引擎会推进世界并保存每个回合。</p></div></li>
+        <li class="guide-step"><span class="guide-dot">02</span><div><h3>用内核设计调整世界规则</h3><p>与设计代理对话，确认检查点契约，检查源码并发布版本。规则改动始终可回溯。</p></div></li>
+        <li class="guide-step"><span class="guide-dot">03</span><div><h3>画廊、搜索与世界管理</h3><p>插画自动收入画廊；Ctrl+F 搜索正文；右上世界菜单切换世界线与会话，随时导出进度包。</p></div></li>
+      </ol>
+      <footer><button class="text-button" type="button" id="guide-skip">跳过</button><button class="text-button primary" type="button" id="guide-next">下一步</button></footer>
+    </div>
+  </section>
+
+  <div class="gallery-lightbox" id="gallery-lightbox" hidden>
+    <img src="world-scene.png" alt="插图大图预览" id="lightbox-img">
+    <div class="lightbox-bar"><span id="lightbox-caption">雾灯越过旧城墙 · 第 12 幕</span><span class="tile-tools"><button class="link-button" id="lightbox-regen" type="button">重生成</button><button class="link-button" id="lightbox-save" type="button">保存</button><button class="link-button" id="lightbox-close" type="button">关闭</button></span></div>
+  </div>
+
+  <section class="gallery-layer focus-layer" id="gallery-layer" role="dialog" aria-modal="true" aria-labelledby="gallery-title" aria-hidden="true" inert>
+    <header class="gallery-header">
+      <div><span class="overline">5 张插图 · 暮色边境</span><h2 id="gallery-title">画廊</h2></div>
+      <div class="gallery-actions"><button class="text-button" type="button" id="gallery-saveall"><svg><use href="#i-check"/></svg>全部保存</button><button class="text-button" type="button" id="gallery-export"><svg><use href="#i-export"/></svg>导出进度包</button><button class="icon-button close-layer" type="button" data-close title="关闭画廊" aria-label="关闭画廊"><svg><use href="#i-x"/></svg></button></div>
+    </header>
+    <div class="gallery-filter-row" role="group" aria-label="插图筛选"><button class="filter active" type="button" data-gallery-filter="all" aria-pressed="true">全部 <span>5</span></button><button class="filter" type="button" data-gallery-filter="scene" aria-pressed="false">场景 <span>3</span></button><button class="filter" type="button" data-gallery-filter="item" aria-pressed="false">物品 <span>2</span></button></div>
+    <div class="gallery-grid" id="gallery-grid">
+      <figure class="gallery-tile" data-kind="scene"><img src="world-scene.png" alt="雾灯与旧城墙"><figcaption><span>雾灯越过旧城墙 · 第 12 幕</span><span class="tile-tools"><button class="link-button tile-regen" type="button">重生成</button></span></figcaption></figure>
+      <figure class="gallery-tile" data-kind="scene"><img src="world-scene.png" alt="河谷北岸的轻雾" class="tint-a"><figcaption><span>河谷北岸 · 世界时间 09:57</span><span class="tile-tools"><button class="link-button tile-regen" type="button">重生成</button></span></figcaption></figure>
+      <figure class="gallery-tile" data-kind="item"><img src="world-scene.png" alt="旧约印章" class="tint-b"><figcaption><span>旧约的另一半印章</span><span class="tile-tools"><button class="link-button tile-regen" type="button">重生成</button></span></figcaption></figure>
+      <figure class="gallery-tile" data-kind="scene"><img src="world-scene.png" alt="桥灯与雾气" class="tint-c"><figcaption><span>第 11 幕 · 河谷的钟声</span><span class="tile-tools"><button class="link-button tile-regen" type="button">重生成</button></span></figcaption></figure>
+      <figure class="gallery-tile" data-kind="item"><img src="world-scene.png" alt="旅人的行囊" class="tint-d"><figcaption><span>旅人的行囊与口粮</span><span class="tile-tools"><button class="link-button tile-regen" type="button">重生成</button></span></figcaption></figure>
+      <figure class="gallery-tile add-tile"><button class="add-illustration" type="button" id="gallery-add"><svg><use href="#i-plus"/></svg>手动插图<br><small>从本地导入一张场景图</small></button></figure>
+    </div>
+  </section>
+
+  <aside class="settings-sheet focus-layer" id="settings-sheet" role="dialog" aria-modal="true" aria-labelledby="settings-title" aria-hidden="true" inert>
+    <header class="sheet-header"><div><span class="overline">六面世界 v1.3.0</span><h2 id="settings-title">设置</h2></div><button class="icon-button close-layer" type="button" data-close title="关闭设置" aria-label="关闭设置"><svg><use href="#i-x"/></svg></button></header>
+    <nav class="settings-tabs" role="tablist" aria-label="设置分区">
+      <button class="settings-tab active" type="button" role="tab" aria-selected="true" data-settings-tab="appearance">外观</button>
+      <button class="settings-tab" type="button" role="tab" aria-selected="false" data-settings-tab="models">模型</button>
+      <button class="settings-tab" type="button" role="tab" aria-selected="false" data-settings-tab="keys">快捷键</button>
+      <button class="settings-tab" type="button" role="tab" aria-selected="false" data-settings-tab="about">关于</button>
+    </nav>
+    <div class="settings-body">
+      <section class="settings-panel active" data-settings-panel="appearance" role="tabpanel">
+        <div class="field"><span class="field-label">主题</span><div class="segmented" role="group" aria-label="主题"><button type="button" data-setting="theme" data-value="dark" aria-pressed="true">深色</button><button type="button" data-setting="theme" data-value="light" aria-pressed="false">浅色</button></div></div>
+        <div class="field"><span class="field-label">颜色预设</span><div class="swatch-grid" role="group" aria-label="颜色预设"><button type="button" class="swatch active" data-setting="accent" data-value="amber" aria-pressed="true"><i style="--sw:#d6a45b"></i>琥珀</button><button type="button" class="swatch" data-setting="accent" data-value="ink" aria-pressed="false"><i style="--sw:#8e9aab"></i>墨玉</button><button type="button" class="swatch" data-setting="accent" data-value="rose" aria-pressed="false"><i style="--sw:#c96a7c"></i>绯樱</button><button type="button" class="swatch" data-setting="accent" data-value="azure" aria-pressed="false"><i style="--sw:#5f9ec9"></i>苍青</button></div></div>
+        <div class="field"><span class="field-label">字体大小</span><div class="segmented" role="group" aria-label="字体大小"><button type="button" data-setting="fontsize" data-value="standard" aria-pressed="true">标准</button><button type="button" data-setting="fontsize" data-value="large" aria-pressed="false">大</button><button type="button" data-setting="fontsize" data-value="xlarge" aria-pressed="false">特大</button></div></div>
+        <div class="field"><span class="field-label">圆角</span><div class="segmented" role="group" aria-label="圆角"><button type="button" data-setting="radius" data-value="sharp" aria-pressed="false">直角</button><button type="button" data-setting="radius" data-value="standard" aria-pressed="true">标准</button><button type="button" data-setting="radius" data-value="round" aria-pressed="false">圆润</button></div></div>
+        <div class="field"><span class="field-label">信息密度</span><div class="segmented" role="group" aria-label="信息密度"><button type="button" data-setting="density" data-value="comfortable" aria-pressed="true">舒适</button><button type="button" data-setting="density" data-value="compact" aria-pressed="false">紧凑</button></div></div>
+        <div class="field"><span class="field-label">阅读宽度</span><div class="segmented" role="group" aria-label="阅读宽度"><button type="button" data-setting="readw" data-value="standard" aria-pressed="true">标准</button><button type="button" data-setting="readw" data-value="wide" aria-pressed="false">宽</button><button type="button" data-setting="readw" data-value="wider" aria-pressed="false">更宽</button></div></div>
+        <div class="field"><span class="field-label">减弱动效</span><button class="switch" type="button" data-setting="reduce" data-value="off" aria-pressed="false" aria-label="减弱动效"><i></i></button></div>
+        <div class="field"><span class="field-label">跳过开场动画</span><button class="switch" type="button" data-setting="skipsplash" data-value="off" aria-pressed="false" aria-label="跳过开场动画"><i></i></button></div>
+        <div class="field"><span class="field-label">显示状态轨道</span><button class="switch" type="button" data-setting="statusrail" data-value="on" aria-pressed="true" aria-label="显示状态轨道"><i></i></button></div>
+      </section>
+      <section class="settings-panel" data-settings-panel="models" role="tabpanel" hidden>
+        <p class="field-group-label">文本模型</p>
+        <div class="field"><label class="field-label" for="setting-text-model">模型</label><select id="setting-text-model" class="select-field"><option selected>远山 · v4</option><option>深流 · v3</option><option>本地模拟接口</option></select></div>
+        <div class="field"><label class="field-label" for="setting-api-base">接口地址</label><input id="setting-api-base" class="select-field" type="url" value="https://api.example.com/v1"></div>
+        <div class="field"><label class="field-label" for="setting-api-key">接口密钥</label><input id="setting-api-key" class="select-field" type="password" value="sk-****-****" placeholder="保存在系统安全存储"></div>
+        <div class="field"><label class="field-label" for="setting-ctx">上下文长度</label><select id="setting-ctx" class="select-field"><option>8K</option><option selected>16K</option><option>32K</option><option>64K</option></select></div>
+        <div class="field"><label class="field-label" for="setting-keep">保留轮数</label><select id="setting-keep" class="select-field"><option>6</option><option selected>10</option><option>20</option><option>全部</option></select></div>
+        <div class="field"><span class="field-label">思考程度</span><div class="segmented" role="group" aria-label="思考程度"><button type="button" data-setting="think" data-value="fast" aria-pressed="false">快速</button><button type="button" data-setting="think" data-value="standard" aria-pressed="true">标准</button><button type="button" data-setting="think" data-value="deep" aria-pressed="false">深入</button></div></div>
+        <p class="field-group-label">插图模型</p>
+        <div class="field"><label class="field-label" for="setting-image-model">模型</label><select id="setting-image-model" class="select-field"><option selected>雾笔 · v2</option><option>浮光 · v1</option><option>仅手动插图</option></select></div>
+        <div class="field"><span class="field-label">自动插图</span><button class="switch" type="button" data-setting="illustauto" data-value="on" aria-pressed="true" aria-label="自动插图"><i></i></button></div>
+        <div class="field"><label class="field-label" for="setting-illust-size">出图尺寸</label><select id="setting-illust-size" class="select-field"><option selected>1024 × 576</option><option>1024 × 1024</option><option>1280 × 720</option></select></div>
+        <div class="field"><label class="field-label" for="setting-illust-style">画面风格</label><select id="setting-illust-style" class="select-field"><option selected>厚涂夜景</option><option>水墨留白</option><option>像素复古</option></select></div>
+        <div class="field"><label class="field-label" for="setting-illust-quality">质量档位</label><select id="setting-illust-quality" class="select-field"><option>草稿</option><option selected>标准</option><option>精细</option></select></div>
+        <div class="field"><span class="field-label">锁定种子</span><button class="switch" type="button" data-setting="seedlock" data-value="off" aria-pressed="false" aria-label="锁定种子"><i></i></button></div>
+        <div class="field"><label class="field-label" for="setting-illust-negative">负向词</label><input id="setting-illust-negative" class="select-field" type="text" value="模糊, 多余手指, 文字"></div>
+        <p class="field-note">接口密钥保存在系统安全存储，不会写入会话存档。自动插图在正文达到最小长度后触发。</p>
+      </section>
+      <section class="settings-panel" data-settings-panel="keys" role="tabpanel" hidden>
+        <div class="shortcut-row"><span>进入内核设计</span><span><kbd>Ctrl</kbd> <kbd>K</kbd></span></div>
+        <div class="shortcut-row"><span>打开内核库</span><span><kbd>Ctrl</kbd> <kbd>Shift</kbd> <kbd>L</kbd></span></div>
+        <div class="shortcut-row"><span>检查当前内核源码</span><span><kbd>Ctrl</kbd> <kbd>.</kbd></span></div>
+        <div class="shortcut-row"><span>打开画廊</span><span><kbd>Ctrl</kbd> <kbd>G</kbd></span></div>
+        <div class="shortcut-row"><span>打开命令面板</span><span><kbd>Ctrl</kbd> <kbd>P</kbd></span></div>
+        <div class="shortcut-row"><span>打开设置</span><span><kbd>Ctrl</kbd> <kbd>,</kbd></span></div>
+        <div class="shortcut-row"><span>发送输入框内容</span><span><kbd>Ctrl</kbd> <kbd>Enter</kbd></span></div>
+        <div class="shortcut-row"><span>关闭焦点层</span><span><kbd>Esc</kbd></span></div>
+      </section>
+      <section class="settings-panel" data-settings-panel="about" role="tabpanel" hidden>
+        <div class="shortcut-row"><span>应用版本</span><span class="mono">v1.3.0</span></div>
+        <div class="shortcut-row"><span>设计原型</span><span class="mono">通用内核平台 V2</span></div>
+        <div class="shortcut-row"><span>故事引擎</span><span class="mono">双内核 · 状态机</span></div>
+        <p class="field-note">这是一份高保真设计原型，用于在开发前验证信息架构与交互；所有数据均为示例。</p>
+        <p class="field-group-label">数据</p>
+        <div class="field"><button class="text-button" type="button" id="about-export"><svg><use href="#i-export"/></svg>导出进度包</button></div>
+        <div class="field"><button class="text-button" type="button" id="about-open-data"><svg><use href="#i-folder"/></svg>打开数据文件夹</button></div>
+        <div class="field"><button class="text-button danger" type="button" id="about-clear-cache"><svg><use href="#i-trash"/></svg>清空图片缓存</button></div>
+        <div class="field"><button class="text-button" type="button" id="check-update"><svg><use href="#i-history"/></svg>检查更新</button></div>
+      </section>
+    </div>
+  </aside>
+
+  <dialog class="command-dialog" id="command-dialog" aria-labelledby="command-title">
+    <div class="command-search"><svg><use href="#i-search"/></svg><label class="sr-only" for="command-input">搜索命令</label><input id="command-input" type="search" placeholder="输入命令或跳转位置…"><kbd>Esc</kbd></div>
+    <div class="command-list" id="command-list" role="listbox" aria-label="命令"><button type="button" data-command="design" role="option"><span><svg><use href="#i-spark"/></svg>进入内核设计</span><kbd>Ctrl K</kbd></button><button type="button" data-command="library" role="option"><span><svg><use href="#i-library"/></svg>打开内核库</span><kbd>Ctrl Shift L</kbd></button><button type="button" data-command="source" role="option"><span><svg><use href="#i-code"/></svg>检查当前内核源码</span><kbd>Ctrl .</kbd></button><button type="button" data-command="gallery" role="option"><span><svg><use href="#i-gallery"/></svg>打开画廊</span><kbd>Ctrl G</kbd></button><button type="button" data-command="settings" role="option"><span><svg><use href="#i-settings"/></svg>打开设置</span><kbd>Ctrl ,</kbd></button><button type="button" data-command="search" role="option"><span><svg><use href="#i-search"/></svg>搜索正文</span><kbd>Ctrl F</kbd></button><button type="button" data-command="guide" role="option"><span><svg><use href="#i-keyboard"/></svg>打开新手引导</span></button><button type="button" data-command="theme" role="option"><span><svg><use href="#i-sun"/></svg>切换主题</span></button><button type="button" data-command="density" role="option"><span><svg><use href="#i-filter"/></svg>切换信息密度</span><small>舒适</small></button></div>
+    <p class="command-empty" id="command-empty" hidden>没有匹配的命令</p>
+  </dialog>
+
+  <script src="prototype.js"></script>
+</body>
+</html>

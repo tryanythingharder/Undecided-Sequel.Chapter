@@ -1,0 +1,33 @@
+:root { color-scheme: light; --bg: #f0f0ed; --surface: #fafaf8; --text: #171817; --muted: #6d706d; --line: #cfd1cc; --accent: #c25f35; }
+* { box-sizing: border-box; }
+html, body { margin: 0; min-width: 320px; min-height: 100%; }
+body { background: var(--bg); color: var(--text); font-family: "Segoe UI Variable", "Microsoft YaHei UI", sans-serif; letter-spacing: 0; }
+header { height: 68px; display: flex; align-items: center; justify-content: space-between; padding: 0 28px; border-bottom: 1px solid var(--line); background: var(--surface); }
+.brand { display: flex; align-items: center; gap: 10px; }
+.brand img { width: 40px; height: 40px; object-fit: cover; }
+.brand strong, .brand span { display: block; }
+.brand strong { font-size: 14px; }
+.brand span { margin-top: 2px; color: var(--muted); font-size: 10px; }
+header a, .meta a { color: var(--text); font-size: 11px; text-decoration: none; }
+header a { padding-bottom: 3px; border-bottom: 1px solid var(--text); }
+main { width: min(1460px, calc(100% - 48px)); margin: 0 auto; padding: 56px 0 80px; }
+.intro { max-width: 840px; margin-bottom: 54px; }
+.intro > span { color: var(--accent); font-size: 11px; font-weight: 700; }
+.intro h1 { margin: 12px 0 16px; font-size: clamp(38px, 6vw, 82px); line-height: 0.96; }
+.intro p { max-width: 660px; margin: 0; color: var(--muted); font-size: 14px; line-height: 1.65; }
+.prototype-list { display: grid; gap: 52px; }
+.prototype-list article { display: grid; grid-template-columns: minmax(0, 1fr) 350px; gap: 28px; align-items: end; padding-top: 18px; border-top: 1px solid var(--line); }
+.preview { display: block; min-width: 0; overflow: hidden; border: 1px solid var(--line); background: var(--surface); }
+.preview img { width: 100%; display: block; aspect-ratio: 16 / 10; object-fit: cover; object-position: top left; transition: transform 0.45s cubic-bezier(0.16, 1, 0.3, 1); }
+.preview:hover img { transform: scale(1.015); }
+.meta { min-width: 0; padding-bottom: 4px; }
+.meta span { color: var(--accent); font-size: 10px; font-weight: 700; }
+.meta h2 { margin: 10px 0 32px; font-size: clamp(22px, 2.4vw, 36px); line-height: 1.12; }
+.meta a { display: inline-block; padding: 10px 0; border-bottom: 1px solid var(--text); }
+@media (max-width: 880px) {
+  header { padding: 0 14px; }
+  main { width: min(100% - 28px, 720px); padding-top: 36px; }
+  .prototype-list article { grid-template-columns: 1fr; gap: 16px; }
+  .meta h2 { margin-bottom: 18px; }
+}
+

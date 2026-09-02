@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>线框 - 内容画布</title>
+  <style>
+    *{box-sizing:border-box}body{margin:0;background:#f5f5f5;color:#333;font:14px/1.5 system-ui,sans-serif}a{color:inherit;text-decoration:none}button,textarea{font:inherit}.app{min-height:100svh;display:grid;grid-template-rows:56px 1fr 52px}.wf-header,.wf-tab-bar{display:flex;align-items:center;gap:8px;padding:8px 12px;background:#fff;border-bottom:1px dashed #aaa}.wf-header strong{margin-right:auto}.wf-nav{display:flex;gap:6px}.wf-button,.wf-link{display:inline-flex;align-items:center;justify-content:center;min-height:38px;padding:8px 12px;border:1px solid #888;background:#fff}.active{background:#ddd;border-style:solid}.body{display:grid;grid-template-columns:44px minmax(0,1fr)}.dock{display:flex;flex-direction:column;gap:8px;padding:10px 5px;border-right:1px dashed #aaa}.dock .wf-link{padding:0;min-height:38px}.canvas{min-width:0;display:flex;flex-direction:column;align-items:center;padding:28px 14px 120px}.world{width:min(100%,680px)}.eyebrow,.meta{font-size:12px;color:#666}.scene{height:164px;margin:16px 0;border:1px dashed #999;background:#e5e5e5;display:grid;place-items:center}.copy{padding:14px 0;border-top:1px dashed #bbb}.choice{margin:8px 0;padding:12px;border:1px solid #999;background:#fafafa}.composer{position:fixed;left:58px;right:14px;bottom:12px;margin:auto;max-width:680px;padding:8px;border:1px solid #777;background:#fff}.wf-input{width:100%;min-height:58px;border:1px dashed #999;padding:8px;resize:none}.composer-row{display:flex;justify-content:space-between;gap:8px;margin-top:6px}.wf-tab-bar{display:none}.meta-footer{position:fixed;right:8px;bottom:2px;font-size:10px;color:#777}@media(max-width:640px){.app{grid-template-rows:52px 1fr 52px}.body{display:block}.dock{display:none}.wf-header .brand{display:none}.canvas{padding-top:18px}.composer{left:10px;right:10px;bottom:58px}.wf-tab-bar{display:flex;position:fixed;left:0;right:0;bottom:0;justify-content:space-around;border-top:1px dashed #aaa;border-bottom:0}.wf-tab-bar .wf-link{border:0;padding:6px}.meta-footer{display:none}}
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header class="wf-header"><strong class="brand">[CAT] ZCODE</strong><nav class="wf-nav" aria-label="主要区域"><a class="wf-link active" href="content.html">内容</a><a class="wf-link" href="kernel-design.html">内核设计</a></nav><span class="meta">已保存</span></header>
+    <div class="body">
+      <aside class="dock" aria-label="快捷入口"><a class="wf-link" href="kernel-library.html" title="内核库">库</a><a class="wf-link" href="content.html" title="世界线">线</a><a class="wf-link" href="content.html" title="搜索">搜</a></aside>
+      <main class="canvas"><article class="world"><div class="eyebrow">暮色边境 / 第 12 幕 / 玄雾纪行 v2.4</div><h1>雾灯越过旧城墙</h1><div class="scene">[世界场景图，稳定 16:9]</div><div class="copy"><p>铜钟在河谷里响了第三次。你认出桥对面的旅人，也认出他手中那枚只在旧约里出现的印章。</p><p>内核记住了你曾经立下的承诺，但没有替你决定下一步。</p></div><div class="meta">3 个可选行动</div><div class="choice">A. 走上桥，先问印章的来历</div><div class="choice">B. 留在雾中，观察旅人的同伴</div><div class="choice">C. 自由描述行动</div></article></main>
+    </div>
+    <div class="wf-tab-bar"><a class="wf-link active" href="content.html">内容</a><a class="wf-link" href="kernel-library.html">内核库</a><a class="wf-link" href="kernel-design.html">设计</a></div>
+  </div>
+  <section class="composer" aria-label="输入行动"><textarea class="wf-input" placeholder="描述你的行动…"></textarea><div class="composer-row"><span class="meta">上下文：玄雾纪行</span><a class="wf-link" href="content.html">发送</a></div></section>
+  <footer class="meta-footer">内容画布 / UC-001</footer>
+</body>
+</html>
+

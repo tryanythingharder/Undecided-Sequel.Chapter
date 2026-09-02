@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" href="../../../build/cat.png">
+  <title>精密工作室 - 六面世界</title>
+  <link rel="stylesheet" href="../shared/base.css">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body class="variant-precision" data-theme="light">
+  <div class="studio-app">
+    <aside class="tool-rail" data-enter>
+      <span class="cat-mark"><img src="../../../build/cat.png" alt="六面世界黑猫图标"></span>
+      <nav aria-label="工作区域">
+        <button class="rail-button" type="button" data-mode="content" aria-pressed="false" title="内容区"><span>文</span><small>内容</small></button>
+        <button class="rail-button active" type="button" data-mode="kernel" aria-pressed="true" title="内核设计"><span>◇</span><small>内核</small></button>
+      </nav>
+      <div class="rail-bottom">
+        <button class="rail-button" type="button" data-action="theme" title="主题设置"><span>◐</span><small>主题</small></button>
+      </div>
+    </aside>
+
+    <section class="kernel-studio" data-workspace="kernel">
+      <header class="studio-header" data-enter>
+        <div class="workspace-path">
+          <button class="icon-btn library-toggle" type="button" data-action="library" title="展开内核库" aria-label="展开内核库">☰</button>
+          <div><span>内核设计</span><strong data-current-kernel>六面世界：人生模拟器</strong></div>
+        </div>
+        <div class="header-actions">
+          <button class="source-toggle" type="button" data-action="source">源码</button>
+          <span class="save-state" data-save-state>已保存</span>
+          <button class="primary" type="button" data-action="save">保存</button>
+        </div>
+      </header>
+
+      <div class="studio-grid">
+        <aside class="library-pane" data-enter>
+          <header><div><strong>内核库</strong><span data-kernel-total>2 个内核</span></div><button class="icon-btn" type="button" data-action="new" title="新建内核" aria-label="新建内核">＋</button></header>
+          <label class="library-search"><span>⌕</span><input type="search" data-kernel-search placeholder="搜索名称与类型"></label>
+          <div class="library-commands">
+            <button type="button" data-action="new">新建内核</button>
+            <button type="button" data-action="import">导入 .md</button>
+          </div>
+          <div class="kernel-list" data-kernel-list role="listbox" aria-label="可用内核">
+            <button class="kernel-item" type="button" data-kernel="玄寰界" data-source="# KERNEL_META&#10;name: 玄寰界&#10;type: 修真世界&#10;version: 2.4&#10;&#10;## 核心规则&#10;- 境界提升需要代价&#10;- 宗门关系持续演化&#10;- 每次越阶行动都记录风险" aria-selected="false">
+              <span class="kernel-glyph">玄</span><span><strong>玄寰界</strong><small>内置 / 69.8 KB</small></span><em>修真</em>
+            </button>
+            <button class="kernel-item active" type="button" data-kernel="六面世界：人生模拟器" data-source="# KERNEL_META&#10;name: 六面世界：人生模拟器&#10;type: universal-life-sim&#10;version: 1.3&#10;&#10;## 核心体验&#10;用统一的因果、身份和记忆框架服务不同题材。&#10;&#10;## 世界规则&#10;- 选择生成可追踪后果&#10;- 角色保留独立目标&#10;- 模块可以替换但底层约束不变" aria-selected="true">
+              <span class="kernel-glyph">六</span><span><strong>六面世界：人生模拟器</strong><small>内置 / 38.8 KB</small></span><em>当前</em>
+            </button>
+          </div>
+          <footer><span>内置 2</span><button type="button">管理库</button></footer>
+        </aside>
+
+        <section class="ai-pane" data-enter aria-labelledby="precision-ai-title">
+          <header class="pane-header">
+            <div><strong id="precision-ai-title">AI 协作</strong><span>与内核源码同步</span></div>
+            <button type="button" data-action="reset">新对话</button>
+          </header>
+          <div class="context-strip">
+            <span>当前上下文</span>
+            <button type="button" data-current-kernel>六面世界：人生模拟器</button>
+            <button type="button">规则源码</button>
+          </div>
+          <div class="chat-log" data-chat-log aria-live="polite">
+            <article class="chat-row assistant">
+              <span class="chat-role">AI 协作</span>
+              <p>当前草稿已经具备通用内核骨架。我建议下一步明确“题材模块”和“底层规则”的边界，避免新增世界时复制整份内核。</p>
+              <div class="assistant-note"><strong>建议修改</strong><span>新增 MODULE_CONTRACT，约束模块只能覆盖世界观、成长路径与资源名称。</span></div>
+            </article>
+            <article class="chat-row user">
+              <span class="chat-role">你</span>
+              <p>把内容区的角色记忆也纳入契约，但不要让内核依赖某个具体故事。</p>
+            </article>
+            <article class="chat-row assistant">
+              <span class="chat-role">AI 协作</span>
+              <p>可以。内核只声明记忆接口与写入时机，具体角色、事件和摘要仍由每条内容会话保存。</p>
+            </article>
+          </div>
+          <div class="quick-prompts" aria-label="快捷协作指令">
+            <button type="button" data-prompt="请梳理当前内核的模块契约与不可覆盖规则。">梳理模块契约</button>
+            <button type="button" data-prompt="请检查规则间的循环依赖和缺失状态。">检查依赖</button>
+            <button type="button" data-prompt="请生成一份最小可用的题材模块示例。">生成模块示例</button>
+          </div>
+          <div class="composer">
+            <textarea data-ai-input rows="3" placeholder="描述要调整的规则或目标…"></textarea>
+            <div class="composer-tools"><button class="attach" type="button" title="附加上下文" aria-label="附加上下文">＋</button><button class="send" type="button" data-action="send" title="发送设计请求">↑</button></div>
+          </div>
+        </section>
+
+        <div class="panel-resizer" data-resizer role="separator" aria-orientation="vertical" aria-label="调整源码区域宽度"></div>
+
+        <aside class="source-pane" data-enter>
+          <header class="pane-header source-head">
+            <div><strong>规则源码</strong><span>Markdown / 15.1 KB</span></div>
+            <button class="icon-btn" type="button" data-action="source" title="收起源码" aria-label="收起源码">×</button>
+          </header>
+          <div class="editor-tabs"><button class="active" type="button">源码</button><button type="button">结构</button><span>UTF-8</span></div>
+          <label class="name-field"><span>名称</span><input type="text" data-source-name value="六面世界：人生模拟器"></label>
+          <div class="code-surface"><span class="line-numbers">01<br>02<br>03<br>04<br>05<br>06<br>07<br>08<br>09<br>10<br>11<br>12<br>13<br>14</span><textarea data-source-text spellcheck="false"># KERNEL_META
+name: 六面世界：人生模拟器
+type: universal-life-sim
+version: 1.3
+
+## 核心体验
+用统一的因果、身份和记忆框架服务不同题材。
+
+## 世界规则
+- 选择生成可追踪后果
+- 角色保留独立目标
+- 模块可以替换，但底层约束不变
+
+## MODULE_CONTRACT
+- world: 世界观与时代
+- progression: 身份成长路径
+- resources: 题材资源名称</textarea></div>
+          <footer><span>草稿自动同步</span><strong>Markdown</strong></footer>
+        </aside>
+      </div>
+    </section>
+
+    <section class="content-studio is-hidden" data-workspace="content">
+      <header class="studio-header">
+        <div class="workspace-path"><div><span>内容区</span><strong>从港口醒来</strong></div></div>
+        <div class="header-actions"><span>人生模拟器</span><button class="primary" type="button">新世界线</button></div>
+      </header>
+      <div class="content-grid">
+        <aside class="thread-pane">
+          <label class="library-search"><span>⌕</span><input type="search" placeholder="搜索世界线"></label>
+          <button class="thread active" type="button"><strong>从港口醒来</strong><span>12 回合 / 刚刚</span></button>
+          <button class="thread" type="button"><strong>王都的雨夜</strong><span>31 回合 / 昨天</span></button>
+        </aside>
+        <section class="content-chat">
+          <div class="story-copy">
+            <article><span>世界</span><p>退潮后的港口只剩下碎船与潮湿的盐味。石阶从礁石间露出，通向地图之外。</p></article>
+            <article class="user"><span>你</span><p>握住生锈的钥匙，沿石阶向下。</p></article>
+            <article><span>世界</span><p>尽头是一面会呼吸的铜镜。镜中的你比现在年长十岁，正无声地说：不要回头。</p></article>
+          </div>
+          <div class="composer content-composer"><textarea data-content-input rows="2" placeholder="决定下一步行动…"></textarea><div class="composer-tools"><button class="send" type="button" data-action="content-send">↑</button></div></div>
+        </section>
+        <aside class="context-pane"><strong>当前状态</strong><dl><dt>时间</dt><dd>雨季第七日</dd><dt>地点</dt><dd>旧港下层</dd><dt>携带</dt><dd>生锈钥匙</dd><dt>内核</dt><dd>人生模拟器</dd></dl></aside>
+      </div>
+    </section>
+  </div>
+
+  <aside class="theme-panel" data-theme-panel hidden>
+    <strong>主题设置</strong>
+    <div class="theme-options"><button class="system" type="button" data-theme-value="system"><i></i>系统</button><button class="light" type="button" data-theme-value="light"><i></i>浅色</button><button class="dark" type="button" data-theme-value="dark"><i></i>深色</button></div>
+  </aside>
+
+  <script src="../shared/prototype.js"></script>
+</body>
+</html>

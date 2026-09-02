@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>六面世界 · 内核设计起点</title>
+  <link rel="icon" href="../../build/cat.png">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <svg class="icon-sprite" aria-hidden="true">
+    <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h13M13 6l6 6-6 6"/></symbol>
+    <symbol id="i-spark" viewBox="0 0 24 24"><path d="m12 3 1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8L12 3ZM19 16l.7 2.3L22 19l-2.3.7L19 22l-.7-2.3L16 19l2.3-.7L19 16Z"/></symbol>
+    <symbol id="i-library" viewBox="0 0 24 24"><path d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z"/></symbol>
+    <symbol id="i-import" viewBox="0 0 24 24"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></symbol>
+    <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 10v6M12 7h.01"/></symbol>
+    <symbol id="i-settings" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M18.7 5.3l-2.1 2.1M7.4 16.6l-2.1 2.1"/></symbol>
+  </svg>
+
+  <header class="topbar">
+    <div class="brand">
+      <img src="../../build/cat.png" alt="六面世界">
+      <div><strong>六面世界</strong><span>通用内核平台</span></div>
+    </div>
+    <nav class="mode-switch" aria-label="工作区域">
+      <button type="button">内容</button>
+      <button class="active" type="button">内核设计</button>
+    </nav>
+    <div class="top-actions">
+      <button class="icon-button" title="主题" aria-label="主题"><svg><use href="#i-settings"/></svg></button>
+      <button class="icon-button" title="命令面板" aria-label="命令面板"><span class="command-glyph">⌘</span></button>
+    </div>
+  </header>
+
+  <aside class="rail" aria-label="内核设计步骤">
+    <div class="rail-label">设计流程</div>
+    <button class="rail-step active" data-step="welcome"><b>00</b><span>起点</span></button>
+    <button class="rail-step" data-step="idea"><b>01</b><span>说清想法</span></button>
+    <button class="rail-step" data-step="shape"><b>02</b><span>确认体验</span></button>
+    <button class="rail-step" data-step="rules"><b>03</b><span>生成规则</span></button>
+    <button class="rail-step" data-step="test"><b>04</b><span>运行测试</span></button>
+    <button class="rail-step" data-step="publish"><b>05</b><span>发布使用</span></button>
+    <div class="rail-spacer"></div>
+    <button class="rail-utility" type="button"><svg><use href="#i-library"/></svg><span>内核库</span></button>
+  </aside>
+
+  <main class="workspace">
+    <section class="page page-welcome active" data-page="welcome">
+      <div class="page-heading">
+        <span class="eyebrow">内核设计 · 第一次使用</span>
+        <h1>先说你想做的世界。</h1>
+        <p>你不需要会写规则。设计助手会把你的想法整理成一份可以测试、保存和运行的世界内核。</p>
+      </div>
+
+      <div class="welcome-layout">
+        <section class="start-panel" aria-labelledby="start-title">
+          <div class="section-kicker">从这里开始</div>
+          <h2 id="start-title">选择一种方式</h2>
+          <div class="start-list">
+            <button class="start-option primary-option" data-route="idea" type="button">
+              <span class="option-icon"><svg><use href="#i-spark"/></svg></span>
+              <span class="option-copy"><strong>我有想法，开始设计</strong><small>用自然语言描述世界，AI 会逐步追问并整理规则。</small></span>
+              <svg class="option-arrow"><use href="#i-arrow"/></svg>
+            </button>
+            <button class="start-option" data-route="recommended" type="button">
+              <span class="option-icon"><svg><use href="#i-library"/></svg></span>
+              <span class="option-copy"><strong>使用推荐内核</strong><small>选择已经通过运行检查的内核，直接创建世界线开始游戏。</small></span>
+              <svg class="option-arrow"><use href="#i-arrow"/></svg>
+            </button>
+            <button class="start-option" data-route="import" type="button">
+              <span class="option-icon"><svg><use href="#i-import"/></svg></span>
+              <span class="option-copy"><strong>导入已有内核</strong><small>导入 Markdown 文件，先检查能否运行，再决定是否应用。</small></span>
+              <svg class="option-arrow"><use href="#i-arrow"/></svg>
+            </button>
+          </div>
+        </section>
+
+        <aside class="orientation-panel">
+          <div class="section-kicker">你会经历</div>
+          <div class="orientation-line"><span>01</span><strong>说清体验</strong><small>不用写术语</small></div>
+          <div class="orientation-line"><span>02</span><strong>生成规则</strong><small>每项都能修改</small></div>
+          <div class="orientation-line"><span>03</span><strong>真实测试</strong><small>不通过不能发布</small></div>
+          <div class="orientation-line"><span>04</span><strong>应用游玩</strong><small>一键创建世界线</small></div>
+          <div class="orientation-note"><svg><use href="#i-info"/></svg><span>内核设计和内容游玩是两个区域。内核完成后，你可以随时回来继续修改。</span></div>
+        </aside>
+      </div>
+
+      <section class="recommended" aria-labelledby="recommended-title">
+        <div class="section-heading"><div><span class="section-kicker">已经准备好</span><h2 id="recommended-title">推荐内核</h2></div><button class="text-link" data-route="recommended" type="button">查看全部 <svg><use href="#i-arrow"/></svg></button></div>
+        <div class="kernel-list">
+          <article class="kernel-row"><div class="kernel-status ready"></div><div class="kernel-main"><strong>六面世界：人生模拟器</strong><span>人生模拟 · 关系 · 长期记忆</span></div><span class="kernel-meta">已通过运行检查 · v1.0</span><button class="row-action" data-apply="六面世界：人生模拟器" type="button">应用并开始</button></article>
+          <article class="kernel-row"><div class="kernel-status ready"></div><div class="kernel-main"><strong>玄寰界：修真人生模拟器</strong><span>修行成长 · 世界推进 · 因果</span></div><span class="kernel-meta">已通过运行检查 · v1.1</span><button class="row-action" data-apply="玄寰界：修真人生模拟器" type="button">应用并开始</button></article>
+        </div>
+      </section>
+    </section>
+
+    <section class="page page-flow" data-page="idea" hidden>
+      <div class="flow-heading"><div><span class="eyebrow">01 · 说清想法</span><h1>先不用想规则。</h1><p>告诉我你希望玩家经历什么，剩下的我来帮你拆解。</p></div><span class="save-state"><i></i>草稿自动保存</span></div>
+      <div class="idea-grid">
+        <div class="question-list">
+          <label class="question active"><span>01</span><strong>你想让玩家感受到什么？</strong><small>例如：在一个会记住人情的城市里调查失踪案。</small><textarea placeholder="用你自己的话描述，几句话就可以…"></textarea></label>
+          <label class="question"><span>02</span><strong>玩家在世界里是谁？</strong><small>可以是旅行者、学生、商人、调查员，或者你还没想好。</small><input placeholder="例如：刚来到城市的普通调查员"></label>
+          <label class="question"><span>03</span><strong>这个世界最特别的规则是什么？</strong><small>不知道也没关系，可以让设计助手帮你提出选项。</small><input placeholder="例如：每个承诺都会留下可追踪的痕迹"></label>
+        </div>
+        <aside class="assistant-note"><span class="assistant-mark"><svg><use href="#i-spark"/></svg></span><strong>设计助手</strong><p>我会一次问一个问题。你可以直接回答，也可以点击“帮我想想”。</p><button class="soft-button" type="button">帮我想想</button></aside>
+      </div>
+      <div class="flow-footer"><button class="text-button" data-route="welcome" type="button">返回起点</button><button class="primary-button" data-route="shape" type="button">整理我的想法 <svg><use href="#i-arrow"/></svg></button></div>
+    </section>
+
+    <section class="page page-flow" data-page="shape" hidden>
+      <div class="flow-heading"><div><span class="eyebrow">02 · 确认体验</span><h1>先确认你想要的体验。</h1><p>我把刚才的想法整理成几个关键选择，你可以直接调整，不需要懂内核术语。</p></div><span class="save-state"><i></i>草稿自动保存</span></div>
+      <div class="shape-grid">
+        <section class="experience-card" aria-labelledby="experience-title">
+          <div class="section-kicker">体验草案</div>
+          <h2 id="experience-title">玩家会经历什么</h2>
+          <div class="experience-flow">
+            <div class="experience-node"><span>01</span><strong>进入世界</strong><small>带着一个明确的身份开始</small></div>
+            <div class="experience-connector"></div>
+            <div class="experience-node"><span>02</span><strong>做出选择</strong><small>关系和环境会记住你的行动</small></div>
+            <div class="experience-connector"></div>
+            <div class="experience-node"><span>03</span><strong>承担结果</strong><small>世界继续变化，故事不会重置</small></div>
+          </div>
+        </section>
+        <aside class="tune-panel" aria-labelledby="tune-title">
+          <div class="section-kicker">可以调整</div>
+          <h2 id="tune-title">把重点告诉我</h2>
+          <label class="tune-row"><span><strong>玩家自由度</strong><small>玩家能否改变主要走向</small></span><select aria-label="玩家自由度"><option>高</option><option>中</option><option>低</option></select></label>
+          <label class="tune-row"><span><strong>世界主动性</strong><small>世界事件是否会主动发生</small></span><select aria-label="世界主动性"><option>中</option><option>高</option><option>低</option></select></label>
+          <label class="tune-row"><span><strong>节奏</strong><small>一次行动推进多少内容</small></span><select aria-label="节奏"><option>慢一些</option><option>平衡</option><option>快一些</option></select></label>
+        </aside>
+      </div>
+      <div class="flow-footer"><button class="text-button" data-route="idea" type="button">返回修改想法</button><button class="primary-button" data-route="rules" type="button">生成规则 <svg><use href="#i-arrow"/></svg></button></div>
+    </section>
+
+    <section class="page page-flow" data-page="rules" hidden>
+      <div class="flow-heading"><div><span class="eyebrow">03 · 生成规则</span><h1>规则会从你的想法里长出来。</h1><p>下面是设计助手整理出的第一版。每一条都可以展开、修改或删除。</p></div><span class="save-state verified"><i></i>已生成草案</span></div>
+      <div class="rules-toolbar"><span class="quiet-note">4 条核心规则 · 已关联 3 个体验目标</span><button class="secondary-button" type="button">查看原始 Markdown</button></div>
+      <div class="rule-list">
+        <article class="rule-card"><div class="rule-number">01</div><div><h2>世界会记住关系</h2><p>角色会根据玩家过去的承诺、帮助和伤害调整态度，关系不会因为重新开始而自动清零。</p><div class="rule-tags"><span>关系</span><span>长期记忆</span></div></div><button class="row-action" type="button">编辑</button></article>
+        <article class="rule-card"><div class="rule-number">02</div><div><h2>玩家拥有最终决定权</h2><p>设计助手可以提出建议，但不会替玩家做关键选择；所有不可逆行动都会先说明可能的影响。</p><div class="rule-tags"><span>玩家主导</span><span>安全确认</span></div></div><button class="row-action" type="button">编辑</button></article>
+        <article class="rule-card"><div class="rule-number">03</div><div><h2>世界在玩家行动之外推进</h2><p>未被处理的线索会随时间变化，重要角色也会在幕后做出自己的决定。</p><div class="rule-tags"><span>世界推进</span><span>事件</span></div></div><button class="row-action" type="button">编辑</button></article>
+        <article class="rule-card"><div class="rule-number">04</div><div><h2>每次行动都能解释结果</h2><p>系统会说明结果来自哪些状态、关系或规则，避免让玩家面对无法理解的突然失败。</p><div class="rule-tags"><span>可解释</span><span>反馈</span></div></div><button class="row-action" type="button">编辑</button></article>
+      </div>
+      <div class="flow-footer"><button class="text-button" data-route="shape" type="button">返回确认体验</button><button class="primary-button" data-route="test" type="button">继续运行测试 <svg><use href="#i-arrow"/></svg></button></div>
+    </section>
+
+    <section class="page page-flow" data-page="test" hidden>
+      <div class="flow-heading"><div><span class="eyebrow">04 · 运行测试</span><h1>现在让它真的跑一遍。</h1><p>先用一条临时世界线检查开局、行动、失败和保存，确认规则不是“看起来能用”。</p></div><span class="save-state"><i></i>尚未运行</span></div>
+      <div class="test-layout">
+        <section class="test-panel" aria-labelledby="test-title">
+          <div class="section-kicker">真实运行检查</div>
+          <h2 id="test-title">发布前必须通过</h2>
+          <div class="test-checklist">
+            <div class="check-row"><span class="check-icon pending">1</span><span><strong>能否正常开局</strong><small>玩家身份、世界背景和第一步行动都已出现</small></span><em>待检查</em></div>
+            <div class="check-row"><span class="check-icon pending">2</span><span><strong>行动是否有结果</strong><small>选择会改变状态，并能看到清楚的反馈</small></span><em>待检查</em></div>
+            <div class="check-row"><span class="check-icon pending">3</span><span><strong>失败是否可恢复</strong><small>失败不会丢失进度，也不会卡死世界线</small></span><em>待检查</em></div>
+            <div class="check-row"><span class="check-icon pending">4</span><span><strong>能否保存并继续</strong><small>重新打开后，记忆和世界状态仍然存在</small></span><em>待检查</em></div>
+          </div>
+          <button class="primary-button run-test-button" type="button">运行一次真实测试 <svg><use href="#i-arrow"/></svg></button>
+        </section>
+        <aside class="test-note"><span class="assistant-mark"><svg><use href="#i-info"/></svg></span><strong>为什么要测试？</strong><p>结构检查只能发现格式问题。只有真实运行，才能知道内核是否真的能陪玩家玩下去。</p></aside>
+      </div>
+      <div class="flow-footer"><button class="text-button" data-route="rules" type="button">返回修改规则</button><button class="secondary-button" data-route="publish" type="button">查看发布条件 <svg><use href="#i-arrow"/></svg></button></div>
+    </section>
+
+    <section class="page page-flow" data-page="publish" hidden>
+      <div class="flow-heading"><div><span class="eyebrow">05 · 发布使用</span><h1>通过检查，就可以开始。</h1><p>内核会被保存到你的内核库。之后你可以用它创建新的世界线，也可以继续迭代。</p></div><span class="save-state verified"><i></i>准备发布</span></div>
+      <section class="publish-card" aria-labelledby="publish-title">
+        <div class="publish-check"><span class="check-icon done"><svg><use href="#i-check"/></svg></span><div><div class="section-kicker">发布前摘要</div><h2 id="publish-title">你的世界内核已准备好</h2><p>4 条核心规则 · 3 个体验目标 · 运行检查通过后即可使用</p></div></div>
+        <div class="publish-meta"><div><span>名称</span><strong>未命名世界</strong></div><div><span>版本</span><strong>v0.1 草稿</strong></div><div><span>保存位置</span><strong>我的内核库</strong></div></div>
+        <div class="publish-actions"><button class="secondary-button" data-route="rules" type="button">继续修改</button><button class="primary-button" data-apply="未命名世界" type="button">发布并创建世界线 <svg><use href="#i-arrow"/></svg></button></div>
+      </section>
+      <div class="flow-footer"><button class="text-button" data-route="test" type="button">返回运行测试</button><span class="quiet-note">发布后仍可创建新版本，不会覆盖正在进行的世界线。</span></div>
+    </section>
+
+    <section class="page page-flow" data-page="recommended" hidden>
+      <div class="flow-heading"><div><span class="eyebrow">推荐内核</span><h1>选择一个已经准备好的世界。</h1><p>每个推荐内核都经过开局、行动、失败和保存测试。</p></div><span class="save-state verified"><i></i>可直接使用</span></div>
+      <div class="choice-list">
+        <article class="choice-kernel selected"><div class="kernel-status ready"></div><div><h2>六面世界：人生模拟器</h2><p>适合人生模拟、关系变化和长期记忆。玩家拥有最终决定权。</p><div class="tag-line"><span>记忆</span><span>关系</span><span>世界推进</span></div></div><button class="primary-button" data-apply="六面世界：人生模拟器" type="button">应用并开始 <svg><use href="#i-arrow"/></svg></button></article>
+        <article class="choice-kernel"><div class="kernel-status ready"></div><div><h2>玄寰界：修真人生模拟器</h2><p>适合修行成长、资源管理和有代价的长期选择。</p><div class="tag-line"><span>成长</span><span>因果</span><span>状态</span></div></div><button class="secondary-button" data-apply="玄寰界：修真人生模拟器" type="button">应用并开始 <svg><use href="#i-arrow"/></svg></button></article>
+      </div>
+      <div class="flow-footer"><button class="text-button" data-route="welcome" type="button">返回起点</button><span class="quiet-note">以后可以在内核库中切换或管理它们。</span></div>
+    </section>
+
+    <section class="page page-flow" data-page="import" hidden>
+      <div class="flow-heading"><div><span class="eyebrow">导入已有内核</span><h1>先检查，再使用。</h1><p>导入不会覆盖现有内核，也不会立即影响任何世界线。</p></div></div>
+      <div class="import-zone"><div class="import-icon"><svg><use href="#i-import"/></svg></div><h2>把 .md 文件放到这里</h2><p>或者选择本地文件。系统会先读取结构，再进行运行检查。</p><button class="primary-button" type="button">选择文件</button><span class="file-note">支持 .md / .markdown / .txt · 最大 1MB</span></div>
+      <div class="flow-footer"><button class="text-button" data-route="welcome" type="button">返回起点</button><span class="quiet-note">检查完成后才能应用到世界线。</span></div>
+    </section>
+  </main>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"><svg><use href="#i-check"/></svg><span>已创建世界线，准备开始</span></div>
+  <script src="prototype.js"></script>
+</body>
+</html>

@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>线框 - 源码焦点层</title>
+  <style>
+    *{box-sizing:border-box}body{margin:0;background:#f5f5f5;color:#333;font:14px/1.5 system-ui,sans-serif}a{color:inherit;text-decoration:none}.app{min-height:100svh;display:grid;grid-template-rows:58px 1fr}.wf-header{display:flex;align-items:center;gap:8px;padding:8px 12px;background:#fff;border-bottom:2px solid #777}.wf-header h1{margin:0 auto 0 0;font-size:18px}.wf-link,.wf-button{display:inline-flex;align-items:center;justify-content:center;min-height:40px;padding:8px 12px;border:1px solid #888;background:#fff}.active{background:#ddd}.workspace{display:grid;grid-template-columns:minmax(0,1fr) 300px;min-height:0}.source{padding:14px;min-width:0}.source-head,.audit-head,.row{display:flex;align-items:center;justify-content:space-between;gap:8px}.editor{margin-top:10px;min-height:calc(100svh - 120px);padding:16px;border:1px dashed #888;background:#fff;font:13px/1.7 monospace;white-space:pre-wrap;overflow:auto}.audit{padding:14px;border-left:1px dashed #999;background:#eee}.issue{margin:10px 0;padding:10px;border-left:3px solid #777;background:#fff}.meta{font-size:12px;color:#666}.tabs{display:none}.meta-footer{position:fixed;right:8px;bottom:2px;font-size:10px;color:#777}@media(max-width:720px){.wf-header h1{font-size:15px}.wf-header .status{display:none}.workspace{display:block}.audit{display:none}.tabs{display:flex;gap:6px;padding:8px 14px;border-bottom:1px dashed #999}.editor{min-height:calc(100svh - 168px)}.meta-footer{display:none}}
+  </style>
+</head>
+<body>
+  <div class="app"><header class="wf-header"><a class="wf-link" href="kernel-design.html">返回设计</a><h1>玄雾纪行 / source.md</h1><span class="meta status">已保存 / UTF-8</span><a class="wf-link" href="source-focus.html">验证</a><a class="wf-link active" href="kernel-design.html">完成</a></header><div class="tabs"><span class="wf-link active">源码</span><a class="wf-link" href="source-focus.html">审计 2</a></div><main class="workspace"><section class="source"><div class="source-head"><strong>规则源码</strong><span class="meta">Markdown / 15.1 KB</span></div><pre class="editor"># KERNEL_META
+name: 玄雾纪行
+version: 2.4.0
+
+## PLAYER_AUTHORITY
+关键立场、承诺与不可逆行动必须由玩家确认。
+
+## INFORMATION_TRUST
+- 角色陈述可以不可靠
+- 系统事实必须记录来源
+- 未知信息不得伪装为确定事实
+
+## WORLD_TICK
+世界事件按时间、地点和条件推进。</pre></section><aside class="audit"><div class="audit-head"><strong>结构审计</strong><span class="meta">2 项</span></div><div class="issue"><b>需要决定</b><p>尚未定义信息冲突时的优先级。</p><a class="wf-link" href="source-focus.html">定位规则</a></div><div class="issue"><b>建议补全</b><p>世界事件缺少暂停与恢复条件。</p><a class="wf-link" href="source-focus.html">定位规则</a></div></aside></main></div>
+  <footer class="meta-footer">源码焦点层 / UC-002, UC-003</footer>
+</body>
+</html>
+
