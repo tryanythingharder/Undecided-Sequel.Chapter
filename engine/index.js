@@ -9,11 +9,15 @@ const { buildContextBlock, stateOverview } = require('./context-builder')
 const { commitPatch, commitFromRaw } = require('./commit')
 const { createSnapshot, restoreSnapshot } = require('./snapshot')
 const { patchProtocolPrompt } = require('./patch')
+const { createVectorStore } = require('./vector-store')
 const crypto = require('crypto')
 
 function createEngine(dataDir) {
   const store = new StateStore(dataDir)
   const engine = { store }
+  /* 语义索引（SQLite + sqlite-vec，派生层可重建）：不可用时自动降级，检索管线不受影响 */
+  const vectorStore = createVectorStore(dataDir)
+  engine.vectorStore = vectorStore
 
   /* 创建或获取故事。kernelText 用于计算内核版本绑定（条款 39） */
   engine.ensureStory = ({ storyId, title, kernelId, kernelText }) => {
@@ -37,7 +41,10 @@ function createEngine(dataDir) {
 
   engine.getStory = (storyId) => store.getStory(storyId)
   engine.overview = (storyId) => { const s = store.getStory(storyId); return s ? stateOverview(s) : null }
-  engine.deleteStory = (storyId) => store.deleteStory(storyId)
+  engine.deleteStory = (storyId) => {
+    store.deleteStory(storyId)
+    vectorStore.forgetStory(storyId) // 语义索引同步清理（派生层，漏清只浪费空间）
+  }
   engine.listStories = () => store.listStories()
 
   engine.openSession = ({ storyId, sessionId, label }) => {
@@ -56,9 +63,13 @@ function createEngine(dataDir) {
   engine.retrieve = (storyId, opts) => {
     const story = store.getStory(storyId)
     if (!story) throw new Error('story not found: ' + storyId)
-    /* 注入检索缓存槽（规范二十五/四十三）：版本随 flushStory/恢复/删除自动失效，按 story 隔离 */
-    return retrieve(story, Object.assign({ storyId }, opts || {}, { _retr: { slot: store.retrSlot(storyId) } }))
+    /* 注入检索缓存槽（规范二十五/四十三）：版本随 flushStory/恢复/删除自动失效，按 story 隔离；
+     * 注入语义索引（SQLite + sqlite-vec）：同步与查询失败时由 retriever 静默回退 */
+    return retrieve(story, Object.assign({ storyId }, opts || {}, { _retr: { slot: store.retrSlot(storyId) }, _vec: vectorStore }))
   }
+
+  /* 释放引擎持有的资源（语义索引的 SQLite 句柄；Windows 上不关会锁目录） */
+  engine.close = () => { try { vectorStore.close() } catch {} }
 
   engine.buildContext = (storyId, opts) => {
     const story = store.getStory(storyId)

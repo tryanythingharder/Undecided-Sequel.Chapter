@@ -172,6 +172,21 @@ function retrieve(story, opts) {
   nameExactCount = _res.exact
   sceneEids = sceneEntities(story)
 
+  /* ---- 语义信号（SQLite + sqlite-vec 派生索引，经 _vec 注入，可选）----
+   * 双通道（向量 KNN + FTS5）产出 0~1 语义分；任一异常静默回退为纯词面+实体管线。 */
+  let semMap = null
+  if (opts._vec && opts._vec.enabled) {
+    try {
+      opts._vec.sync(story)
+      semMap = opts._vec.search(story.story_id, String(opts.playerInput || ''), 40)
+    } catch { semMap = null }
+  }
+  const withSem = (key, hit) => {
+    if (!semMap) return hit
+    const s = semMap.get(key)
+    return (s && s > hit) ? s : hit
+  }
+
   const score = (imp, turnDist, textHit, extra) => {
     // 重要度主导 + 时间衰减（重大历史不因时间消失：衰减对高重要度趋近于 0） + 词面/实体命中
     const impNorm = Math.min(101, Math.max(1, Number(imp) || 10))
@@ -202,7 +217,7 @@ function retrieve(story, opts) {
     .filter((f) => secretsAllowed || !f.secret_from_player)
   const factScored = factPool.map((f) => {
     const lc = idx.lcTexts.get('f|' + f.fact_id)
-    const hit = lc ? Math.max(overlapLC(qTokens, lc.a), overlapLC(qTokens, lc.b)) : Math.max(textOverlap(qTokens, f.statement), textOverlap(qTokens, f.key))
+    const hit = withSem('f|' + f.fact_id, lc ? Math.max(overlapLC(qTokens, lc.a), overlapLC(qTokens, lc.b)) : Math.max(textOverlap(qTokens, f.statement), textOverlap(qTokens, f.key)))
     const eids = f.entity_ids || []
     let ent = 0
     for (const eid of eids) { ent = Math.max(ent, entBoost(eid)); if (sceneEids.has(eid)) ent = Math.max(ent, 0.25) }
@@ -215,7 +230,7 @@ function retrieve(story, opts) {
     .filter((d) => d.story_id === story.story_id && DECISION_EFFECTIVE(d.status))
     .map((d) => {
       const lc = idx.lcTexts.get('d|' + d.decision_id)
-      const hit = lc ? Math.max(overlapLC(qTokens, lc.a), overlapLC(qTokens, lc.b)) : Math.max(textOverlap(qTokens, d.raw_input), textOverlap(qTokens, d.normalized_intent))
+      const hit = withSem('d|' + d.decision_id, lc ? Math.max(overlapLC(qTokens, lc.a), overlapLC(qTokens, lc.b)) : Math.max(textOverlap(qTokens, d.raw_input), textOverlap(qTokens, d.normalized_intent)))
       let ent = 0
       const linked = decisionEntityIds(idx, d.decision_id)
       for (const eid of linked) { ent = Math.max(ent, entBoost(eid)); if (sceneEids.has(eid)) ent = Math.max(ent, 0.25) }
@@ -232,7 +247,7 @@ function retrieve(story, opts) {
   const eventPool = story.events.filter((e) => e.story_id === story.story_id)
   const eventScored = eventPool.map((e) => {
     const lc = idx.lcTexts.get('e|' + e.event_id)
-    const hit = lc ? Math.max(overlapLC(qTokens, lc.a), overlapLC(qTokens, lc.b)) : Math.max(textOverlap(qTokens, e.description), textOverlap(qTokens, e.location))
+    const hit = withSem('e|' + e.event_id, lc ? Math.max(overlapLC(qTokens, lc.a), overlapLC(qTokens, lc.b)) : Math.max(textOverlap(qTokens, e.description), textOverlap(qTokens, e.location)))
     let ent = 0
     for (const eid of e.participants || []) { ent = Math.max(ent, entBoost(eid)); if (sceneEids.has(eid)) ent = Math.max(ent, 0.25) }
     const entX = ent + (entityHit(e.participants, story, entityNames) ? 0.5 : 0)
