@@ -1,6 +1,6 @@
 {
   "name": "six-worlds-codex",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "description": "六面世界通用 AI 故事工作台（多内核设计、内容对话、长期记忆与 OpenAI 兼容端点）",
   "main": "main.cjs",
   "private": true,
