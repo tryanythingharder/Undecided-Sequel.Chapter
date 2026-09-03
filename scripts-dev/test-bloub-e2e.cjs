@@ -188,6 +188,29 @@ async function main() {
       } else check('pet-gaze-vertical', false, '上下采样失败')
       // 指针回贴脸 → 眼位回中（与首次贴脸一致）
       check('pet-gaze-recenters', Math.abs(near.midX - center.midX) <= 2, '回贴脸后中点回到 ' + near.midX.toFixed(1) + 'px')
+      // ---- 方位审计（指针在哪看哪）：8 个方位各采一点，眼位偏移必须与指针方位一致 ----
+      // 含对角与屏幕远端角落（桌宠常驻右侧，远端=左侧两角；右侧角离得近，小偏移即忠实）
+      const far = 320
+      const quadrants = [
+        ['正左', Math.max(10, pr.cx - far), pr.cy, -1, 0],
+        ['正右', pr.cx + far, pr.cy, 1, 0],
+        ['左上', Math.max(10, pr.cx - far), Math.max(10, pr.cy - far * 0.8), -1, -1],
+        ['右下', pr.cx + far, pr.cy + far * 0.8, 1, 1],
+        ['屏幕左上角', 20, 20, -1, -1],
+        ['屏幕左下角', 20, (await win.evaluate(() => window.innerHeight)) - 20, -1, 1]
+      ]
+      let quadFails = 0
+      for (const [name, px, py, sx, sy] of quadrants) {
+        const s = await eyeMidAt(px, py)
+        if (!s) { quadFails++; check('pet-gaze-quad-' + name, false, '采样失败'); continue }
+        const ex = s.midX - center.midX, ey = s.midY - center.midY
+        const okX = sx === 0 ? Math.abs(ex) < 6 : ex * sx > -1 && Math.abs(ex) > 4
+        const okY = sy === 0 ? Math.abs(ey) < 6 : ey * sy > -1 && Math.abs(ey) > 3
+        if (!(okX && okY)) quadFails++
+        check('pet-gaze-quad-' + name, okX && okY,
+          '眼位偏移 dx=' + ex.toFixed(1) + ' dy=' + ey.toFixed(1) + '（期望 ' + (sx <= 0 && sy < 0 ? '左上' : sx > 0 ? (sy > 0 ? '右下' : '右') : (sy > 0 ? '左下' : '左')) + '）')
+      }
+      check('pet-gaze-all-quadrants', quadFails === 0, quadFails + ' 个方位不一致')
     }
   }
 
