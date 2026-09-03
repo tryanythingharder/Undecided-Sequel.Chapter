@@ -5251,6 +5251,20 @@
     $('input').focus()
     // 世界之灵桌宠（bloub）：常驻内容列两侧空白边距；失败静默——桌宠绝不阻断应用
     try { if (window.BloubPet) window.BloubPet.init() } catch {}
+    // 桌宠云端大脑：注入用户配置的模型（内存传递，密钥不落 localStorage）；后续配置变化再同步
+    try {
+      if (window.BloubPet) window.BloubPet.setCloudBrain({ baseUrl: cfg.baseUrl, apiKey: cfg.apiKey, model: cfg.model })
+    } catch {}
+    ;(function syncPetBrain() {
+      const push = () => {
+        try {
+          if (window.BloubPet) window.BloubPet.setCloudBrain({ baseUrl: cfg.baseUrl, apiKey: cfg.apiKey, model: cfg.model })
+        } catch {}
+      }
+      setTimeout(push, 400)
+      window.addEventListener('storage', push)
+      if (window.api && window.api.onCfgUpdated) window.api.onCfgUpdated(push)
+    })()
     // 首次安装检测：未完成新手引导时，初始化配置向导（R72/R75） → 免责声明确认 → 教程指引
     const OB_KEY = 'sixworlds.onboard.v1'
     let onboarded = false

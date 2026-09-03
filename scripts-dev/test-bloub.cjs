@@ -134,6 +134,30 @@ for (const q of QUESTIONS) {
 ok(Pet.ask('量子力学怎么入门') === null, '无关问题返回 null（兜底话术走气泡层）')
 ok(/世界之灵/.test(Pet.systemPrompt), 'systemPrompt 预置人设（本地小模型接入时复用）')
 
+// ---- 6. 回复清洗管线（shared/pet-reply.cjs）：主进程出口统一清洗 ----
+const reply = require(path.join(ROOT, 'shared', 'pet-reply.cjs'))
+ok(typeof reply.sanitizePetReply === 'function' && typeof reply.timeContextLine === 'function', 'pet-reply 导出 sanitizePetReply/timeContextLine')
+{
+  const out = reply.sanitizePetReply('好的。\n\n[点击后显示一个插画]\n\n**加粗**、*斜体*、# 标题都该被清掉。')
+  ok(!/\[|\]|\*\*|^#/m.test(out), '方括号幻觉 UI 与 markdown 渣被剥离')
+  ok(/加粗/.test(out) && /斜体/.test(out), '加粗/斜体文字本身保留')
+  const messy = reply.sanitizePetReply('好。好。。好！！！\n\n\n\n一句话呀')
+  ok(!/。{2,}/.test(messy) && !/！{2,}/.test(messy) && !/\n{3,}/.test(messy), '重复标点与多余换行被收束')
+  const long = reply.sanitizePetReply('这是第一句。这是第二句！这是第三句？这是第四句。' + '很长很长'.repeat(80) + '。收尾。')
+  ok(long.length <= 220, '超长回复收束到 220 字内（实际 ' + long.length + '）')
+  ok(/第一句/.test(long) && !/收尾/.test(long), '收束保留开头整句、丢弃尾部')
+  ok(reply.sanitizePetReply('') === '' && reply.sanitizePetReply(null) === '', '空输入安全返回')
+  const tc = reply.timeContextLine()
+  ok(/（现在是 \d{4}年\d{1,2}月\d{1,2}日 \d{2}:\d{2}，星期[日一二三四五六]）/.test(tc), '时间上下文格式（' + tc + '）')
+}
+// 大脑路由导出面：setCloudBrain / brain（有效路由 cloud → local → null）
+ok(typeof Pet.setCloudBrain === 'function' && typeof Pet.brain === 'function', 'BloubPet 导出 setCloudBrain/brain')
+ok(Pet.brain() === null, '无云端无本地时 brain() 为 null（气泡走兜底话术）')
+Pet.setCloudBrain({ baseUrl: 'https://api.example.com/v1', apiKey: 'sk-x', model: 'big-model' })
+ok(Pet.brain() === 'cloud', '仅云端可用时 brain() = cloud')
+Pet.setCloudBrain(null)
+ok(Pet.brain() === null, '清空云端后 brain() 回到 null')
+
 console.log('')
 console.log('bloub：' + pass + ' 通过，' + fail + ' 失败')
 process.exit(fail ? 1 : 0)

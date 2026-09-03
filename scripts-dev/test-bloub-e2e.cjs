@@ -3,9 +3,10 @@
  * 世界之灵桌宠 e2e（原型工作台，真实 Electron 渲染）。
  * 覆盖：
  *   1. 启动即常驻：#bloub-pet 存在、可见（计算样式 + 渲染盒）、默认落在右侧边距带
- *   2. 视线跟随：pointermove 后眼睛矩阵变化
+ *   2. 视线跟随（真实位置差）：指针左/右/贴脸三个位置，眼睛平移分量差可感知
  *   3. 点击 → 戳一戳 + 帮助气泡（小贴士 + 输入框）；点外部关闭
- *   4. 规则问答：输入「快捷键」→ 命中回答；未知问题 → 兜底话术（本地小模型接入前的 phase-1）
+ *   3b. 右键快捷菜单：换边 / 归位 / 休息唤醒 / Esc 与点选后关闭
+ *   4. 规则问答：输入「快捷键」→ 命中规则库（精准答案）；未命中 → 云端大脑接管流式
  *   5. 拖拽搬家：模拟拖到左侧 → 位置变化且 localStorage 记忆；reload 后保持
  *   6. 生成期反应：mock 回合 busy → thinking；完成 → 回 idle/notify（不再常驻 thinking）
  *   7. 回归：灵动岛已还原为原呼吸圆点（无 .bloub-svg）；空状态已还原静态印章
@@ -136,19 +137,35 @@ async function main() {
       'x=' + pet.box[0] + ' ≥ 右带起点 ' + Math.round(pet.vw - pet.margin) + '（边距 ' + Math.round(pet.margin) + 'px）')
   }
 
-  // ---- 2. 视线跟随 ----
+  // ---- 2. 视线跟随（真实位置差：指针在左/右两个位置，眼睛平移量必须不同且幅度可感知） ----
   if (pet) {
-    await win.evaluate(() => {
+    const eyeMatrixAt = async (px, py) => {
+      await win.evaluate(({ x, y }) => {
+        window.dispatchEvent(new PointerEvent('pointermove', { clientX: x, clientY: y, bubbles: true, pointerType: 'mouse' }))
+      }, { x: px, y: py })
+      await win.waitForTimeout(900)   // >2×TURN_TIME，让转头缓动收敛
+      return win.evaluate(() => {
+        const svg = document.querySelector('#bloub-pet .bloub-svg')
+        const eyes = [...svg.querySelectorAll('defs mask path')].filter((p) => p.getAttribute('display') !== 'none' && p.getAttribute('transform'))
+        const m = eyes.length ? eyes[eyes.length - 1].getAttribute('transform').match(/matrix\(([^)]+)\)/) : null
+        if (!m) return null
+        const v = m[1].split(',').map(Number)
+        return { x: v[4], y: v[5] }   // 平移分量（眼在脸上的真实落点）
+      })
+    }
+    const pr = await win.evaluate(() => {
       const r = document.querySelector('#bloub-pet').getBoundingClientRect()
-      window.dispatchEvent(new PointerEvent('pointermove', { clientX: r.left - 300, clientY: r.top, bubbles: true, pointerType: 'mouse' }))
+      return { cx: r.x + r.width / 2, cy: r.y + r.height / 2 }
     })
-    await win.waitForTimeout(400)
-    const gazeMoved = await win.evaluate(() => {
-      const svg = document.querySelector('#bloub-pet .bloub-svg')
-      const e = svg.querySelector('defs mask path:nth-of-type(2)')
-      return e && e.getAttribute('display') !== 'none' && e.getAttribute('transform')
-    })
-    check('pet-gaze-follows', !!gazeMoved, '桌宠视线矩阵随光标更新')
+    const left = await eyeMatrixAt(Math.max(20, pr.cx - 450), pr.cy - 120)
+    const right = await eyeMatrixAt(pr.cx + 300, pr.cy - 300)
+    const dx = Math.abs((left && right) ? right.x - left.x : 0)
+    check('pet-gaze-follows', !!(left && right), '两只眼位均可读（transform 平移分量）')
+    check('pet-gaze-tracks-pointer', dx > 2.5, '指针左/右移动，眼睛平移差 ' + dx.toFixed(1) + 'px（>2.5px 可感知）')
+    // 指针贴脸（桌宠自身中心）→ 眼位应回中（与左侧远点差异同样可感知）
+    const near = await eyeMatrixAt(pr.cx, pr.cy)
+    const dx2 = Math.abs((left && near) ? near.x - left.x : 0)
+    check('pet-gaze-recenters', dx2 > 1.5, '指针回到桌宠身上，眼位回移 ' + dx2.toFixed(1) + 'px')
   }
 
   // ---- 3. 点击 → 气泡 ----
@@ -180,15 +197,20 @@ async function main() {
         return last ? last.textContent : null
       })
       check('pet-ask-rules-hit', /Ctrl\+F/.test(qa || ''), '答：' + (qa || '').slice(0, 30) + '…')
+      // 未命中问题：此时云端大脑（mock-chat 配置已注入）接管 → 流式打字机回复（FAKE 接缝回「（云端测试大脑）收到：…」）
       await win.fill('.pet-bubble-input', '量子力学怎么入门')
       await win.click('.pet-bubble-send')
-      await win.waitForTimeout(300)
-      const fb = await win.evaluate(() => {
-        const answers = [...document.querySelectorAll('#pet-bubble .pet-bubble-a')]
-        const last = answers[answers.length - 1]
-        return last ? last.textContent : null
-      })
-      check('pet-ask-fallback', /小模型|答不上/.test(fb || ''), '兜底：' + (fb || '').slice(0, 24) + '…')
+      let cloudAnswer = ''
+      for (let i = 0; i < 60; i++) {
+        const st = await win.evaluate(() => {
+          const a = [...document.querySelectorAll('#pet-bubble .pet-bubble-a')]
+          const last = a[a.length - 1]
+          return last ? { text: last.textContent, gen: last.classList.contains('gen') } : { text: '', gen: false }
+        })
+        if (!st.gen && st.text.length > 4) { cloudAnswer = st.text; break }
+        await win.waitForTimeout(150)
+      }
+      check('pet-ask-cloud-brain', /云端测试大脑/.test(cloudAnswer || ''), '云端大脑接管闲聊：' + (cloudAnswer || '').slice(0, 26) + '…')
     }
 
     // 点外部关闭
@@ -196,6 +218,72 @@ async function main() {
     await win.waitForTimeout(200)
     const closed = await win.evaluate(() => document.querySelector('#pet-bubble').classList.contains('hidden'))
     check('pet-bubble-closes-outside', closed)
+  }
+
+  // ---- 3b. 右键快捷菜单：换边 / 归位 / 休息唤醒 / Esc 关闭 / 点外部关闭 ----
+  if (pet) {
+    const center = async () => win.evaluate(() => {
+      const r = document.querySelector('#bloub-pet').getBoundingClientRect()
+      return [r.x + r.width / 2, r.y + r.height / 2, r.x]
+    })
+    const [cx, cy] = await center()
+    await win.mouse.click(cx, cy, { button: 'right' })
+    await win.waitForTimeout(250)
+    const menu0 = await win.evaluate(() => {
+      const m = document.querySelector('#pet-menu')
+      if (!m) return null
+      return {
+        open: !m.classList.contains('hidden'),
+        items: [...m.querySelectorAll('.pet-menu-item')].map((b) => b.textContent),
+        modelItem: (m.querySelector('[data-model]') || {}).textContent || null
+      }
+    })
+    check('pet-menu-opens', !!(menu0 && menu0.open), '右键弹出菜单')
+    check('pet-menu-items', !!(menu0 && menu0.open && menu0.items.length >= 6
+      && menu0.items.some((t) => /换到另一侧/.test(t)) && menu0.items.some((t) => /休息/.test(t))
+      && menu0.items.some((t) => /帮助气泡/.test(t))), '菜单项齐备：' + (menu0 && menu0.items).join(' / '))
+    // 换边：右 → 左
+    const vw = await win.evaluate(() => window.innerWidth)
+    const xBefore = (await center())[2]
+    await win.click('#pet-menu .pet-menu-item:has-text("换到另一侧")')
+    await win.waitForTimeout(350)
+    const xAfter = (await center())[2]
+    const menuClosed = await win.evaluate(() => document.querySelector('#pet-menu').classList.contains('hidden'))
+    check('pet-menu-flip-side', xAfter < vw / 2 && Math.abs(xAfter - xBefore) > 200,
+      'x ' + Math.round(xBefore) + ' → ' + Math.round(xAfter) + '（换到左侧）')
+    check('pet-menu-closes-after-action', menuClosed, '菜单点选后自动关闭')
+    // 归位：回默认位置（右侧带）
+    const [cx2, cy2] = await center()
+    await win.mouse.click(cx2, cy2, { button: 'right' })
+    await win.waitForTimeout(250)
+    await win.click('#pet-menu .pet-menu-item:has-text("回到默认位置")')
+    await win.waitForTimeout(350)
+    const xReset = (await center())[2]
+    check('pet-menu-reset-pos', xReset >= vw - 300, '归位后回到右侧带（x=' + Math.round(xReset) + '）')
+    // 休息 → data-state=sleep；Esc 关菜单
+    const [cx3, cy3] = await center()
+    await win.mouse.click(cx3, cy3, { button: 'right' })
+    await win.waitForTimeout(250)
+    await win.click('#pet-menu .pet-menu-item:has-text("休息 / 唤醒")')
+    await win.waitForTimeout(200)
+    const sleeping = await win.evaluate(() => document.querySelector('#bloub-pet').dataset.state)
+    check('pet-menu-sleep', sleeping === 'sleep', '休息：data-state=' + sleeping)
+    // 唤醒（再点一次菜单项）→ transient egg → idle
+    const [cx4, cy4] = await center()
+    await win.mouse.click(cx4, cy4, { button: 'right' })
+    await win.waitForTimeout(250)
+    await win.click('#pet-menu .pet-menu-item:has-text("休息 / 唤醒")')
+    await win.waitForTimeout(2200)   // egg transient 1400ms 收敛
+    const woke = await win.evaluate(() => document.querySelector('#bloub-pet').dataset.state)
+    check('pet-menu-wake', woke === 'idle', '唤醒回 idle（data-state=' + woke + '）')
+    // Esc 关闭
+    const [cx5, cy5] = await center()
+    await win.mouse.click(cx5, cy5, { button: 'right' })
+    await win.waitForTimeout(250)
+    await win.keyboard.press('Escape')
+    await win.waitForTimeout(150)
+    const escClosed = await win.evaluate(() => document.querySelector('#pet-menu').classList.contains('hidden'))
+    check('pet-menu-esc-closes', escClosed, 'Esc 关闭菜单')
   }
 
   // ---- 5. 拖拽搬家 + 记忆 ----
@@ -352,26 +440,41 @@ async function main() {
   })
   check('pet-model-ready-rules-first', /Ctrl\+F/.test(ruleHit), '就绪后规则优先：' + ruleHit.slice(0, 24) + '…')
 
-  // 9f. 未命中问题 → 走本地模型流式（FAKE 脚本回复 + 打字机），结束无光标
-  //     FAKE 回复「（测试大脑）收到：「讲个笑话」」共 14 字；完成判定 = 光标消失即结束
-  await win.fill('.pet-bubble-input', '讲个笑话')
-  await win.click('.pet-bubble-send')
-  let sawTyping = false        // 期间出现过 gen 光标（生成中）
-  let sawPartial = false       // 期间读到过非空半截文本（打字机逐字放出）
-  let finalAnswer = ''
-  for (let i = 0; i < 80; i++) {
-    await win.waitForTimeout(150)
-    const st = await win.evaluate(() => {
-      const a = [...document.querySelectorAll('#pet-bubble .pet-bubble-a')]
-      const last = a[a.length - 1]
-      return last ? { text: last.textContent, gen: last.classList.contains('gen') } : { text: '', gen: false }
-    })
-    if (st.gen) sawTyping = true
-    if (st.gen && st.text.length > 0 && st.text.length < 14) sawPartial = true
-    if (!st.gen && st.text.length >= 14) { finalAnswer = st.text; break }
+  // 9f. 大脑路由：云端优先（boot 注入的 mock-chat 配置）→ 切换偏好到本地 → 两路都流式打字机
+  //     FAKE 接缝回复「（云端测试大脑）收到：「…」」/「（测试大脑）收到：「…」」；完成判定 = 光标消失
+  const askAndRead = async (q) => {
+    await win.fill('.pet-bubble-input', q)
+    await win.click('.pet-bubble-send')
+    let sawGen = false
+    let sawPartial = false
+    let answer = ''
+    for (let i = 0; i < 80; i++) {
+      await win.waitForTimeout(150)
+      const st = await win.evaluate(() => {
+        const a = [...document.querySelectorAll('#pet-bubble .pet-bubble-a')]
+        const last = a[a.length - 1]
+        return last ? { text: last.textContent, gen: last.classList.contains('gen') } : { text: '', gen: false }
+      })
+      if (st.gen) sawGen = true
+      if (st.gen && st.text.length > 0 && st.text.indexOf('」') === -1) sawPartial = true
+      if (!st.gen && st.text.indexOf('」') !== -1) { answer = st.text; break }
+    }
+    return { answer, sawGen, sawPartial }
   }
-  check('pet-model-chat-streams', /测试大脑/.test(finalAnswer) && sawPartial,
-    '答「' + finalAnswer.slice(0, 18) + '…」流式逐字（途中半截 ' + sawPartial + '）')
+  const brain0 = await win.evaluate(() => window.BloubPet.brain())
+  check('pet-brain-default-cloud', brain0 === 'cloud', '本地就绪 + 云端已配置 → 默认大脑 cloud')
+  const zoneBrain = await win.evaluate(() => document.querySelector('#pet-bubble .pet-model-zone').textContent)
+  check('pet-brain-zone-label', /云端大脑/.test(zoneBrain), '接入区显示双大脑：' + zoneBrain)
+  const rCloud = await askAndRead('讲个笑话')
+  check('pet-brain-cloud-answers', /云端测试大脑/.test(rCloud.answer), '云端大脑作答：' + (rCloud.answer || '').slice(0, 22) + '…')
+  check('pet-brain-cloud-typewriter', rCloud.sawPartial, '云端回答同样走打字机逐字（途中半截 ' + rCloud.sawPartial + '）')
+  await win.evaluate(() => localStorage.setItem('sixworlds.pet.brain.v1', 'local'))
+  const brain1 = await win.evaluate(() => window.BloubPet.brain())
+  check('pet-brain-toggle-local', brain1 === 'local', '偏好切到 local → brain() = local')
+  const rLocal = await askAndRead('再讲一个')
+  check('pet-brain-local-answers', /（测试大脑）/.test(rLocal.answer) && !/云端/.test(rLocal.answer),
+    '本地大脑作答：' + (rLocal.answer || '').slice(0, 22) + '…')
+  check('pet-brain-local-typewriter', rLocal.sawPartial, '本地回答打字机逐字（途中半截 ' + rLocal.sawPartial + '）')
   await win.evaluate(() => { const b = document.querySelector('#pet-bubble .pet-bubble-x'); if (b) b.click() })
   await win.waitForTimeout(200)
 

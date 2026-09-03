@@ -152,11 +152,15 @@
       }
     }
 
-    // 视线跟随（复刻上游 lookTarget 规则：视窗半宽归一，饱和于屏幕边缘）
+    // 视线跟随（基于上游 lookTarget：归一化 + 饱和 + 转头缓动）
+    // 桌宠常驻在屏幕边距：若按上游「窗口半宽」归一，贴边位置几乎全屏指针都饱和在一侧、
+    // 眼睛钉死。这里改为以桌宠为中心的短半径饱和（±600/±500px）：指针在真实活动范围内
+    // 线性摆动、超出才饱和——视线实时且可感知。
     var pointer = null
     var aiming = false
     var turnSince = 0
-    var TURN_TIME = 1.1
+    var TURN_TIME = 0.45
+    var LOOK_SNAP = 0.15
     var bbox = null
     function refreshBox() { bbox = svg.getBoundingClientRect() }
     function aim() {
@@ -167,14 +171,14 @@
       }
       if (!bbox || bbox.width === 0) return
       if (!aiming) turnSince = clock
-      var halfW = Math.max(1, window.innerWidth / 2)
-      var halfH = Math.max(1, window.innerHeight / 2)
-      var nx = pointer ? Math.max(-1, Math.min(1, (pointer.x - (bbox.left + bbox.width / 2)) / halfW)) : 0
-      var ny = pointer ? Math.max(-1, Math.min(1, (pointer.y - (bbox.top + bbox.height / 2)) / halfH)) : 0
+      var rx = Math.max(200, Math.min(600, window.innerWidth * 0.5))
+      var ry = Math.max(160, Math.min(500, window.innerHeight * 0.55))
+      var nx = pointer ? Math.max(-1, Math.min(1, (pointer.x - (bbox.left + bbox.width / 2)) / rx)) : 0
+      var ny = pointer ? Math.max(-1, Math.min(1, (pointer.y - (bbox.top + bbox.height / 2)) / ry)) : 0
       var tour = 1 - Math.pow(1 - Math.max(0, Math.min(1, (clock - turnSince) / TURN_TIME)), 5)
       engine.setLook(B.lookTarget({
         nx: nx, ny: ny, tour: tour, pointer: pointer !== null
-      }), clock)
+      }), clock, LOOK_SNAP)
       aiming = true
     }
 

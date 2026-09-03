@@ -1341,31 +1341,76 @@ ipcMain.handle('pet:model-download-cancel', () => {
 })
 
 // 桌宠对话：模型就绪时流式回答（50ms 攒批发 'pet:chat-delta'，与 chat:delta 同节奏）
+// 桌宠大脑路由：优先用户配置的云端大模型（更聪明、知识在线），失败回落本地 0.5B。
+// 云端流式走 pet 自己的 delta 通道（绝不发 chat:delta——那是故事生成管线）。
+async function petCloudChat(text, cloud, emit) {
+  const { sanitizePetReply, timeContextLine } = require('./shared/pet-reply.cjs')
+  const baseUrl = String((cloud && cloud.baseUrl) || '').trim().replace(/\/+$/, '')
+  const apiKey = String((cloud && cloud.apiKey) || '').trim()
+  const model = String((cloud && cloud.model) || '').trim()
+  if (!baseUrl || !apiKey || !model) return { ok: false, error: '云端大脑配置不完整', cloudFailed: true }
+  let endpoint
+  try { endpoint = new URL(baseUrl + '/chat/completions') } catch { return { ok: false, error: '云端大脑地址不合法', cloudFailed: true } }
+  if (!['http:', 'https:'].includes(endpoint.protocol)) return { ok: false, error: '云端大脑地址仅支持 HTTP / HTTPS', cloudFailed: true }
+  const controller = new AbortController()
+  const kill = setTimeout(() => controller.abort(), 60000)
+  try {
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + apiKey },
+      body: JSON.stringify({
+        model,
+        messages: [
+          { role: 'system', content: require('./shared/pet-model-prompt.cjs') + '\n' + timeContextLine() },
+          { role: 'user', content: text }
+        ],
+        stream: true
+      }),
+      signal: controller.signal
+    })
+    if (!res.ok) return { ok: false, error: '云端大脑 HTTP ' + res.status, cloudFailed: true }
+    const raw = (await readResponseBufferLimited(res, MAX_CHAT_RESPONSE_BYTES, '桌宠云端回复')).toString('utf8')
+    let content = ''
+    if (/^\s*data:/m.test(raw)) {
+      for (const line of raw.split('\n')) {
+        const l = line.trim()
+        if (!l.startsWith('data:')) continue
+        const data = l.slice(5).trim()
+        if (!data || data === '[DONE]') continue
+        try {
+          const j = JSON.parse(data)
+          const c0 = j && j.choices && j.choices[0]
+          const piece = (c0 && ((c0.delta && c0.delta.content) || (c0.message && c0.message.content))) || ''
+          if (piece) { content += piece; emit(piece) }
+        } catch { /* 忽略非 JSON 行 */ }
+      }
+    } else {
+      try {
+        const j = JSON.parse(raw)
+        content = (j && j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content) || ''
+        if (content) emit(content)
+      } catch { return { ok: false, error: '云端大脑返回无法解析', cloudFailed: true } }
+    }
+    if (!content.trim()) return { ok: false, error: '云端大脑返回为空', cloudFailed: true }
+    return { ok: true, content: sanitizePetReply(content), brain: 'cloud' }
+  } catch (e) {
+    if (e && (e.name === 'AbortError' || /aborted/i.test(String(e.message || '')))) {
+      return { ok: false, error: '云端大脑连接超时（60 秒）', cloudFailed: true }
+    }
+    return { ok: false, error: String((e && e.message) || e), cloudFailed: true }
+  } finally { clearTimeout(kill) }
+}
+
 ipcMain.handle('pet:chat', async (_evt, p) => {
   try {
+    const { sanitizePetReply, timeContextLine } = require('./shared/pet-reply.cjs')
     const text = String((p && p.text) || '').trim().slice(0, 500)
     if (!text) return { ok: false, error: '说了点什么吧' }
     if (petModel.chatBusy) return { ok: false, error: '上一句还没说完呢' }
-    if (petModel.phase !== 'ready') return { ok: false, error: '本地小模型还没就绪', notReady: true }
-    if (process.env.SIXWORLDS_PET_FAKE) {
-      // e2e 接缝：脚本化流式回复（确定性内容，不加载真实模型）
-      petModel.chatBusy = true
-      try {
-        const reply = '（测试大脑）收到：「' + text + '」'
-        let acc = ''
-        for (const piece of reply.match(/.{1,4}/g) || []) {
-          acc += piece
-          if (win && !win.isDestroyed()) win.webContents.send('pet:chat-delta', piece)
-          await new Promise((r) => setTimeout(r, 25))
-        }
-        return { ok: true, content: acc }
-      } finally { petModel.chatBusy = false }
-    }
-    if (!petModel.session) {
-      await petModelLoad()
-      if (!petModel.session) return { ok: false, error: petModel.error || '本地小模型加载失败' }
-    }
+    const wantCloud = !!(p && p.cloud && p.cloud.baseUrl && p.cloud.apiKey && p.cloud.model)
+    if (petModel.phase !== 'ready' && !wantCloud) return { ok: false, error: '本地小模型还没就绪', notReady: true }
     petModel.chatBusy = true
+    // delta 攒批（50ms，与 chat:delta 同节奏）——云端/本地共用
     let pending = ''
     let deltaTimer = null
     const flush = () => {
@@ -1375,21 +1420,40 @@ ipcMain.handle('pet:chat', async (_evt, p) => {
       pending = ''
       if (win && !win.isDestroyed()) win.webContents.send('pet:chat-delta', d)
     }
-    const controller = new AbortController()
-    const kill = setTimeout(() => controller.abort(), 120000)
+    const emit = (piece) => {
+      pending += piece
+      if (!deltaTimer) deltaTimer = setTimeout(flush, 50)
+    }
     try {
-      const content = await petModel.session.prompt(text, {
-        maxTokens: 200,
-        temperature: 0.7,
-        signal: controller.signal,
-        onTextChunk: (chunk) => {
-          pending += chunk
-          if (!deltaTimer) deltaTimer = setTimeout(flush, 50)
+      if (process.env.SIXWORLDS_PET_FAKE) {
+        // e2e 接缝：脚本化流式回复（确定性内容，不加载真实模型、不发真实请求）
+        const reply = (wantCloud ? '（云端测试大脑）' : '（测试大脑）') + '收到：「' + text + '」'
+        for (const piece of reply.match(/.{1,4}/g) || []) {
+          emit(piece)
+          await new Promise((r) => setTimeout(r, 25))
         }
-      })
-      return { ok: true, content }
+        return { ok: true, content: reply, brain: wantCloud ? 'cloud' : 'local' }
+      }
+      if (wantCloud) {
+        const r = await petCloudChat(text, p.cloud, emit)
+        return r.ok ? r : { ok: false, error: r.error, cloudFailed: true, brain: 'cloud' }
+      }
+      if (!petModel.session) {
+        await petModelLoad()
+        if (!petModel.session) return { ok: false, error: petModel.error || '本地小模型加载失败' }
+      }
+      const controller = new AbortController()
+      const kill = setTimeout(() => controller.abort(), 120000)
+      try {
+        const content = await petModel.session.prompt(timeContextLine() + '\n' + text, {
+          maxTokens: 200,
+          temperature: 0.7,
+          signal: controller.signal,
+          onTextChunk: (chunk) => emit(chunk)
+        })
+        return { ok: true, content: sanitizePetReply(content), brain: 'local' }
+      } finally { clearTimeout(kill) }
     } finally {
-      clearTimeout(kill)
       flush()
       petModel.chatBusy = false
     }

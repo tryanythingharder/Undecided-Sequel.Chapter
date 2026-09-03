@@ -71,7 +71,8 @@
   var state = {
     root: null, bot: null, bubble: null, bubbleOpen: false, busy: false, token: 0,
     model: { phase: 'absent', progress: 0, received: 0, total: 0, error: null },   // 本地小模型镜像状态
-    modelBusy: false, tw: null
+    menu: null, menuOpen: false,
+    modelBusy: false, tw: null, cloud: null
   }
 
   function nextTip() {
@@ -147,7 +148,15 @@
     z.innerHTML = ''
     z.dataset.phase = m.phase
     if (m.phase === 'ready') {
-      z.appendChild(el('span', 'pet-model-on', '本地小模型已接入 · 离线自由对话'))
+      var brain = effectiveBrain()
+      var line = el('span', 'pet-model-on', brain === 'cloud'
+        ? '云端大脑（你的模型）+ 本地小模型 · 双大脑在线'
+        : '本地小模型已接入 · 离线自由对话')
+      z.appendChild(line)
+      if (brain === 'local') {   // 只有本地时提示云端可选
+        var hint = el('span', 'pet-model-hint', '（配置 API 模型后回答更聪明）')
+        z.appendChild(hint)
+      }
     } else if (m.phase === 'downloading') {
       var dl = el('div', 'pet-model-dl')
       var bar = el('div', 'pet-model-bar')
@@ -236,15 +245,39 @@
       .replace('接入本地小模型后，任何问题都能聊。', '本地小模型已接入，任何问题都能聊。')
   }
 
+  // ---- 大脑路由：云端优先（用户在设置里配置的模型，更聪明、知识在线），本地 0.5B 兜底 ----
+  var BRAIN_KEY = 'sixworlds.pet.brain.v1'
+  function loadBrainPref() {
+    try { return localStorage.getItem(BRAIN_KEY) === 'local' ? 'local' : 'cloud' } catch { return 'cloud' }
+  }
+  function effectiveBrain() {
+    var hasCloud = !!(state.cloud && state.cloud.baseUrl && state.cloud.apiKey && state.cloud.model)
+    var hasLocal = modelReady()
+    var pref = loadBrainPref()
+    if (pref === 'cloud' && hasCloud) return 'cloud'
+    if (pref === 'local' && hasLocal) return 'local'
+    if (!hasLocal && hasCloud) return 'cloud'          // 只剩云端可用
+    if (!hasCloud && hasLocal) return 'local'          // 只剩本地可用
+    return hasCloud || hasLocal ? (pref === 'local' ? 'local' : 'cloud') : null
+  }
+  function setCloudBrain(cfg) {
+    state.cloud = (cfg && cfg.baseUrl && cfg.apiKey && cfg.model)
+      ? { baseUrl: cfg.baseUrl, apiKey: cfg.apiKey, model: cfg.model }
+      : null
+    if (state.bubbleOpen) renderModelZone()
+  }
+
   function modelAsk(q, aEl) {
     var api = window.api
     if (!api || !api.petChat) { aEl.textContent = fallback; return }
+    var brain = effectiveBrain()
+    if (!brain) { aEl.textContent = fallback; return }
     state.modelBusy = true
     aEl.classList.add('gen')
     var tw = { queue: '', target: '', done: false, timer: null, el: aEl, first: false }
     state.tw = tw
     var off = api.onPetChatDelta(function (piece) { twFeed(tw, piece) })
-    // 等首答期间常驻思考表情（0.5B 首答 ~1-7s）
+    // 等首答期间常驻思考表情（云端 1-3s / 本地 0.5B 1-7s）
     state.token++
     if (state.bot) { state.bot.setState('thinking'); state.root.dataset.state = 'thinking' }
     var fail = function (r) {
@@ -256,13 +289,31 @@
       scrollBubble()
       transient('alert', 2400, state.busy ? 'thinking' : 'idle')
     }
-    api.petChat({ text: q }).then(function (r) {
-      if (!r || !r.ok) return fail(r)
+    var finish = function (r) {
       off && off()
       tw.target = r.content || ''
       tw.done = true
       if (!tw.timer && !tw.queue.length) twTick(tw)   // 没收到过 delta（极快/被攒批吞了）：直接收尾
       state.modelBusy = false
+    }
+    var callBrain = function (which) {
+      return api.petChat({ text: q, cloud: which === 'cloud' ? state.cloud : null })
+    }
+    callBrain(brain).then(function (r) {
+      // 云端失败且本地在 → 自动落本地（用户无感；仅云端时如实报错）
+      if ((!r || !r.ok) && r && r.cloudFailed && modelReady()) {
+        off && off()
+        var tw2 = tw
+        tw2.queue = ''
+        var off2 = api.onPetChatDelta(function (piece) { twFeed(tw2, piece) })
+        off = off2
+        return callBrain('local').then(function (r2) {
+          if (!r2 || !r2.ok) { fail(r2); return }
+          finish(r2)
+        })
+      }
+      if (!r || !r.ok) return fail(r)
+      finish(r)
     }).catch(function (e) { fail(e && e.message ? { error: e.message } : {}) })
   }
 
@@ -270,6 +321,100 @@
     var faces = ['wink', 'wide', 'exclaim', 'notify', 'hexagon']
     var f = faces[Math.floor(Math.random() * faces.length)]
     transient(f, 1600, state.busy ? 'thinking' : 'idle')
+  }
+
+  // ---- 右键快捷菜单（键盘 Menu 键同效；点外部/Esc 关闭） ----
+  function flipSide() {
+    var p = savedPos() || defaultPos()
+    applyPos({ x: window.innerWidth - p.x - SIZE, y: p.y })
+    try { localStorage.setItem(POS_KEY, JSON.stringify({ x: parseFloat(state.root.style.left), y: parseFloat(state.root.style.top) })) } catch {}
+    transient('swirl', 1200, 'idle')
+  }
+  function resetPos() {
+    applyPos(defaultPos())
+    try { localStorage.setItem(POS_KEY, JSON.stringify(defaultPos())) } catch {}
+    transient('burst', 1600, 'idle')
+  }
+  function toggleSleep() {
+    if (state.root.dataset.state === 'sleep') {
+      transient('egg', 1400, 'idle')
+    } else {
+      state.token++
+      state.bot.setState('sleep')
+      state.root.dataset.state = 'sleep'
+    }
+  }
+
+  function buildMenu() {
+    var m = document.createElement('div')
+    m.className = 'pet-menu hidden'
+    m.id = 'pet-menu'
+    m.setAttribute('role', 'menu')
+    var items = [
+      { t: '戳一戳', fn: function () { poke() } },
+      { t: '帮助气泡', fn: function () { poke(); openBubble() } },
+      { t: '换到另一侧', fn: flipSide },
+      { t: '回到默认位置', fn: resetPos },
+      { t: '休息 / 唤醒', fn: toggleSleep },
+      null,   // 分隔线
+      { model: true }   // 接入本地小模型 / 已接入状态（跟气泡接入区同步）
+    ]
+    for (var i = 0; i < items.length; i++) {
+      var it = items[i]
+      if (it === null) {
+        var sep = document.createElement('div')
+        sep.className = 'pet-menu-sep'
+        m.appendChild(sep)
+        continue
+      }
+      var b = document.createElement('button')
+      b.className = 'pet-menu-item'
+      b.setAttribute('role', 'menuitem')
+      if (it.model) {
+        b.dataset.model = '1'
+        b.textContent = '接入本地小模型 · 约 400MB'
+        b.addEventListener('click', function () { closeMenu(); poke(); openBubble(); })
+      } else {
+        b.textContent = it.t
+        b.addEventListener('click', (function (fn) { return function () { closeMenu(); fn() } })(it.fn))
+      }
+      m.appendChild(b)
+    }
+    return m
+  }
+  function syncMenuModel() {
+    var b = state.menu && state.menu.querySelector('[data-model]')
+    if (!b) return
+    if (modelReady()) {
+      b.textContent = '本地小模型 · 已接入'
+      b.disabled = true
+      b.classList.add('pet-menu-dim')
+    } else if (state.model.phase === 'downloading' || state.model.phase === 'loading') {
+      b.textContent = '本地小模型 · 接入中…'
+      b.disabled = true
+      b.classList.add('pet-menu-dim')
+    } else {
+      b.textContent = '接入本地小模型 · 约 400MB'
+      b.disabled = false
+      b.classList.remove('pet-menu-dim')
+    }
+  }
+  function openMenu(x, y) {
+    if (!state.menu) { state.menu = buildMenu(); document.body.appendChild(state.menu) }
+    syncMenuModel()
+    state.menu.classList.remove('hidden')
+    var mw = state.menu.offsetWidth || 180
+    var mh = state.menu.offsetHeight || 220
+    var mx = Math.max(12, Math.min(window.innerWidth - mw - 12, x))
+    var my = Math.max(72, Math.min(window.innerHeight - mh - 12, y))
+    state.menu.style.left = Math.round(mx) + 'px'
+    state.menu.style.top = Math.round(my) + 'px'
+    state.menuOpen = true
+  }
+  function closeMenu() {
+    if (!state.menuOpen) return
+    state.menu.classList.add('hidden')
+    state.menuOpen = false
   }
 
   // ---- 帮助气泡 ----
@@ -320,7 +465,7 @@
       if (hit) {                       // 应用类问题：规则库精准回答（0.5B 对应用事实易幻觉）
         aEl.textContent = adjustRuleForModel(hit)
         poke()
-      } else if (modelReady()) {       // 规则未命中且模型就绪：本地小模型流式闲聊
+      } else if (effectiveBrain()) {   // 规则未命中：云端大脑优先、本地 0.5B 兜底
         modelAsk(q, aEl)
       } else {
         aEl.textContent = fallback
@@ -415,14 +560,14 @@
       if (!document.getElementById('bloub-pet-style')) {
         var st = document.createElement('style')
         st.id = 'bloub-pet-style'
-        st.textContent = "\n/* 桌宠自注入样式（单一来源；var 兜底链兼容经典 --panel/--border/--accent 与原型 --surface/--line-v2/--brand-v2 两套变量） */\n.bloub-pet {\n  position: fixed; z-index: 90;\n  width: 104px; height: 104px;\n  cursor: grab;\n  touch-action: none;\n  filter: drop-shadow(0 14px 34px rgba(0,0,0,.35));\n  transition: opacity .3s;\n}\n.bloub-pet:active { cursor: grabbing; }\n.bloub-pet.pet-hidden { opacity: 0; pointer-events: none; }\n.bloub-pet .pet-host { width: 104px; height: 104px; }\n.bloub-pet:focus-visible { outline: 1px solid var(--brand-v2, var(--accent, #a5641f)); outline-offset: 4px; border-radius: 10px; }\n.bloub-pet[data-state=\"thinking\"] { filter: drop-shadow(0 10px 26px rgba(0,0,0,.35)) drop-shadow(0 0 18px var(--accent-glow, rgba(201,139,75,.12))); }\n\n.pet-bubble {\n  position: fixed; z-index: 95;\n  width: min(320px, calc(100vw - 48px));\n  background: var(--surface, var(--panel, #fff));\n  border: 1px solid var(--line-strong-v2, var(--border-strong, #888));\n  border-radius: 10px;\n  box-shadow: 0 18px 50px rgba(0,0,0,.4);\n  overflow: hidden;\n  animation: pet-bubble-in .28s var(--ease-spring, cubic-bezier(.2,.8,.2,1));\n}\n.pet-bubble.hidden { display: none; }\n@keyframes pet-bubble-in { from { transform: translateY(10px) scale(.96); opacity: 0; } }\n.pet-bubble-head {\n  display: flex; align-items: center; justify-content: space-between;\n  padding: 8px 10px 8px 14px;\n  border-bottom: 1px solid var(--line-v2, var(--border, #ddd));\n  background: var(--surface-raised, var(--panel-2, #f5f5f6));\n}\n.pet-bubble-title { font-size: 12px; font-weight: 700; color: var(--text-primary, var(--text, #222)); letter-spacing: 1px; }\n.pet-bubble-x { border: 0; background: transparent; color: var(--text-faint-v2, var(--text-faint, #999)); cursor: pointer; width: 22px; height: 22px; padding: 0; }\n.pet-bubble-x:hover { color: var(--text-primary, var(--text, #222)); }\n.pet-bubble-x .ic { width: 12px; height: 12px; stroke: currentColor; stroke-width: 1.4; fill: none; }\n.pet-bubble-body { padding: 12px 14px; max-height: 260px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }\n.pet-bubble-tip { font-size: 12px; line-height: 1.7; color: var(--text-muted-v2, var(--text-dim, #666)); }\n.pet-bubble-qa { display: flex; flex-direction: column; gap: 4px; }\n.pet-bubble-q { font-size: 12px; color: var(--text-primary, var(--text, #222)); font-weight: 600; }\n.pet-bubble-q::before { content: \"问 \"; color: var(--text-faint-v2, var(--text-faint, #999)); font-weight: 400; }\n.pet-bubble-a { font-size: 12px; line-height: 1.7; color: var(--text-muted-v2, var(--text-dim, #666)); }\n.pet-bubble-a::before { content: \"灵 \"; color: var(--brand-v2, var(--accent, #a5641f)); font-weight: 700; }\n.pet-bubble-foot { display: flex; gap: 8px; padding: 10px 12px 12px; border-top: 1px solid var(--line-v2, var(--border, #ddd)); background: var(--surface, var(--panel, #fff)); }\n.pet-bubble-input {\n  flex: 1; min-width: 0; height: 32px; padding: 0 10px;\n  border: 1px solid var(--line-v2, var(--border, #ddd)); border-radius: 6px;\n  background: var(--canvas, var(--bg, #fff)); color: var(--text-primary, var(--text, #222)); font-size: 12px;\n}\n.pet-bubble-input:focus { outline: none; border-color: var(--brand-v2, var(--accent, #a5641f)); }\n.pet-bubble-send {\n  flex: none; height: 32px; min-width: 44px; padding: 0 10px;\n  border: 1px solid var(--brand-v2, var(--accent, #a5641f)); border-radius: 6px;\n  background: var(--brand-v2, var(--accent, #a5641f)); color: #231a0c; font-size: 12px; font-weight: 700; cursor: pointer;\n}\n.pet-bubble-send:hover { background: var(--brand-strong-v2, var(--accent-dim, #8a6538)); border-color: var(--brand-strong-v2, var(--accent-dim, #8a6538)); }\n\n/* 本地小模型接入区（消息区与输入行之间的固定条；状态驱动） */\n.pet-model-zone { padding: 0 12px 10px; display: flex; }\n.pet-model-zone:empty { display: none; }\n.pet-model-zone .pet-model-on { flex: 1; align-self: center; font-size: 11px; color: var(--ok, #3d9a50); }\n.pet-model-zone .pet-model-loading { flex: 1; align-self: center; font-size: 11px; color: var(--text-muted-v2, var(--text-dim, #666)); animation: pet-pulse 1.2s ease-in-out infinite; }\n@keyframes pet-pulse { 50% { opacity: .45; } }\n.pet-model-zone .pet-model-dl { flex: 1; display: flex; flex-direction: column; gap: 4px; }\n.pet-model-zone .pet-model-bar { height: 4px; border-radius: 2px; background: var(--line-v2, var(--border, #ddd)); overflow: hidden; }\n.pet-model-zone .pet-model-bar i { display: block; height: 100%; border-radius: 2px; background: var(--brand-v2, var(--accent, #a5641f)); transition: width .3s; }\n.pet-model-zone .pet-model-pct { font-size: 11px; color: var(--text-muted-v2, var(--text-dim, #666)); }\n.pet-model-zone .pet-model-err { flex: 1; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }\n.pet-model-zone .pet-model-err-text { font-size: 11px; line-height: 1.5; color: var(--danger, #c0564a); }\n.pet-model-confirm { flex: 1; display: flex; flex-direction: column; gap: 8px; }\n.pet-model-confirm-text { font-size: 11px; line-height: 1.7; color: var(--text-muted-v2, var(--text-dim, #666)); }\n.pet-model-confirm-row { display: flex; gap: 8px; justify-content: flex-end; }\n.pet-chip {\n  border: 1px solid var(--line-v2, var(--border, #ddd)); border-radius: 999px;\n  height: 26px; padding: 0 12px; font-size: 11px; cursor: pointer; align-self: center;\n  background: var(--surface, var(--panel, #fff)); color: var(--text-primary, var(--text, #222));\n}\n.pet-chip:hover { border-color: var(--brand-v2, var(--accent, #a5641f)); color: var(--brand-v2, var(--accent, #a5641f)); }\n.pet-chip-ghost { border-color: transparent; color: var(--text-muted-v2, var(--text-dim, #666)); }\n.pet-chip-ghost:hover { border-color: var(--line-v2, var(--border, #ddd)); color: var(--text-primary, var(--text, #222)); }\n.pet-chip-model { border-color: var(--brand-v2, var(--accent, #a5641f)); color: var(--brand-v2, var(--accent, #a5641f)); font-weight: 700; }\n.pet-chip-go { border-color: var(--brand-v2, var(--accent, #a5641f)); background: var(--brand-v2, var(--accent, #a5641f)); color: #231a0c; font-weight: 700; }\n.pet-chip-go:hover { background: var(--brand-strong-v2, var(--accent-dim, #8a6538)); color: #231a0c; }\n\n/* 本地小模型回答：打字机光标（生成中闪烁） */\n.pet-bubble-a.gen::after { content: \"▍\"; color: var(--brand-v2, var(--accent, #a5641f)); animation: pet-caret .8s steps(1) infinite; }\n@keyframes pet-caret { 50% { opacity: 0; } }\n"
+        st.textContent = "\n/* 桌宠自注入样式（单一来源；var 兜底链兼容经典 --panel/--border/--accent 与原型 --surface/--line-v2/--brand-v2 两套变量） */\n.bloub-pet {\n  position: fixed; z-index: 90;\n  width: 104px; height: 104px;\n  cursor: grab;\n  touch-action: none;\n  filter: drop-shadow(0 14px 34px rgba(0,0,0,.35));\n  transition: opacity .3s;\n}\n.bloub-pet:active { cursor: grabbing; }\n.bloub-pet.pet-hidden { opacity: 0; pointer-events: none; }\n.bloub-pet .pet-host { width: 104px; height: 104px; }\n.bloub-pet:focus-visible { outline: 1px solid var(--brand-v2, var(--accent, #a5641f)); outline-offset: 4px; border-radius: 10px; }\n.bloub-pet[data-state=\"thinking\"] { filter: drop-shadow(0 10px 26px rgba(0,0,0,.35)) drop-shadow(0 0 18px var(--accent-glow, rgba(201,139,75,.12))); }\n\n.pet-bubble {\n  position: fixed; z-index: 95;\n  width: min(320px, calc(100vw - 48px));\n  background: var(--surface, var(--panel, #fff));\n  border: 1px solid var(--line-strong-v2, var(--border-strong, #888));\n  border-radius: 10px;\n  box-shadow: 0 18px 50px rgba(0,0,0,.4);\n  overflow: hidden;\n  animation: pet-bubble-in .28s var(--ease-spring, cubic-bezier(.2,.8,.2,1));\n}\n.pet-bubble.hidden { display: none; }\n@keyframes pet-bubble-in { from { transform: translateY(10px) scale(.96); opacity: 0; } }\n.pet-bubble-head {\n  display: flex; align-items: center; justify-content: space-between;\n  padding: 8px 10px 8px 14px;\n  border-bottom: 1px solid var(--line-v2, var(--border, #ddd));\n  background: var(--surface-raised, var(--panel-2, #f5f5f6));\n}\n.pet-bubble-title { font-size: 12px; font-weight: 700; color: var(--text-primary, var(--text, #222)); letter-spacing: 1px; }\n.pet-bubble-x { border: 0; background: transparent; color: var(--text-faint-v2, var(--text-faint, #999)); cursor: pointer; width: 22px; height: 22px; padding: 0; }\n.pet-bubble-x:hover { color: var(--text-primary, var(--text, #222)); }\n.pet-bubble-x .ic { width: 12px; height: 12px; stroke: currentColor; stroke-width: 1.4; fill: none; }\n.pet-bubble-body { padding: 12px 14px; max-height: 260px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }\n.pet-bubble-tip { font-size: 12px; line-height: 1.7; color: var(--text-muted-v2, var(--text-dim, #666)); }\n.pet-bubble-qa { display: flex; flex-direction: column; gap: 4px; }\n.pet-bubble-q { font-size: 12px; color: var(--text-primary, var(--text, #222)); font-weight: 600; }\n.pet-bubble-q::before { content: \"问 \"; color: var(--text-faint-v2, var(--text-faint, #999)); font-weight: 400; }\n.pet-bubble-a { font-size: 12px; line-height: 1.7; color: var(--text-muted-v2, var(--text-dim, #666)); }\n.pet-bubble-a::before { content: \"灵 \"; color: var(--brand-v2, var(--accent, #a5641f)); font-weight: 700; }\n.pet-bubble-foot { display: flex; gap: 8px; padding: 10px 12px 12px; border-top: 1px solid var(--line-v2, var(--border, #ddd)); background: var(--surface, var(--panel, #fff)); }\n.pet-bubble-input {\n  flex: 1; min-width: 0; height: 32px; padding: 0 10px;\n  border: 1px solid var(--line-v2, var(--border, #ddd)); border-radius: 6px;\n  background: var(--canvas, var(--bg, #fff)); color: var(--text-primary, var(--text, #222)); font-size: 12px;\n}\n.pet-bubble-input:focus { outline: none; border-color: var(--brand-v2, var(--accent, #a5641f)); }\n.pet-bubble-send {\n  flex: none; height: 32px; min-width: 44px; padding: 0 10px;\n  border: 1px solid var(--brand-v2, var(--accent, #a5641f)); border-radius: 6px;\n  background: var(--brand-v2, var(--accent, #a5641f)); color: #231a0c; font-size: 12px; font-weight: 700; cursor: pointer;\n}\n.pet-bubble-send:hover { background: var(--brand-strong-v2, var(--accent-dim, #8a6538)); border-color: var(--brand-strong-v2, var(--accent-dim, #8a6538)); }\n\n/* 本地小模型接入区（消息区与输入行之间的固定条；状态驱动） */\n.pet-model-zone { padding: 0 12px 10px; display: flex; }\n.pet-model-zone:empty { display: none; }\n.pet-model-zone .pet-model-on { flex: 1; align-self: center; font-size: 11px; color: var(--ok, #3d9a50); }\n.pet-model-zone .pet-model-hint { align-self: center; font-size: 10px; color: var(--text-faint-v2, var(--text-faint, #999)); }\n.pet-model-zone .pet-model-loading { flex: 1; align-self: center; font-size: 11px; color: var(--text-muted-v2, var(--text-dim, #666)); animation: pet-pulse 1.2s ease-in-out infinite; }\n@keyframes pet-pulse { 50% { opacity: .45; } }\n.pet-model-zone .pet-model-dl { flex: 1; display: flex; flex-direction: column; gap: 4px; }\n.pet-model-zone .pet-model-bar { height: 4px; border-radius: 2px; background: var(--line-v2, var(--border, #ddd)); overflow: hidden; }\n.pet-model-zone .pet-model-bar i { display: block; height: 100%; border-radius: 2px; background: var(--brand-v2, var(--accent, #a5641f)); transition: width .3s; }\n.pet-model-zone .pet-model-pct { font-size: 11px; color: var(--text-muted-v2, var(--text-dim, #666)); }\n.pet-model-zone .pet-model-err { flex: 1; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }\n.pet-model-zone .pet-model-err-text { font-size: 11px; line-height: 1.5; color: var(--danger, #c0564a); }\n.pet-model-confirm { flex: 1; display: flex; flex-direction: column; gap: 8px; }\n.pet-model-confirm-text { font-size: 11px; line-height: 1.7; color: var(--text-muted-v2, var(--text-dim, #666)); }\n.pet-model-confirm-row { display: flex; gap: 8px; justify-content: flex-end; }\n.pet-chip {\n  border: 1px solid var(--line-v2, var(--border, #ddd)); border-radius: 999px;\n  height: 26px; padding: 0 12px; font-size: 11px; cursor: pointer; align-self: center;\n  background: var(--surface, var(--panel, #fff)); color: var(--text-primary, var(--text, #222));\n}\n.pet-chip:hover { border-color: var(--brand-v2, var(--accent, #a5641f)); color: var(--brand-v2, var(--accent, #a5641f)); }\n.pet-chip-ghost { border-color: transparent; color: var(--text-muted-v2, var(--text-dim, #666)); }\n.pet-chip-ghost:hover { border-color: var(--line-v2, var(--border, #ddd)); color: var(--text-primary, var(--text, #222)); }\n.pet-chip-model { border-color: var(--brand-v2, var(--accent, #a5641f)); color: var(--brand-v2, var(--accent, #a5641f)); font-weight: 700; }\n.pet-chip-go { border-color: var(--brand-v2, var(--accent, #a5641f)); background: var(--brand-v2, var(--accent, #a5641f)); color: #231a0c; font-weight: 700; }\n.pet-chip-go:hover { background: var(--brand-strong-v2, var(--accent-dim, #8a6538)); color: #231a0c; }\n\n/* 本地小模型回答：打字机光标（生成中闪烁） */\n.pet-bubble-a.gen::after { content: \"▍\"; color: var(--brand-v2, var(--accent, #a5641f)); animation: pet-caret .8s steps(1) infinite; }\n@keyframes pet-caret { 50% { opacity: 0; } }\n\n/* 右键快捷菜单 */\n.pet-menu {\n  position: fixed; z-index: 96;\n  min-width: 180px; padding: 6px;\n  background: var(--surface, var(--panel, #fff));\n  border: 1px solid var(--line-strong-v2, var(--border-strong, #888));\n  border-radius: 10px;\n  box-shadow: 0 18px 50px rgba(0,0,0,.4);\n  display: flex; flex-direction: column;\n  animation: pet-bubble-in .18s var(--ease-spring, cubic-bezier(.2,.8,.2,1));\n}\n.pet-menu.hidden { display: none; }\n.pet-menu-item {\n  border: 0; background: transparent; text-align: left;\n  min-height: 34px; padding: 0 12px; border-radius: 6px;\n  font-size: 12px; color: var(--text-primary, var(--text, #222)); cursor: pointer;\n}\n.pet-menu-item:hover:not(:disabled) { background: var(--brand-soft, rgba(165,100,31,.09)); color: var(--brand-v2, var(--accent, #a5641f)); }\n.pet-menu-item:disabled { cursor: default; }\n.pet-menu-dim { color: var(--ok, #3d9a50); }\n.pet-menu-sep { height: 1px; margin: 5px 8px; background: var(--line-v2, var(--border, #ddd)); }\n"
         document.head.appendChild(st)
       }
       var root = document.createElement('div')
       root.className = 'bloub-pet'
       root.id = 'bloub-pet'
       root.dataset.state = 'idle'
-      root.title = '世界之灵：点击对话 · 拖动搬家'
+      root.title = '世界之灵：点击对话 · 拖动搬家 · 右键快捷菜单'
       root.setAttribute('role', 'button')
       root.setAttribute('tabindex', '0')
       root.setAttribute('aria-label', '世界之灵：点击对话，拖动移动')
@@ -462,6 +607,12 @@
       root.addEventListener('keydown', function (e) {
         if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); poke(); openBubble() }
       })
+      // 右键快捷菜单（键盘 Menu/Shift+F10 也触发；阻止系统菜单）
+      root.addEventListener('contextmenu', function (e) {
+        e.preventDefault()
+        e.stopPropagation()
+        openMenu(e.clientX || (state.root.getBoundingClientRect().x + SIZE / 2), e.clientY || (state.root.getBoundingClientRect().y + SIZE / 2))
+      })
 
       state.bubble = buildBubble()
       document.body.appendChild(state.bubble)
@@ -477,10 +628,14 @@
       window.addEventListener('resize', fit)
       fit()
 
-      // 点击气泡外关闭
+      // 点击气泡/菜单外关闭
       document.addEventListener('pointerdown', function (e) {
         if (state.bubbleOpen && !root.contains(e.target) && !state.bubble.contains(e.target)) closeBubble()
+        if (state.menuOpen && !root.contains(e.target) && !state.menu.contains(e.target)) closeMenu()
       }, true)
+      document.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape') { closeMenu(); closeBubble() }
+      })
 
       // 待机自发小表情（低频、不吵）
       setInterval(function () {
@@ -520,6 +675,8 @@
     poke: function () { if (state.bot) poke() },
     ask: respond,                       // 测试/调试用：直接问规则库
     modelPhase: function () { return state.model.phase },   // 测试用：本地小模型镜像状态
+    setCloudBrain: setCloudBrain,       // app.js 启动/配置变化时注入云端模型（内存持有，不落 localStorage）
+    brain: function () { return effectiveBrain() },         // 测试用：当前大脑（cloud / local / null）
     systemPrompt: PET_SYSTEM_PROMPT,    // 人设提示词展示副本（运行时正本在 shared/pet-model-prompt.cjs）
     get el() { return state.root }
   }
