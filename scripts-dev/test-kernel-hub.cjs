@@ -112,6 +112,10 @@ async function main() {
   await win.screenshot({ path: path.join(__dirname, 'shot-kernel-ai.png') })
 
   // 2c. 窄窗口：主画布与焦点层不发生横向覆盖
+  // 先退出最大化：窗口状态持久化会恢复 maximized，而 Electron 在最大化时忽略 setSize，
+  // 画布宽度断言会拿到未收缩的视口（曾致本地全绿/断续失败的环境性 flake）
+  await app.evaluate(({ BrowserWindow }) => { const w = BrowserWindow.getAllWindows()[0]; if (w.isMaximized()) w.unmaximize() })
+  await win.waitForTimeout(250)
   await app.evaluate(({ BrowserWindow }) => { BrowserWindow.getAllWindows()[0].setSize(800, 700) })
   await win.waitForTimeout(250)
   const narrow = await win.evaluate(() => {

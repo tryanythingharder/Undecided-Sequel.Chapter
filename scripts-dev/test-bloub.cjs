@@ -113,6 +113,27 @@ vm.runInContext(mountSrc.replace(/document\.createElementNS/g, 'undefined && doc
 ok(typeof probe.window.BloubMount === 'object' && typeof probe.window.BloubMount.mount === 'function', 'BloubMount.mount 导出（IIFE 顶层无 DOM 依赖）')
 ok(Array.isArray(probe.window.BloubMount.IDLE_CYCLE) && probe.window.BloubMount.IDLE_CYCLE.length === 8, 'IDLE_CYCLE 为 8 段待机循环')
 
+// ---- 5. 桌宠（renderer-proto/bloub-pet.js）：语法 + 规则问答契约 ----
+const petSrc = fs.readFileSync(path.join(ROOT, 'renderer-proto', 'bloub-pet.js'), 'utf8')
+new (require('node:vm').Script)(petSrc)
+ok(true, 'bloub-pet.js 语法可解析')
+const petProbe = { window: {}, localStorage: { getItem: () => null, setItem: () => {} }, console }
+petProbe.window = petProbe
+vm.createContext(petProbe)
+vm.runInContext(petSrc, petProbe)
+const Pet = petProbe.window.BloubPet
+ok(typeof Pet === 'object' && typeof Pet.init === 'function' && typeof Pet.event === 'function', 'BloubPet 导出 init/event（IIFE 顶层无 DOM 依赖）')
+ok(typeof Pet.ask === 'function', 'BloubPet.ask 规则问答可直调')
+// 规则库契约：每个关键主题都有非空回答
+const QUESTIONS = ['怎么开始', '快捷键', '主题', '未落账', '进度包', '内核', 'IF 分歧', '密钥', '报错', '搜索', '你是谁', '帮助']
+for (const q of QUESTIONS) {
+  const a = Pet.ask(q)
+  ok(typeof a === 'string' && a.length > 10, '问答「' + q + '」命中（' + (a ? a.length : 0) + ' 字）')
+}
+// 兜底：无关问题不给规则答案（phase-1 由本地小模型接手的边界）
+ok(Pet.ask('量子力学怎么入门') === null, '无关问题返回 null（兜底话术走气泡层）')
+ok(/世界之灵/.test(Pet.systemPrompt), 'systemPrompt 预置人设（本地小模型接入时复用）')
+
 console.log('')
 console.log('bloub：' + pass + ' 通过，' + fail + ' 失败')
 process.exit(fail ? 1 : 0)

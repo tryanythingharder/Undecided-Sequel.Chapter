@@ -2339,12 +2339,64 @@ html[data-theme="light"] .illust { box-shadow: 0 18px 50px rgba(0, 0, 0, .14), 0
 .empty-quick-chip:hover { transform: translateY(-2px); border-color: var(--accent-dim); color: var(--text); background: var(--glass-strong); }
 .empty-sigil { opacity: .45; filter: drop-shadow(0 0 26px var(--accent-glow)); }
 
-/* bloub 世界之灵（空状态活体机器人 + 忙碌岛思考小机器人；引擎见 shared/bloub*.js）
- * 挂载层逐帧重读主题 CSS 变量填色（--text 身体 / --canvas 眼洞、--bg 兜底），这里只管布局 */
-.empty-sigil .bloub-svg { display: block; }
-.island-busy .island-dot.bloub-host { background: transparent; }
-.island-busy .island-dot.bloub-host::before { display: none; }
-.island-busy .island-dot .bloub-svg { display: block; }
+
+/* ---- 世界之灵桌宠（bloub-pet.js）：常驻内容列两侧空白边距；点击对话、拖拽搬家 ---- */
+.bloub-pet {
+  position: fixed; z-index: 90;
+  width: 104px; height: 104px;
+  cursor: grab;
+  touch-action: none;
+  filter: drop-shadow(0 14px 34px rgba(0,0,0,.35));
+  transition: opacity .3s;
+}
+.bloub-pet:active { cursor: grabbing; }
+.bloub-pet.pet-hidden { opacity: 0; pointer-events: none; }
+.bloub-pet .pet-host { width: 104px; height: 104px; }
+.bloub-pet:focus-visible { outline: 1px solid var(--brand-v2); outline-offset: 4px; border-radius: 10px; }
+.bloub-pet[data-state="thinking"] { filter: drop-shadow(0 10px 26px rgba(0,0,0,.35)) drop-shadow(0 0 18px var(--accent-glow)); }
+
+.pet-bubble {
+  position: fixed; z-index: 95;
+  width: min(320px, calc(100vw - 48px));
+  background: var(--surface);
+  border: 1px solid var(--line-strong-v2);
+  border-radius: 10px;
+  box-shadow: 0 18px 50px rgba(0,0,0,.4);
+  overflow: hidden;
+  animation: pet-bubble-in .28s var(--ease-spring);
+}
+.pet-bubble.hidden { display: none; }
+@keyframes pet-bubble-in { from { transform: translateY(10px) scale(.96); opacity: 0; } }
+.pet-bubble-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 8px 10px 8px 14px;
+  border-bottom: 1px solid var(--line-v2);
+  background: var(--surface-raised);
+}
+.pet-bubble-title { font-size: 12px; font-weight: 700; color: var(--text-primary); letter-spacing: 1px; }
+.pet-bubble-x { border: 0; background: transparent; color: var(--text-faint-v2); cursor: pointer; width: 22px; height: 22px; padding: 0; }
+.pet-bubble-x:hover { color: var(--text-primary); }
+.pet-bubble-x .ic { width: 12px; height: 12px; stroke: currentColor; stroke-width: 1.4; fill: none; }
+.pet-bubble-body { padding: 12px 14px; max-height: 260px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }
+.pet-bubble-tip { font-size: 12px; line-height: 1.7; color: var(--text-muted-v2); }
+.pet-bubble-qa { display: flex; flex-direction: column; gap: 4px; }
+.pet-bubble-q { font-size: 12px; color: var(--text-primary); font-weight: 600; }
+.pet-bubble-q::before { content: "问 "; color: var(--text-faint-v2); font-weight: 400; }
+.pet-bubble-a { font-size: 12px; line-height: 1.7; color: var(--text-muted-v2); }
+.pet-bubble-a::before { content: "灵 "; color: var(--brand-v2); font-weight: 700; }
+.pet-bubble-foot { display: flex; gap: 8px; padding: 10px 12px 12px; border-top: 1px solid var(--line-v2); background: var(--surface); }
+.pet-bubble-input {
+  flex: 1; min-width: 0; height: 32px; padding: 0 10px;
+  border: 1px solid var(--line-v2); border-radius: 6px;
+  background: var(--canvas); color: var(--text-primary); font-size: 12px;
+}
+.pet-bubble-input:focus { outline: none; border-color: var(--brand-v2); }
+.pet-bubble-send {
+  flex: none; height: 32px; min-width: 44px; padding: 0 10px;
+  border: 1px solid var(--brand-v2); border-radius: 6px;
+  background: var(--brand-v2); color: #231a0c; font-size: 12px; font-weight: 700; cursor: pointer;
+}
+.pet-bubble-send:hover { background: var(--brand-strong-v2); border-color: var(--brand-strong-v2); }
 
 /* ---- 灵动岛通知（toast 视觉重构：玻璃胶囊 + spring；类名/aria 保持 e2e 兼容） ---- */
 .toast-wrap { top: 46px; }
