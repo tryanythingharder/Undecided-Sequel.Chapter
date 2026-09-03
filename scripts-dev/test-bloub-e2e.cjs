@@ -139,27 +139,45 @@ async function main() {
 
   // ---- 2. 视线跟随（精度标准：idle 门控采样 + 双眼中点 + 对称性） ----
   if (pet) {
+    // idle 门控采样：避开自发表情瞬态（瞬态期间 aim 松手，非 baseFace 状态没有双眼）
+    const sampleEyes = () => win.evaluate(() => {
+      const pet = document.querySelector('#bloub-pet')
+      const svg = pet.querySelector('.bloub-svg')
+      const eyes = [...svg.querySelectorAll('defs mask path')].filter((p) => p.getAttribute('display') !== 'none' && p.getAttribute('transform'))
+      if (eyes.length < 2) return null
+      const xs = eyes.map((el) => {
+        const m = el.getAttribute('transform').match(/matrix\(([^)]+)\)/)
+        const v = m[1].split(',').map(Number)
+        return { x: v[4], y: v[5] }
+      })
+      return { state: pet.dataset.state, midX: (xs[0].x + xs[1].x) / 2, midY: (xs[0].y + xs[1].y) / 2 }
+    })
     const eyeMidAt = async (px, py) => {
       await win.evaluate(({ x, y }) => {
         window.dispatchEvent(new PointerEvent('pointermove', { clientX: x, clientY: y, bubbles: true, pointerType: 'mouse' }))
       }, { x: px, y: py })
-      for (let i = 0; i < 14; i++) {   // 等转头缓动收敛 + 避开自发表情瞬态（瞬态期间 aim 松手）
+      for (let i = 0; i < 14; i++) {   // 等转头缓动收敛 + 避开自发表情瞬态
         await win.waitForTimeout(300)
-        const e = await win.evaluate(() => {
-          const pet = document.querySelector('#bloub-pet')
-          const svg = pet.querySelector('.bloub-svg')
-          const eyes = [...svg.querySelectorAll('defs mask path')].filter((p) => p.getAttribute('display') !== 'none' && p.getAttribute('transform'))
-          if (eyes.length < 2) return null
-          const xs = eyes.map((el) => {
-            const m = el.getAttribute('transform').match(/matrix\(([^)]+)\)/)
-            const v = m[1].split(',').map(Number)
-            return { x: v[4], y: v[5] }
-          })
-          return { state: pet.dataset.state, midX: (xs[0].x + xs[1].x) / 2, midY: (xs[0].y + xs[1].y) / 2 }
-        })
+        const e = await sampleEyes()
         if (e && e.state === 'idle') return e
       }
       return null
+    }
+    // 指针离开窗口（pointerleave + blur）→ 回中性平视：连续 4 个样本必须居中且稳定（无 wander 游走）
+    const eyeMidAfterLeave = async () => {
+      await win.evaluate(() => {
+        window.dispatchEvent(new PointerEvent('pointermove', { clientX: 900, clientY: 200, bubbles: true, pointerType: 'mouse' }))
+        document.dispatchEvent(new PointerEvent('pointerleave'))
+        window.dispatchEvent(new Event('blur'))
+      })
+      const samples = []
+      for (let i = 0; i < 14; i++) {
+        await win.waitForTimeout(300)
+        const e = await sampleEyes()
+        if (e && e.state === 'idle') samples.push(e)
+        if (samples.length >= 4) break
+      }
+      return samples.length >= 4 ? samples : null
     }
     const pr = await win.evaluate(() => {
       const r = document.querySelector('#bloub-pet').getBoundingClientRect()
@@ -211,6 +229,17 @@ async function main() {
           '眼位偏移 dx=' + ex.toFixed(1) + ' dy=' + ey.toFixed(1) + '（期望 ' + (sx <= 0 && sy < 0 ? '左上' : sx > 0 ? (sy > 0 ? '右下' : '右') : (sy > 0 ? '左下' : '左')) + '）')
       }
       check('pet-gaze-all-quadrants', quadFails === 0, quadFails + ' 个方位不一致')
+      // ---- 指针离开窗口 → 回中性平视（不游走）：连续 4 个样本 |midX|≤5 且样本间漂移 ≤2px ----
+      const lv = await eyeMidAfterLeave()
+      if (lv) {
+        const drift = Math.max(...lv.map((s) => s.midX)) - Math.min(...lv.map((s) => s.midX))
+        const centered = lv.every((s) => Math.abs(s.midX) <= 5)
+        check('pet-gaze-leave-recenters', centered, '指针离开窗口后眼位回中（样本 midX=' + lv.map((s) => s.midX.toFixed(1)).join('/') + '）')
+        check('pet-gaze-leave-stable', drift <= 2, '驻留平视稳定（漂移 ' + drift.toFixed(2) + 'px，无 wander 游走）')
+      } else {
+        check('pet-gaze-leave-recenters', false, '离窗采样不足')
+        check('pet-gaze-leave-stable', false, '离窗采样不足')
+      }
     }
   }
 

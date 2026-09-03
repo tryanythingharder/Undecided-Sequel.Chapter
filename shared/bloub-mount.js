@@ -154,9 +154,10 @@
 
     // 视线跟随：不用上游 lookTarget（它假定机器人固定贴右侧边——零位本身带 -26°/+13° 偏航，
     // 桌宠搬到左侧后几乎无正向行程，"看不准"）。这里自建几何正确的瞄准模型：
-    //   - 零位 = idle 姿势的中性凝视（指针贴在桌宠身上 = 正视用户，眼位居脸正中）
-    //   - 偏移 = 指针相对桌宠中心的方位角/俯仰角，映射到眼位行程（±YAW_RANGE/±PITCH_RANGE）
-    //   - 归一化半径覆盖整屏常用区（以桌宠为中心的短半径饱和，贴边也不钉死一侧）
+    //   - 零位 = 「平视屏幕」的中性凝视（yaw=0/pitch=29 → 眼对正对镜头，实测定标）；
+    //     视线只取指针相对「桌宠自身中心」的方位 → 拖到屏幕任何位置零位不变，始终平视屏幕
+    //   - 指针在窗口内 → 连续跟踪（指针在哪看哪）；指针离开窗口 / 页面隐藏 → 缓动回中性平视位，
+    //     不再启用上游 wander 游走（±5° 随机乱飘，正是"没有平视屏幕"的观感来源）
     //   - 转头期不转圈（spin=0）：眼位直接滑向目标，停止上游的 360° 甩眼动画
     var pointer = null
     var aiming = false
@@ -164,28 +165,34 @@
     var TURN_TIME = 0.4
     var LOOK_SNAP = 0.12
     var bbox = null
-    var NEUTRAL = null        // idle 姿势的中性凝视（首次 aim 时从引擎姿势表取，不硬编码）
     var YAW_RANGE = 22        // 指针横扫满行程时眼对绕脸的偏航角（度）——实测 ≈1.4px/deg，±22° ≈ ±31px
     var PITCH_RANGE = 20      // 纵向俯仰角（度）——±20° ≈ ±27px，眼线始终留在上半脸
     // 「看进镜头」零位（实测定标，scripts-dev/_gaze 扫描：yaw=0 时双眼中点恰在脸中心；
     // pitch=29 时眼线在设计的高位；roll 与姿势系一致）
     var YAW_ZERO = 0
     var PITCH_ZERO = 29
+    // 中性平视：指针不在窗口内时的驻留姿态（mix=1 → 完全覆盖姿势自带侧看）
+    var NEUTRAL = { yaw: YAW_ZERO, pitch: PITCH_ZERO, roll: -13, mix: 1, spin: 0, wander: 0 }
     function refreshBox() { bbox = svg.getBoundingClientRect() }
     function aim() {
       var def = B.STATE_BY_ID.get(engine.state)
-      if (!def || !def.baseFace) { // 非休息脸状态不接管视线（保持测量姿态）
-        if (aiming) { engine.setLook(null, clock); aiming = false }
+      if (!def || !def.baseFace) { // 非休息脸状态不接管视线（保持姿势自己的眼睛/圆点）
+        if (aiming) { aiming = false }
         return
       }
       if (!bbox || bbox.width === 0) return
       if (!aiming) turnSince = clock
+      if (!pointer) { // 指针不在窗口内：回中性平视（wander=0 → 不乱飘）
+        engine.setLook(NEUTRAL, clock, LOOK_SNAP)
+        aiming = true
+        return
+      }
       var cx = bbox.left + bbox.width / 2
       var cy = bbox.top + bbox.height / 2
       var rx = Math.max(240, Math.min(640, window.innerWidth * 0.5))
       var ry = Math.max(200, Math.min(520, window.innerHeight * 0.55))
-      var nx = pointer ? Math.max(-1, Math.min(1, (pointer.x - cx) / rx)) : 0
-      var ny = pointer ? Math.max(-1, Math.min(1, (pointer.y - cy) / ry)) : 0
+      var nx = Math.max(-1, Math.min(1, (pointer.x - cx) / rx))
+      var ny = Math.max(-1, Math.min(1, (pointer.y - cy) / ry))
       var tour = 1 - Math.pow(1 - Math.max(0, Math.min(1, (clock - turnSince) / TURN_TIME)), 5)
       engine.setLook({
         yaw: YAW_ZERO + nx * YAW_RANGE,
@@ -193,7 +200,7 @@
         roll: -13,
         mix: tour,
         spin: 0,
-        wander: pointer ? 0 : 1
+        wander: 0
       }, clock, LOOK_SNAP)
       aiming = true
     }
@@ -307,9 +314,13 @@
 
     function onPointerMove(ev) { if (ev.pointerType !== 'touch') pointer = { x: ev.clientX, y: ev.clientY } }
     function onPointerLeave() { pointer = null }
+    // 窗口失焦（用户点到别的软件）：指针已不在本窗口内，回中性平视。
+    // pointerleave 只覆盖「指针从文档边缘划出」；跨软件点击不触发它，必须补 blur。
+    function onWinBlur() { pointer = null }
     function onVis() {
       documentHidden = document.hidden
-      if (documentHidden && aiming) { engine.setLook(null, clock); aiming = false } // 隐藏页停帧，松开视线防卡姿态
+      // 隐藏页停帧；恢复可见时重置转头计时，避免一回来就用旧 tour 瞬跳
+      if (documentHidden && aiming) { aiming = false }
     }
     function onResize() { bbox = null }
 
@@ -321,6 +332,7 @@
       if (follow) {
         window.removeEventListener('pointermove', onPointerMove)
         document.removeEventListener('pointerleave', onPointerLeave)
+        window.removeEventListener('blur', onWinBlur)
       }
       document.removeEventListener('visibilitychange', onVis)
       window.removeEventListener('resize', onResize)
@@ -330,6 +342,7 @@
     if (follow) {
       window.addEventListener('pointermove', onPointerMove, { passive: true })
       document.addEventListener('pointerleave', onPointerLeave)
+      window.addEventListener('blur', onWinBlur)
     }
     document.addEventListener('visibilitychange', onVis)
     window.addEventListener('resize', onResize)

@@ -194,6 +194,47 @@ async function main() {
   await win2.waitForTimeout(220)
   check('重启后内核库仍在列', (await win2.locator('.kernel-card', { hasText: KNAME }).count()) === 1)
 
+  // 6b. 发布 → 弹窗确认「立即应用并游玩」→ 绑定 + 关设计区回内容区（新交互）
+  //     当前该内核已绑定（第 4/6 步）——先切回内置解除，再发布自定义内核观察「立即应用」效果
+  const builtinCard = win2.locator('.kernel-card-title', { hasText: '六面世界：人生模拟器' }).locator('..')
+  if ((await builtinCard.count()) === 1) {
+    await builtinCard.scrollIntoViewIfNeeded()
+    const bindBuiltin = builtinCard.locator('.kernel-bind')
+    if ((await bindBuiltin.count())) { await bindBuiltin.click(); await win2.waitForTimeout(600) }
+  }
+  // 打开自定义内核编辑 → 关闭内核库抽屉 → 直接发布
+  const editCard2 = win2.locator('.kernel-card', { hasText: KNAME })
+  await editCard2.scrollIntoViewIfNeeded()
+  await editCard2.locator('.tool-btn', { hasText: '编辑' }).click({ force: true })
+  await win2.waitForTimeout(500)
+  // 编辑点击后「内核库抽屉」与「源码焦点层」都可能开着，会拦截头部按钮——Esc 逐层关闭
+  for (let i = 0; i < 3; i++) {
+    const layers = await win2.locator('#kernel-hub').evaluate((el) => ({ lib: el.classList.contains('library-open'), src: el.classList.contains('source-open') }))
+    if (!layers.lib && !layers.src) break
+    await win2.keyboard.press('Escape')
+    await win2.waitForTimeout(400)
+  }
+  await win2.click('#btn-kernel-publish')
+  await win2.waitForTimeout(700)
+  const dlgVisible = await win2.locator('.confirm-mask').isVisible().catch(() => false)
+  check('发布后弹窗确认出现', dlgVisible)
+  if (dlgVisible) {
+    const dlgText = await win2.locator('.confirm-mask').textContent()
+    check('弹窗文案含立即应用并游玩', /立即应用并游玩/.test(dlgText), dlgText.slice(0, 70).replace(/\s+/g, ' '))
+    check('弹窗指向该内核', /AI协作测试世界/.test(dlgText), '弹窗应以内核 meta 标题点名（实际: ' + dlgText.slice(0, 50).replace(/\s+/g, ' ') + '）')
+    await win2.locator('.confirm-foot .primary').click()
+    await win2.waitForTimeout(1000)
+    const hubClosed = await win2.locator('#kernel-hub').evaluate((el) => el.hidden)
+    check('立即应用后回内容区', hubClosed)
+    const chipAfter = await win2.locator('#kernel-state').textContent()
+    check('立即应用后绑定生效', /AI协作测试世界/.test(chipAfter || ''), chipAfter)
+    // 回设计区，供后续导入测试使用
+    await win2.click('#btn-kernel-hub')
+    await win2.waitForTimeout(400)
+    await win2.click('#btn-kernel-library')
+    await win2.waitForTimeout(300)
+  }
+
   // 7. 导入 .md 文件（filechooser）
   fs.writeFileSync(tmpMd, '<!--KERNEL_META\n{"title":"导入世界：测试","tagline":"导入测试内核"}\nKERNEL_META-->\n\n# 导入世界\n\n（导入测试内容）')
   if (!(await win2.locator('#kernel-hub').evaluate((el) => el.classList.contains('library-open')))) await win2.click('#btn-kernel-library')

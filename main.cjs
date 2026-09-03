@@ -889,12 +889,16 @@ ipcMain.handle('chat:send', async (_evt, cfg) => {
     if (!['http:', 'https:'].includes(endpoint.protocol)) return { ok: false, error: 'API 地址仅支持 HTTP / HTTPS' }
     const messages = Array.isArray(cfg.messages) ? cfg.messages : []
     // 注意：不再发送 temperature（端点默认值即最佳实践，设置中也已移除该项）
+    // silent + rp 前缀 reqId = 状态补录静默重试：不进 UI 流式，改用非流式请求——
+    // 部分中继的 SSE 会在流中途干净断开（无 [DONE] 无错误），流式重试同样会被截；
+    // 非流式一次性返回完整 JSON，不受断流影响，补录成功率更高。
+    const isSilentRetry = !!cfg.silent && /^rp/.test(String(cfg.reqId || ''))
     const payload = {
       model,
       messages,
-      stream: true,
+      stream: !isSilentRetry,
       // 请求在末块返回 usage（OpenAI 兼容端点普遍支持；不支持的会忽略）
-      stream_options: { include_usage: true }
+      stream_options: isSilentRetry ? undefined : { include_usage: true }
     }
     // 思考程度（reasoning_effort）：OpenAI 兼容端点支持 low/medium/high；
     // 不支持的端点报错后会在下方自动去掉该参数重试一次（等效默认）
@@ -932,7 +936,7 @@ ipcMain.handle('chat:send', async (_evt, cfg) => {
           headers: {
             'Content-Type': 'application/json',
             'Authorization': 'Bearer ' + apiKey,
-            'Accept': 'text/event-stream'
+            'Accept': isSilentRetry ? 'application/json' : 'text/event-stream'
           },
           body: requestBody,
           signal: controller.signal

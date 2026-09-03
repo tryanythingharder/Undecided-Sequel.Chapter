@@ -3565,6 +3565,22 @@
     kernelCheckpointAccepted = true
     renderKernelDesignSurface()
     toast('内核已发布，可应用到任意世界线', 'ok', 5000)
+    // 发布成功 → 弹窗确认是否立即应用并游玩（绑定当前工作区 + 回内容区聚焦输入）
+    const meta = parseKernelMeta($('kernel-edit-text').value)
+    const name = (meta && meta.title) || $('kernel-edit-name').value.trim() || '新内核'
+    const playNow = await confirmDialog({
+      title: '内核已就绪',
+      body: '「' + name + '」已保存到内核库。要立即应用到当前工作区并开始游玩吗？',
+      okText: '立即应用并游玩',
+      cancelText: '稍后'
+    })
+    if (playNow && kernelHubEditingId) {
+      await bindKernel(kernelHubEditingId)
+      closeKernelHub()
+      if (!curSession()) newSession()   // 空工作区给一条新世界线
+      $('input').focus()
+      toast('已应用「' + name + '」——开始你的新世界吧', 'ok', 4000)
+    }
   }
 
   async function acceptKernelCheckpoint() {

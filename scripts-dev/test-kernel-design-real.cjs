@@ -159,8 +159,8 @@ async function main() {
   check('kd-patch-applied', !!patched, 'KERNEL_PATCH 局部修改已合并（侵蚀度规则入稿）')
 
   // ---- 4. 结构检查：发布路径内部先 runKernelValidation，不通过会 toast「暂不能发布」并中止 ----
-  log('phase 4: 发布（含结构检查与保存）…')
-  const collectToasts = (ms) => win.evaluate((durationMs) => new Promise((resolve) => {
+  log('phase 4: 发布（含结构检查与保存 + 末尾弹窗确认）…')
+  const publishToasts = await win.evaluate((durationMs) => new Promise((resolve) => {
     const seen = []
     const obs = new MutationObserver(() => {
       document.querySelectorAll('.toast-wrap .toast').forEach((el) => {
@@ -171,59 +171,30 @@ async function main() {
     obs.observe(document.body, { childList: true, subtree: true })
     document.getElementById('btn-kernel-publish').click()
     setTimeout(() => { obs.disconnect(); resolve(seen) }, durationMs)
-  }), ms)
-  const publishToasts = await collectToasts(9000)
+  }), 9000)
   log('phase 4: 发布期 toasts=' + JSON.stringify(publishToasts))
   check('kd-structure-passed',
     publishToasts.some((t) => /内核已发布/.test(t)) && !publishToasts.some((t) => /暂不能发布/.test(t)),
     '结构检查通过并发布（toasts: ' + publishToasts.slice(0, 3).join(' / ').slice(0, 90) + '）')
 
-  // ---- 5. 内核库出现新内核 + 绑定 ----
-  log('phase 5: 内核库与绑定…')
-  await win.click('#btn-kernel-library')
-  await win.waitForTimeout(600)
-  const libOk = await win.evaluate(() => {
-    const cards = [...document.querySelectorAll('#kernel-library-drawer .kernel-card')]
-    return cards.some((c) => /都市|异闻|调查/.test(c.textContent) && /自定义/.test(c.textContent))
-  })
-  check('kd-saved-to-library', libOk, '自定义内核出现在内核库')
-  if (libOk) {
-    // 绑定：收集窗口内全部 toasts（「已保存」「已绑定」都可能出现）
-    const bindToasts = await win.evaluate((durationMs) => new Promise((resolve) => {
-      const seen = []
-      const obs = new MutationObserver(() => {
-        document.querySelectorAll('.toast-wrap .toast').forEach((el) => {
-          const t = el.textContent.trim()
-          if (t && !seen.includes(t)) seen.push(t)
-        })
-      })
-      obs.observe(document.body, { childList: true, subtree: true })
-      const cards = [...document.querySelectorAll('#kernel-library-drawer .kernel-card')]
-      const card = cards.find((c) => /都市|异闻|调查/.test(c.textContent) && /自定义/.test(c.textContent))
-      const btn = card && [...card.querySelectorAll('button')].find((b) => /应用到当前内容/.test(b.textContent))
-      if (btn) btn.click()
-      setTimeout(() => { obs.disconnect(); resolve(seen) }, durationMs)
-    }), 6000)
-    log('phase 5: 绑定期 toasts=' + JSON.stringify(bindToasts))
-    check('kd-bound', bindToasts.some((t) => /已绑定内核并重新加载/.test(t)), '新内核已绑定当前工作区')
-    // 关闭内核库抽屉（不关会拦截后续点击）→ 回内容区
-    await win.keyboard.press('Escape')
-    await win.waitForTimeout(400)
-    const libStillOpen = await win.evaluate(() => document.getElementById('kernel-hub').classList.contains('library-open'))
-    if (libStillOpen) {
-      // 抽屉自己的关闭按钮
-      const closed = await win.evaluate(() => {
-        const btn = document.querySelector('#kernel-library-drawer .gallery-close, #kernel-library-drawer [title="关闭"]')
-        if (btn) { btn.click(); return true }
-        return false
-      })
-      log('phase 5: 抽屉关闭按钮 ' + (closed ? '已点' : '未找到'))
-      await win.waitForTimeout(400)
-    }
-    await win.click('#btn-kernel-hub-close')
-    await win.waitForTimeout(600)
+  // ---- 5. 发布弹窗：立即应用并游玩（新交互）→ 绑定 + 回内容区 ----
+  log('phase 5: 发布弹窗「立即应用并游玩」…')
+  await win.waitForTimeout(800)
+  const dlgVisible = await win.locator('.confirm-mask').isVisible().catch(() => false)
+  check('kd-publish-dialog-appears', dlgVisible, '发布后弹窗确认出现')
+  if (dlgVisible) {
+    const dlgText = await win.locator('.confirm-mask').textContent()
+    check('kd-publish-dialog-copy', /立即应用并游玩/.test(dlgText), '「' + dlgText.slice(0, 60).replace(/\s+/g, ' ') + '…」')
+    check('kd-publish-dialog-names-kernel', /都市|异闻|调查|记忆|侵蚀/.test(dlgText), '弹窗以内核标题点名')
+    await win.locator('.confirm-foot .primary').click()
+    await win.waitForTimeout(1000)
+    const hubClosed = await win.evaluate(() => document.getElementById('kernel-hub').hidden)
+    check('kd-dialog-play-closes-hub', hubClosed, '立即应用后回内容区')
     const chip = await win.evaluate(() => document.getElementById('kernel-state').textContent)
     check('kd-chip-shows-new-kernel', /都市|异闻|调查/.test(chip), '状态芯片: ' + chip)
+  } else {
+    check('kd-dialog-play-closes-hub', false, '弹窗未出现')
+    check('kd-chip-shows-new-kernel', false, '弹窗未出现')
   }
 
   // ---- 6. 用新内核真实跑一轮 ----
@@ -241,14 +212,38 @@ async function main() {
   }
   const done = await until(async () => !(await win.evaluate(() => document.querySelector('#btn-send').classList.contains('stop'))), 240000)
   check('kd-story-turn-completed', !!done)
+  // 状态提交链（含 PATCH_MISSING 时的静默补录重试）可能再花数十秒——等 assistant 消息真正入列
+  // （busy 复位在 push 之前；必须等消息出现，而不是等按钮复位）
+  const msgIn = await until(async () => {
+    const n = await win.evaluate(() => document.querySelectorAll('.msg.assistant').length)
+    return n >= 1 ? n : null
+  }, 240000)
+  check('kd-story-message-pushed', !!msgIn, 'assistant 消息已入列（' + (msgIn || 0) + ' 条）')
+  // 等引擎补录链收尾（一次过提交 / 静默重试提交 / Pending 挂起），上限 4 分钟
+  const settled = await until(async () => {
+    const st = await win.evaluate(() => ({
+      engineBusy: document.body.dataset.engineBusy === '1' || !!document.querySelector('.msg-pending-chip'),
+      pendingChip: document.querySelectorAll('.msg-pending-chip').length
+    }))
+    // 无直接信号可查 engineBusy 闭包——用「story 落盘且有结构化状态」作为收敛条件，轮询由下方落账断言兜底
+    return true
+  }, 1000)
   await sleep(2500)
+  // 再给补录链最长 3 分钟：轮询 story 文件直到 turn≥1 或超时
+  const STORIES = path.join(PROFILE, 'story-engine', 'stories')
+  const commitWait = await until(async () => {
+    const fs2 = fs.existsSync(STORIES) ? fs.readdirSync(STORIES).filter((f) => f.endsWith('.json')) : []
+    let best = null
+    for (const f of fs2) { try { const j = JSON.parse(fs.readFileSync(path.join(STORIES, f), 'utf8')); if (!best || j.updated_at > best.updated_at) best = j } catch {} }
+    return best && best.counters.turn >= 1 ? best : null
+  }, 180000)
+  log('phase 6: 落账等待结果 turn=' + (commitWait && commitWait.counters.turn))
   const reply = await win.locator('.msg.assistant .msg-body').last().textContent()
   check('kd-story-in-new-world', /地铁|委托|调查|城市|沈砚|记忆/.test(reply), '叙事发生在新内核世界（近未来都市调查）: ' + reply.slice(0, 50).replace(/\n/g, ' ') + '…')
   check('kd-story-no-leak', !leak && !/<<<KERNEL|<<<STATE_PATCH|<<<END_PATCH/.test(reply), '协议零泄漏')
   const choiceN = await win.locator('.choice').count().catch(() => 0)
   check('kd-story-choices', choiceN >= 2, '选项按钮 ' + choiceN + ' 个')
-  // 落账
-  const STORIES = path.join(PROFILE, 'story-engine', 'stories')
+  // 落账：接受「一次过提交」或「重试后提交」；中继偶发断流会让首轮 PATCH_MISSING（走补录链）
   const files = fs.existsSync(STORIES) ? fs.readdirSync(STORIES).filter((f) => f.endsWith('.json')) : []
   let story = null
   for (const f of files) { try { const j = JSON.parse(fs.readFileSync(path.join(STORIES, f), 'utf8')); if (!story || j.updated_at > story.updated_at) story = j } catch {} }
