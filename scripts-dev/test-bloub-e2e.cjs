@@ -245,6 +245,30 @@ async function main() {
   })
   check('pet-returns-on-wide', visibleWide)
 
+  // ---- 9. 经典界面同样有桌宠（用户实际使用的方案；shared/bloub-pet.js 双方案共用） ----
+  // 先清位置记忆：上一段把桌宠拖到了左侧并已验证记忆跨方案共享（同源 localStorage），
+  // 这里要验证的是经典方案的【默认落位】
+  await win.evaluate(() => localStorage.removeItem('sixworlds.pet.pos.v1'))
+  await win.evaluate(() => window.api.setUiScheme('classic')).catch(() => {})
+  await win.waitForTimeout(1500)
+  const wins2 = app.windows(); win = wins2[wins2.length - 1]
+  await win.waitForTimeout(2800)
+  const petClassic = await win.evaluate(() => {
+    const p = document.querySelector('#bloub-pet')
+    if (!p) return null
+    const cs = getComputedStyle(p)
+    const r = p.getBoundingClientRect()
+    return { display: cs.display, box: [Math.round(r.x), Math.round(r.y), Math.round(r.width), Math.round(r.height)], vw: window.innerWidth }
+  })
+  check('classic-pet-mounted', !!petClassic, '经典方案桌宠存在 data 端渲染')
+  if (petClassic) {
+    check('classic-pet-visible', petClassic.display !== 'none' && petClassic.box[2] === 104,
+      'display=' + petClassic.display + ' box=' + JSON.stringify(petClassic.box))
+    // 经典内容列 --read-w=720+40=760 → 右带起点 vw-760/2…
+    const inMargin = petClassic.box[0] + petClassic.box[2] <= petClassic.vw - 40 || petClassic.box[0] >= petClassic.vw - petClassic.box[2] - 60
+    check('classic-pet-in-margin', petClassic.box[0] > petClassic.vw * 0.5, '桌宠在右半区（x=' + petClassic.box[0] + '，vw=' + petClassic.vw + '）')
+  }
+
   await app.close()
   mock.server.close()
   console.log('')

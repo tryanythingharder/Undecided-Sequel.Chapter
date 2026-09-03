@@ -1,5 +1,5 @@
 /*
- * 六面世界 · 世界之灵桌宠（renderer-proto/bloub-pet.js，原型工作台专属）
+ * 六面世界 · 世界之灵桌宠（shared/bloub-pet.js，经典 / 原型工作台双方案共用）
  *
  * 常驻在内容画布两侧空白边距里的活体机器人（引擎：shared/bloub.js + shared/bloub-mount.js）：
  *   - 平时呼吸、眨眼、视线跟着鼠标走；偶尔自己换个表情
@@ -210,7 +210,15 @@
   }
 
   // ---- 定位：默认右侧边距中带、贴底；可拖拽（位置持久化，夹回视口） ----
-  function sideMargin() { return Math.max(0, (window.innerWidth - 760) / 2) }
+  // 内容列宽：原型固定 760；经典走 --read-w（可调阅读列宽，默认 720）+ 余量
+  function sideMargin() {
+    var cw = 760
+    try {
+      var v = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--read-w'))
+      if (isFinite(v) && v > 300) cw = v + 40
+    } catch {}
+    return Math.max(0, (window.innerWidth - cw) / 2)
+  }
 
   function defaultPos() {
     var m = sideMargin()
@@ -238,6 +246,13 @@
     if (state.root) return state.root
     try {
       if (!window.BloubMount || !window.Bloub) return null
+      // 样式自注入（幂等）：双方案共用一份，避免两套 styles.css 人工同步
+      if (!document.getElementById('bloub-pet-style')) {
+        var st = document.createElement('style')
+        st.id = 'bloub-pet-style'
+        st.textContent = "\n/* 桌宠自注入样式（单一来源；var 兜底链兼容经典 --panel/--border/--accent 与原型 --surface/--line-v2/--brand-v2 两套变量） */\n.bloub-pet {\n  position: fixed; z-index: 90;\n  width: 104px; height: 104px;\n  cursor: grab;\n  touch-action: none;\n  filter: drop-shadow(0 14px 34px rgba(0,0,0,.35));\n  transition: opacity .3s;\n}\n.bloub-pet:active { cursor: grabbing; }\n.bloub-pet.pet-hidden { opacity: 0; pointer-events: none; }\n.bloub-pet .pet-host { width: 104px; height: 104px; }\n.bloub-pet:focus-visible { outline: 1px solid var(--brand-v2, var(--accent, #a5641f)); outline-offset: 4px; border-radius: 10px; }\n.bloub-pet[data-state=\"thinking\"] { filter: drop-shadow(0 10px 26px rgba(0,0,0,.35)) drop-shadow(0 0 18px var(--accent-glow, rgba(201,139,75,.12))); }\n\n.pet-bubble {\n  position: fixed; z-index: 95;\n  width: min(320px, calc(100vw - 48px));\n  background: var(--surface, var(--panel, #fff));\n  border: 1px solid var(--line-strong-v2, var(--border-strong, #888));\n  border-radius: 10px;\n  box-shadow: 0 18px 50px rgba(0,0,0,.4);\n  overflow: hidden;\n  animation: pet-bubble-in .28s var(--ease-spring, cubic-bezier(.2,.8,.2,1));\n}\n.pet-bubble.hidden { display: none; }\n@keyframes pet-bubble-in { from { transform: translateY(10px) scale(.96); opacity: 0; } }\n.pet-bubble-head {\n  display: flex; align-items: center; justify-content: space-between;\n  padding: 8px 10px 8px 14px;\n  border-bottom: 1px solid var(--line-v2, var(--border, #ddd));\n  background: var(--surface-raised, var(--panel-2, #f5f5f6));\n}\n.pet-bubble-title { font-size: 12px; font-weight: 700; color: var(--text-primary, var(--text, #222)); letter-spacing: 1px; }\n.pet-bubble-x { border: 0; background: transparent; color: var(--text-faint-v2, var(--text-faint, #999)); cursor: pointer; width: 22px; height: 22px; padding: 0; }\n.pet-bubble-x:hover { color: var(--text-primary, var(--text, #222)); }\n.pet-bubble-x .ic { width: 12px; height: 12px; stroke: currentColor; stroke-width: 1.4; fill: none; }\n.pet-bubble-body { padding: 12px 14px; max-height: 260px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }\n.pet-bubble-tip { font-size: 12px; line-height: 1.7; color: var(--text-muted-v2, var(--text-dim, #666)); }\n.pet-bubble-qa { display: flex; flex-direction: column; gap: 4px; }\n.pet-bubble-q { font-size: 12px; color: var(--text-primary, var(--text, #222)); font-weight: 600; }\n.pet-bubble-q::before { content: \"问 \"; color: var(--text-faint-v2, var(--text-faint, #999)); font-weight: 400; }\n.pet-bubble-a { font-size: 12px; line-height: 1.7; color: var(--text-muted-v2, var(--text-dim, #666)); }\n.pet-bubble-a::before { content: \"灵 \"; color: var(--brand-v2, var(--accent, #a5641f)); font-weight: 700; }\n.pet-bubble-foot { display: flex; gap: 8px; padding: 10px 12px 12px; border-top: 1px solid var(--line-v2, var(--border, #ddd)); background: var(--surface, var(--panel, #fff)); }\n.pet-bubble-input {\n  flex: 1; min-width: 0; height: 32px; padding: 0 10px;\n  border: 1px solid var(--line-v2, var(--border, #ddd)); border-radius: 6px;\n  background: var(--canvas, var(--bg, #fff)); color: var(--text-primary, var(--text, #222)); font-size: 12px;\n}\n.pet-bubble-input:focus { outline: none; border-color: var(--brand-v2, var(--accent, #a5641f)); }\n.pet-bubble-send {\n  flex: none; height: 32px; min-width: 44px; padding: 0 10px;\n  border: 1px solid var(--brand-v2, var(--accent, #a5641f)); border-radius: 6px;\n  background: var(--brand-v2, var(--accent, #a5641f)); color: #231a0c; font-size: 12px; font-weight: 700; cursor: pointer;\n}\n.pet-bubble-send:hover { background: var(--brand-strong-v2, var(--accent-dim, #8a6538)); border-color: var(--brand-strong-v2, var(--accent-dim, #8a6538)); }\n"
+        document.head.appendChild(st)
+      }
       var root = document.createElement('div')
       root.className = 'bloub-pet'
       root.id = 'bloub-pet'

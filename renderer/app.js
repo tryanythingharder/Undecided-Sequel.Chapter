@@ -2175,6 +2175,7 @@
     streamRenderedLen = 0
     currentReqId = 'r' + Date.now().toString(36)
     busyIsland = showBusyIsland() // R76：忙碌灵动岛（独立于 .toast，避免干扰 e2e toast 选择器）
+    if (window.BloubPet) window.BloubPet.event('busy') // 桌宠：生成期间化作 thinking
     setSendButtonState(true)
     renderMessages()
     updateTitle()
@@ -2202,6 +2203,7 @@
     const wasAborted = r && r.ok && r.aborted
     busy = false
     if (busyIsland) { busyIsland.close(); busyIsland = null } // R76：收纳忙碌灵动岛
+    if (window.BloubPet) window.BloubPet.event(r && r.ok && r.content ? 'done' : 'error') // 桌宠：完成亮徽标 / 报错惊叹号
     if (streamRaf) { cancelAnimationFrame(streamRaf); streamRaf = 0 }
     streaming = ''
     streamRenderedLen = 0
@@ -5201,6 +5203,8 @@
     refreshModelSelect()
     if (selThink) selThink.value = cfg.thinkLevel || 'default'
     $('input').focus()
+    // 世界之灵桌宠（bloub）：经典 / 原型双方案共用（shared/bloub-pet.js）；失败静默
+    try { if (window.BloubPet) window.BloubPet.init() } catch {}
     // 首次安装检测：未完成新手引导时，初始化配置向导（R72/R75） → 免责声明确认 → 教程指引
     const OB_KEY = 'sixworlds.onboard.v1'
     let onboarded = false

@@ -114,7 +114,7 @@ ok(typeof probe.window.BloubMount === 'object' && typeof probe.window.BloubMount
 ok(Array.isArray(probe.window.BloubMount.IDLE_CYCLE) && probe.window.BloubMount.IDLE_CYCLE.length === 8, 'IDLE_CYCLE 为 8 段待机循环')
 
 // ---- 5. 桌宠（renderer-proto/bloub-pet.js）：语法 + 规则问答契约 ----
-const petSrc = fs.readFileSync(path.join(ROOT, 'renderer-proto', 'bloub-pet.js'), 'utf8')
+const petSrc = fs.readFileSync(path.join(ROOT, 'shared', 'bloub-pet.js'), 'utf8')
 new (require('node:vm').Script)(petSrc)
 ok(true, 'bloub-pet.js 语法可解析')
 const petProbe = { window: {}, localStorage: { getItem: () => null, setItem: () => {} }, console }
