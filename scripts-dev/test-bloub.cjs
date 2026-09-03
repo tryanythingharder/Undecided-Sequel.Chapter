@@ -158,6 +158,53 @@ ok(Pet.brain() === 'cloud', '仅云端可用时 brain() = cloud')
 Pet.setCloudBrain(null)
 ok(Pet.brain() === null, '清空云端后 brain() 回到 null')
 
+// 智能体意图路由：自然语言 → 四种任务（路由命中即不闲聊直接做事）
+ok(typeof Pet.agentIntent === 'function', 'BloubPet 导出 agentIntent（意图路由可直测）')
+{
+  const T = (q) => JSON.stringify(Pet.agentIntent(q))
+  ok(Pet.agentIntent('选哪个好呀') && JSON.parse(T('选哪个好呀')).task === 'recommend', '「选哪个」→ recommend')
+  ok(JSON.parse(T('帮我推荐选择')).task === 'recommend', '「推荐选择」→ recommend')
+  const auto1 = Pet.agentIntent('托管帮我先选接下来的几轮')
+  ok(auto1 && auto1.task === 'autopilot' && auto1.rounds === 3, '「托管几轮」无数字 → 默认 3 轮')
+  const auto2 = Pet.agentIntent('替我选 5 轮')
+  ok(auto2 && auto2.task === 'autopilot' && auto2.rounds === 5, '「替我选 5 轮」→ 5 轮')
+  const auto3 = Pet.agentIntent('帮我选 9 轮')
+  ok(auto3 && auto3.rounds === 5, '轮数上限 5（9 → 5）')
+  ok(JSON.parse(T('哪一幕插图最好看')).task === 'illust', '「哪一幕插图最好看」→ illust')
+  ok(JSON.parse(T('在那一幕回复生成插图最好看的是哪个')).task === 'illust', '「插图哪个幕」→ illust')
+  ok(JSON.parse(T('帮我优化生图的提示词')).task === 'prompt', '「优化生图提示词」→ prompt')
+  ok(Pet.agentIntent('今天天气怎么样') === null, '普通闲聊不进智能体路由（null → 双大脑闲聊）')
+  ok(Pet.agentIntent('快捷键') === null, '规则库问题不进智能体路由')
+}
+
+// 主进程 pet:agent 容错提取（petAgentExtractPlan：JSON 围栏/杂文/非法键防护）——通过 main.cjs 源内函数直测
+{
+  const mainSrc = fs.readFileSync(path.join(ROOT, 'main.cjs'), 'utf8')
+  new (require('node:vm').Script)(mainSrc) // 语法可解析
+  // 提取 petAgentExtractPlan 函数体做沙箱直测（独立纯函数，无 Electron 依赖）
+  const m = mainSrc.match(/function petAgentExtractPlan[\s\S]*?\n}/)
+  ok(!!m, 'main.cjs 含 petAgentExtractPlan 纯函数')
+  if (m) {
+    const sandbox = { Number, Array, String }
+    vm.createContext(sandbox)
+    const extract = vm.runInContext('(' + m[0] + ')', sandbox)
+    const choices = [{ key: 'A', label: '甲' }, { key: 'B', label: '乙' }, { key: 'C', label: '丙' }]
+    ok(extract('choice', '{"recommend":"B","why":"更稳"}', { choices }).recommend === 'B', '裸 JSON 提取成功')
+    ok(extract('choice', '```json\n{"recommend":"A","why":"x"}\n```', { choices }).recommend === 'A', 'markdown 围栏被剥')
+    ok(extract('choice', '好的我认为：{"recommend":"C","why":"z"} 以上。', { choices }).recommend === 'C', '杂文包裹 JSON 提取')
+    ok(extract('choice', '{"recommend":"Z","why":"x"}', { choices }) === null, '推荐键不在选项内 → 拒绝')
+    ok(extract('choice', '完全不是 JSON', { choices }) === null, '非 JSON → null')
+    const alt = extract('choice', '{"recommend":"A","alternates":["B","Z","A"]}', { choices })
+    ok(alt.alternates.join('') === 'B', '备选过滤非法键与重复键（' + alt.alternates.join(',') + '）')
+    const il = extract('illust', '{"idx":1,"why":"w","visual":"dawn"}', { illustCount: 3 })
+    ok(il && il.idx === 1, 'illust idx 边界内通过')
+    ok(extract('illust', '{"idx":9,"why":"w"}', { illustCount: 3 }) === null, 'illust idx 越界 → 拒绝')
+    const pr = extract('prompt', '{"prompt":"a calm village at dawn, golden light, masterpiece","why":"w"}', {})
+    ok(pr && pr.prompt.length > 8, 'prompt 提取成功')
+    ok(extract('prompt', '{"prompt":"short","why":"w"}', {}) === null, '过短 prompt → 拒绝')
+  }
+}
+
 console.log('')
 console.log('bloub：' + pass + ' 通过，' + fail + ' 失败')
 process.exit(fail ? 1 : 0)

@@ -1463,6 +1463,142 @@ ipcMain.handle('pet:chat', async (_evt, p) => {
   }
 })
 
+// ---- 桌宠智能体（pet:agent）：把「看剧情 → 出结构化决策」交给云端大脑 ----
+/* 四种任务（task 字段）：choice（推荐选项）/ auto（托管代选一轮）/ illust（插图时机）/
+ * prompt（生图提示词优化）。共同形态：任务化系统提示词 + 严格 JSON 输出 + 容错提取。
+ * 智能体必须用云端模型（0.5B 推不动剧情质量）——cloud 配置由渲染层随请求一并传入（内存态）。
+ * e2e 接缝：SIXWORLDS_PET_FAKE=1 时按任务返回确定性 JSON。 */
+const PET_AGENT_FAKE_PLANS = {
+  choice: { recommend: 'B', why: '（测试大脑）B 最能推进主线', alternates: [] },
+  auto: { recommend: 'A', why: '（测试大脑）托管选 A', alternates: [] },
+  illust: { idx: 0, why: '（测试大脑）开场幕画面感最强', visual: 'a quiet village at dawn' },
+  prompt: { prompt: 'masterpiece, (test brain) scenic view', why: '（测试大脑）优化为通用生图风格' }
+}
+ipcMain.handle('pet:agent', async (_evt, p) => {
+  try {
+    const task = String((p && p.task) || '')
+    if (!PET_AGENT_FAKE_PLANS[task]) return { ok: false, error: '未知智能体任务：' + task }
+    if (!p || !Array.isArray(p.choices) || !p.choices.length) {
+      if (task === 'choice' || task === 'auto') return { ok: false, error: '当前没有可分析的选项' }
+    }
+    const cloud = p && p.cloud
+    if (!cloud || !cloud.baseUrl || !cloud.apiKey || !cloud.model) {
+      return { ok: false, error: '智能体需要先在设置里配置模型（本地小模型推不动剧情质量）', needCloud: true }
+    }
+    if (process.env.SIXWORLDS_PET_FAKE) {
+      const plan = PET_AGENT_FAKE_PLANS[task]
+      await new Promise((r) => setTimeout(r, 60))
+      return { ok: true, plan }
+    }
+    const spec = petAgentSpec(task, p)
+    if (!spec) return { ok: false, error: '智能体任务描述构建失败' }
+    const baseUrl = String(cloud.baseUrl).trim().replace(/\/+$/, '')
+    let endpoint
+    try { endpoint = new URL(baseUrl + '/chat/completions') } catch { return { ok: false, error: '云端大脑地址不合法' } }
+    if (!['http:', 'https:'].includes(endpoint.protocol)) return { ok: false, error: '云端大脑地址仅支持 HTTP / HTTPS' }
+    const controller = new AbortController()
+    const kill = setTimeout(() => controller.abort(), 60000)
+    try {
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + String(cloud.apiKey).trim() },
+        body: JSON.stringify({
+          model: String(cloud.model).trim(),
+          messages: [
+            { role: 'system', content: spec.system },
+            { role: 'user', content: spec.user }
+          ],
+          stream: false,
+          temperature: 0.4
+        }),
+        signal: controller.signal
+      })
+      if (!res.ok) return { ok: false, error: '云端大脑 HTTP ' + res.status }
+      const raw = (await readResponseBufferLimited(res, MAX_CHAT_RESPONSE_BYTES, '智能体决策')).toString('utf8')
+      let text = ''
+      try {
+        const j = JSON.parse(raw)
+        text = (j && j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content) || ''
+      } catch { return { ok: false, error: '云端大脑返回无法解析' } }
+      const plan = petAgentExtractPlan(task, text, p)
+      if (!plan) return { ok: false, error: '决策 JSON 提取失败（模型未按格式作答）' }
+      return { ok: true, plan }
+    } catch (e) {
+      if (e && (e.name === 'AbortError' || /aborted/i.test(String(e.message || '')))) {
+        return { ok: false, error: '智能体思考超时（60 秒）' }
+      }
+      return { ok: false, error: String((e && e.message) || e) }
+    } finally { clearTimeout(kill) }
+  } catch (e) {
+    return { ok: false, error: String((e && e.message) || e) }
+  }
+})
+// 任务化提示词 + JSON 容错提取
+function petAgentSpec(task, p) {
+  const story = String((p && p.story) || '').slice(0, 3000)
+  const choices = (p && p.choices) || []
+  const chList = choices.map((c) => c.key + '：' + c.label).join('\n')
+  const base = '你是「世界之灵」，六面世界应用里的智能体助手。只输出一个 JSON 对象，不要任何其他文字、不要 markdown 代码块。'
+  if (task === 'choice' || task === 'auto') {
+    return {
+      system: base + '\n任务：根据剧情为用户推荐当前最佳行动选项。字段：{"recommend":"选项键","why":"一两句中文理由","alternates":["备选键"]}。recommend 必须是给定选项之一。',
+      user: '【最近剧情】\n' + story + '\n\n【当前选项】\n' + chList + '\n\n请推荐最能推进主线、最有戏剧张力的选项。'
+    }
+  }
+  if (task === 'illust') {
+    return {
+      system: base + '\n任务：从最近的剧情幕中挑出最值得生成插图的一处。字段：{"idx":幕序号(从0数，0是最近一幕),"why":"一两句中文理由","visual":"这句画面描述的英文关键词短语"}。',
+      user: '【按时间排序的剧情幕（第 0 条是最近一幕）】\n' + story + '\n\n挑画面感、构图潜力最强的一幕。'
+    }
+  }
+  if (task === 'prompt') {
+    return {
+      system: base + '\n任务：把叙事片段优化为英文文生图提示词（stable diffusion 风格）。字段：{"prompt":"英文提示词（含构图/光影/风格词，逗号分隔）","why":"一两句中文说明优化思路"}。不要出现人名拼写的废字符，用外貌描述代替。',
+      user: '【叙事片段】\n' + story + '\n\n优化为约 40 词内的英文生图提示词。'
+    }
+  }
+  return null
+}
+function petAgentExtractPlan(task, text, p) {
+  let t = String(text || '').trim()
+  // 容错 1：剥 markdown 代码块围栏
+  t = t.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '')
+  // 容错 2：截取首个 { 到最后一个 } 之间
+  const s = t.indexOf('{')
+  const e = t.lastIndexOf('}')
+  if (s < 0 || e <= s) return null
+  let plan = null
+  try { plan = JSON.parse(t.slice(s, e + 1)) } catch { return null }
+  const choices = (p && p.choices) || []
+  const keys = choices.map((c) => String(c.key))
+  if (task === 'choice' || task === 'auto') {
+    const rec = String(plan.recommend || '').trim()
+    if (!keys.includes(rec)) return null            // 推荐键必须在给定选项内
+    return {
+      recommend: rec,
+      why: String(plan.why || '').slice(0, 160),
+      alternates: (Array.isArray(plan.alternates) ? plan.alternates : [])
+        .map(String).filter((k) => keys.includes(k) && k !== rec).slice(0, 2)
+    }
+  }
+  if (task === 'illust') {
+    const idx = Number(plan.idx)
+    const max = (p && p.illustCount) || 1
+    if (!Number.isInteger(idx) || idx < 0 || idx >= max) return null
+    return {
+      idx,
+      why: String(plan.why || '').slice(0, 160),
+      visual: String(plan.visual || '').slice(0, 200)
+    }
+  }
+  if (task === 'prompt') {
+    const prompt = String(plan.prompt || '').trim()
+    if (prompt.length < 8) return null
+    return { prompt: prompt.slice(0, 600), why: String(plan.why || '').slice(0, 160) }
+  }
+  return null
+}
+
 // ---- 打开任意 JSON 文件并返回内容（导入配置用）----
 ipcMain.handle('dialog:openFile', async (evt, opts) => {
   try {

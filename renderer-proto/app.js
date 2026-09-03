@@ -1083,7 +1083,8 @@
 
   // 为指定消息生成插图。idx 为当前会话 messages 下标。
   // regen: 已有插图时重新生成；isAuto: 自动触发（受最短长度门槛约束），手动点击不受限
-  async function generateIllust(idx, regen, isAuto) {
+  // customPrompt: 智能体优化后的提示词（不传则按叙事原文现场构建）
+  async function generateIllust(idx, regen, isAuto, customPrompt) {
     const s = curSession()
     if (!s) return
     const msg = s.messages[idx]
@@ -1108,7 +1109,7 @@
       baseUrl: cfg.illustBaseUrl,
       apiKey: cfg.illustApiKey || cfg.apiKey,
       model: cfg.illustModel,
-      prompt: buildIllustPrompt(msg.content),
+      prompt: customPrompt || buildIllustPrompt(msg.content),
       size: cfg.illustSize,
       quality: cfg.illustQuality || 'default', // 清晰度：default 不传参，standard/high 透传给支持的端点
       negative: cfg.illustNegative,
@@ -5265,6 +5266,62 @@
       window.addEventListener('storage', push)
       if (window.api && window.api.onCfgUpdated) window.api.onCfgUpdated(push)
     })()
+    // 桌宠智能体能力面（纯新增注入，不改既有流程）：读选项 / 代选（等一轮生成完）/ 读剧情 / 配图
+    try {
+      if (window.BloubPet) window.BloubPet.bindAgent({
+        getChoices: () => {
+          const s = curSession()
+          if (!s || busy) return []
+          const la = s.messages.reduce((acc, m, i) => (m.role === 'assistant' ? i : acc), -1)
+          if (la < 0) return []
+          return parseChoices(s.messages[la].content)
+        },
+        playChoice: async (key, label) => {
+          if (busy) return { ok: false, error: '上一回合还没结束' }
+          if (!cfg.baseUrl || !cfg.apiKey || !cfg.model) return { ok: false, error: '模型未配置' }
+          await send('【' + key + '】' + label)
+          return { ok: true }
+        },
+        storyTail: (n) => {
+          const s = curSession()
+          if (!s) return ''
+          return s.messages.slice(-Math.max(1, n || 6))
+            .map((m) => (m.role === 'user' ? '（你）' : '（故事）') + String(m.content || '').replace(/\s+/g, ' ').slice(0, 400))
+            .join('\n')
+        },
+        assistantCandidates: () => {
+          const s = curSession()
+          if (!s) return []
+          const out = []
+          for (let i = s.messages.length - 1; i >= 0 && out.length < 5; i--) {
+            const m = s.messages[i]
+            if (m.role === 'assistant' && String(m.content || '').length > 40) {
+              out.push({ idx: i, preview: String(m.content).replace(/\s+/g, ' ').slice(0, 90) })
+            }
+          }
+          return out
+        },
+        lastScene: () => {
+          const s = curSession()
+          if (!s) return null
+          for (let i = s.messages.length - 1; i >= 0; i--) {
+            const m = s.messages[i]
+            if (m.role === 'assistant' && String(m.content || '').length > 40) {
+              return { idx: i, text: String(m.content || '') }
+            }
+          }
+          return null
+        },
+        illustReady: () => illustReady(),
+        generateIllustFor: async (idx, customPrompt) => {
+          if (busy) return { ok: false, error: '剧情生成中，稍后再试' }
+          if (idx < 0 || idx >= (curSession() ? curSession().messages.length : 0)) return { ok: false, error: '幕不存在' }
+          await generateIllust(idx, true, false, customPrompt || null)
+          const m = curSession() && curSession().messages[idx]
+          return m && m.illust ? { ok: true } : { ok: false, error: (m && m.illustError) || '生成未完成' }
+        }
+      })
+    } catch {}
     // 首次安装检测：未完成新手引导时，初始化配置向导（R72/R75） → 免责声明确认 → 教程指引
     const OB_KEY = 'sixworlds.onboard.v1'
     let onboarded = false

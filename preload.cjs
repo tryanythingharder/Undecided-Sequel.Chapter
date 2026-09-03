@@ -88,6 +88,8 @@ contextBridge.exposeInMainWorld('api', {
   petModelDownload: () => ipcRenderer.invoke('pet:model-download'),
   petModelDownloadCancel: () => ipcRenderer.invoke('pet:model-download-cancel'),
   petChat: (p) => ipcRenderer.invoke('pet:chat', p),
+  // 桌宠智能体：结构化决策（推荐选项 / 托管代选 / 插图时机 / 生图提示词优化）
+  petAgent: (p) => ipcRenderer.invoke('pet:agent', p),
   onPetModelProgress: (cb) => {
     ipcRenderer.on('pet:model-progress', (_e, d) => cb(d))
     return () => ipcRenderer.removeAllListeners('pet:model-progress')

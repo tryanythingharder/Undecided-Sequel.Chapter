@@ -317,6 +317,231 @@
     }).catch(function (e) { fail(e && e.message ? { error: e.message } : {}) })
   }
 
+  // ---- 智能体（agent）：桌宠不只聊天，还能替你操作应用 ----
+  // 能力面由 app.js 注入（bindAgent）：读当前选项 / 代点选项（等这一轮生成完）/ 读最近剧情 /
+  // 列可配图幕 / 给某幕生成插图（可用自定义提示词）。智能判断走云端大脑（pet:agent 结构化 JSON）。
+  var agent = { fns: null, running: false, planned: 0, done: 0, stop: false }
+  function bindAgent(fns) {
+    agent.fns = fns || null
+    if (state.bubbleOpen) { renderAgentZone(); renderModelZone() }
+  }
+  function hasAgent() { return !!(agent.fns && agent.fns.getChoices) }
+
+  // 意图路由：命中智能体动词时不再闲聊，直接做事（导出给单测）
+  function detectAgentIntent(q) {
+    var s = String(q || '')
+    if (/托管|代打|代玩|帮我选|替我选|先选|自动选/.test(s)) {
+      var m = s.match(/(\d+)\s*(轮|回|回合)/)
+      return { task: 'autopilot', rounds: m ? Math.min(5, Math.max(1, Number(m[1]))) : 3 }
+    }
+    if (/选哪个|怎么选|最优选项|推荐选|推荐一下选|推荐选项|推荐选择/.test(s)) return { task: 'recommend' }
+    if (/生图|插图|配图/.test(s) && /提示词|prompt/i.test(s)) return { task: 'prompt' }
+    if (/哪一幕|那一幕|哪幕|什么时候.*(插图|配图)|(插图|配图|生图).*(推荐|建议|哪)/.test(s)) return { task: 'illust' }
+    return null
+  }
+
+  function appendNote(text, actions) {
+    var body = state.bubble.querySelector('.pet-bubble-body')
+    if (!body) return
+    var n = el('div', 'pet-bubble-note')
+    n.textContent = text
+    if (actions && actions.length) {
+      var row = el('div', 'pet-bubble-actions')
+      for (var i = 0; i < actions.length; i++) {
+        var b = el('button', 'pet-chip pet-chip-go', actions[i].label)
+        b.addEventListener('click', actions[i].fn)
+        row.appendChild(b)
+      }
+      n.appendChild(row)
+    }
+    body.appendChild(n)
+    body.scrollTop = body.scrollHeight
+  }
+
+  function agentStory(maxChars) {
+    try {
+      var t = agent.fns.storyTail ? String(agent.fns.storyTail(6) || '') : ''
+      return t.slice(-(maxChars || 2400))
+    } catch { return '' }
+  }
+
+  function agentEnsureCloud() {
+    if (state.cloud) return true
+    appendNote('智能体需要云端大脑——在设置里配好模型后我才能替你做剧情判断（本地小模型推不动这种分析）。')
+    return false
+  }
+
+  // 技能 1：推荐本回合选项（结果附「替我选」一键执行）
+  async function agentRecommend() {
+    if (!hasAgent() || agent.running) return
+    var ch = agent.fns.getChoices()
+    if (!ch.length) { appendNote('这一幕还没有选项——先推进一回合剧情，或者点选项区「开始游戏」。'); return }
+    if (!agentEnsureCloud()) return
+    transient('thinking', 3600, 'idle')
+    var r = await window.api.petAgent({
+      task: 'choice',
+      story: agentStory(),
+      choices: ch,
+      cloud: state.cloud
+    })
+    if (!r || !r.ok) { appendNote('推荐没做成：' + ((r && r.error) || '未知错误')); transient('alert', 2400, 'idle'); return }
+    var pick = null
+    for (var i = 0; i < ch.length; i++) if (String(ch[i].key) === String(r.plan.recommend)) pick = ch[i]
+    if (!pick) { appendNote('推荐没做成：模型给了一个无效选项。'); return }
+    transient('wide', 1800, 'idle')
+    appendNote('我推荐【' + pick.key + '】' + pick.label + '——' + r.plan.why + (pick && r.plan.alternates && r.plan.alternates.length ? '（备选：' + r.plan.alternates.join(' / ') + '）' : ''), [
+      { label: '替我选', fn: function () { playAndReport(pick, r.plan.why) } }
+    ])
+  }
+  function playAndReport(pick, why) {
+    if (agent.running) return
+    appendNote('替你选了【' + pick.key + '】' + pick.label + '，正在推进剧情…')
+    agent.fns.playChoice(pick.key, pick.label).then(function (res) {
+      appendNote(res && res.ok ? '这一轮完成了，看看故事怎么走吧。' : '这一轮生成没有完成（设置里检查下模型），你也可以自己再选。')
+    })
+  }
+
+  // 技能 2：托管 N 轮——逐轮推荐→代选→等生成完→下一轮；随时可停
+  async function agentAutopilot(n) {
+    if (!hasAgent() || agent.running) return
+    if (!agentEnsureCloud()) return
+    agent.running = true
+    agent.planned = n
+    agent.done = 0
+    agent.stop = false
+    renderAgentZone()
+    appendNote('托管开始：最多 ' + n + ' 轮。想停就点下方「停止托管」或按 Esc。')
+    transient('orbit', 2000, 'idle')
+    for (var i = 0; i < n && !agent.stop; i++) {
+      var ch = agent.fns.getChoices()
+      if (!ch.length) { appendNote('这一幕没有选项了，托管提前结束。'); break }
+      var r = await window.api.petAgent({
+        task: 'auto',
+        story: agentStory(),
+        choices: ch,
+        cloud: state.cloud
+      })
+      if (!r || !r.ok) { appendNote('托管中断：' + ((r && r.error) || '未知错误')); transient('alert', 2400, 'idle'); break }
+      var pick = null
+      for (var j = 0; j < ch.length; j++) if (String(ch[j].key) === String(r.plan.recommend)) pick = ch[j]
+      if (!pick) { appendNote('托管中断：模型给了无效选项。'); break }
+      appendNote('第 ' + (i + 1) + ' 轮选【' + pick.key + '】' + pick.label + '——' + r.plan.why)
+      agent.done++
+      renderAgentZone()
+      var res = await agent.fns.playChoice(pick.key, pick.label)
+      if (!res || !res.ok) { appendNote('这一轮生成没有完成，托管停止。'); break }
+    }
+    var d = agent.done
+    agent.running = false
+    renderAgentZone()
+    appendNote('托管结束：一共替你打了 ' + d + ' 轮。')
+    transient('notify', 2200, 'idle')
+  }
+  function agentStop() { agent.stop = true }
+
+  // 技能 3：哪一幕最值得配插图（结果附「就这幕，生成」）
+  async function agentIllustAdvice() {
+    if (!hasAgent() || agent.running) return
+    var cands = agent.fns.assistantCandidates ? agent.fns.assistantCandidates() : []
+    if (!cands.length) { appendNote('还没有足够长的剧情幕可以配图。'); return }
+    if (!agentEnsureCloud()) return
+    if (agent.fns.illustReady && !agent.fns.illustReady()) {
+      appendNote('生图端点还没配置（设置 → 插图模型）。我可以先告诉你哪幕最值得画：')
+    }
+    transient('thinking', 3600, 'idle')
+    var scenes = cands.map(function (c, i) { return i + '. ' + c.preview }).join('\n')
+    var r = await window.api.petAgent({
+      task: 'illust',
+      story: scenes,
+      illustCount: cands.length,
+      cloud: state.cloud
+    })
+    if (!r || !r.ok) { appendNote('配图建议没做成：' + ((r && r.error) || '未知错误')); return }
+    var target = cands[Math.max(0, Math.min(cands.length - 1, Number(r.plan.idx)))]
+    transient('wide', 1800, 'idle')
+    appendNote('最值得配图的是「' + target.preview.slice(0, 40) + '…」——' + r.plan.why, [
+      { label: '就这幕，生成', fn: function () { doIllust(target.idx, r.plan.visual) } }
+    ])
+  }
+  function doIllust(idx, visualHint) {
+    if (agent.fns.illustReady && !agent.fns.illustReady()) { appendNote('生图端点未配置，先到设置里配一个插图模型。'); return }
+    appendNote('开始为这一幕生成插图…（生图在故事区进行，稍等片刻）')
+    var p = Promise.resolve(agent.fns.generateIllustFor(idx, visualHint || null))
+    p.then(function (res) {
+      appendNote(res && res.ok === false ? '插图生成失败：' + (res.error || '未知错误') : '插图已生成，在故事区就能看到。')
+    }).catch(function () { appendNote('插图生成出现异常。') })
+  }
+
+  // 技能 4：把当前幕优化成英文生图提示词（附「用这个生图」/「复制」）
+  async function agentPromptOptimize() {
+    if (!hasAgent() || agent.running) return
+    var scene = agent.fns.lastScene && agent.fns.lastScene()
+    if (!scene) { appendNote('还没有可以配图的剧情幕。'); return }
+    if (!agentEnsureCloud()) return
+    transient('thinking', 3600, 'idle')
+    var ctx = scene.text.slice(0, 1500)
+    var r = await window.api.petAgent({ task: 'prompt', story: ctx, cloud: state.cloud })
+    if (!r || !r.ok) { appendNote('提示词优化没做成：' + ((r && r.error) || '未知错误')); return }
+    transient('wink', 1800, 'idle')
+    appendNote('优化后的生图提示词：' + r.plan.prompt + '\n（' + r.plan.why + '）', [
+      { label: '用这个生图', fn: function () { doIllust(scene.idx, r.plan.prompt) } },
+      { label: '复制', fn: function () {
+        try { navigator.clipboard.writeText(r.plan.prompt); appendNote('提示词已复制到剪贴板。') } catch {}
+      } }
+    ])
+  }
+
+  function runAgent(intent) {
+    if (intent.task === 'autopilot') agentAutopilot(intent.rounds)
+    else if (intent.task === 'recommend') agentRecommend()
+    else if (intent.task === 'illust') agentIllustAdvice()
+    else if (intent.task === 'prompt') agentPromptOptimize()
+  }
+
+  // 智能体快捷区（气泡消息区与本地模型区之间）
+  function renderAgentZone() {
+    var z = state.bubble && state.bubble.querySelector('.pet-agent-zone')
+    if (!z) return
+    z.innerHTML = ''
+    if (!hasAgent()) return
+    var ch = []
+    try { ch = agent.fns.getChoices() || [] } catch {}
+    if (agent.running) {
+      var run = el('div', 'pet-agent-run')
+      run.appendChild(el('span', 'pet-agent-pct', '托管中 ' + agent.done + ' / ' + agent.planned + ' 轮'))
+      var stopB = el('button', 'pet-chip pet-chip-ghost', '停止托管')
+      stopB.addEventListener('click', agentStop)
+      run.appendChild(stopB)
+      z.appendChild(run)
+      return
+    }
+    var illustOk = false
+    var hasScene = false
+    try {
+      illustOk = agent.fns.illustReady ? agent.fns.illustReady() : false
+      hasScene = !!(agent.fns.lastScene && agent.fns.lastScene())
+    } catch {}
+    if (ch.length) {
+      var b1 = el('button', 'pet-chip pet-chip-agent', '这一幕选哪个')
+      b1.addEventListener('click', agentRecommend)
+      z.appendChild(b1)
+      var b2 = el('button', 'pet-chip pet-chip-agent', '托管 3 轮')
+      b2.addEventListener('click', function () { agentAutopilot(3) })
+      z.appendChild(b2)
+    }
+    if (hasScene) {
+      var b3 = el('button', 'pet-chip pet-chip-agent', '哪幕值得配图')
+      b3.addEventListener('click', agentIllustAdvice)
+      z.appendChild(b3)
+      if (illustOk) {
+        var b4 = el('button', 'pet-chip pet-chip-agent', '优化生图提示词')
+        b4.addEventListener('click', agentPromptOptimize)
+        z.appendChild(b4)
+      }
+    }
+    z.appendChild(el('span', 'pet-agent-hint', ch.length || hasScene ? '' : '（推进剧情后我可以替你选、托管或配图）'))
+  }
+
   function poke() {
     var faces = ['wink', 'wide', 'exclaim', 'notify', 'hexagon']
     var f = faces[Math.floor(Math.random() * faces.length)]
@@ -465,7 +690,17 @@
       if (hit) {                       // 应用类问题：规则库精准回答（0.5B 对应用事实易幻觉）
         aEl.textContent = adjustRuleForModel(hit)
         poke()
-      } else if (effectiveBrain()) {   // 规则未命中：云端大脑优先、本地 0.5B 兜底
+        return
+      }
+      var intent = hasAgent() ? detectAgentIntent(q) : null
+      if (intent) {                     // 智能体指令：不闲聊，直接替用户做事
+        aEl.textContent = '好——交给智能体。'
+        renderAgentZone()
+        runAgent(intent)
+        poke()
+        return
+      }
+      if (effectiveBrain()) {           // 其余闲聊：云端大脑优先、本地 0.5B 兜底
         modelAsk(q, aEl)
       } else {
         aEl.textContent = fallback
@@ -479,8 +714,9 @@
     })
     foot.appendChild(input); foot.appendChild(send)
     body.appendChild(tip)
-    var zone = el('div', 'pet-model-zone')       // 本地小模型接入区（消息区与输入行之间的固定条）
-    b.appendChild(head); b.appendChild(body); b.appendChild(zone); b.appendChild(foot)
+    var agentZone = el('div', 'pet-agent-zone')       // 智能体快捷区（选项/托管/配图/提示词）
+    var zone = el('div', 'pet-model-zone')            // 本地小模型接入区（消息区与输入行之间的固定条）
+    b.appendChild(head); b.appendChild(body); b.appendChild(agentZone); b.appendChild(zone); b.appendChild(foot)
     return b
   }
 
@@ -490,6 +726,7 @@
       if (t) t.textContent = nextTip()
       return
     }
+    renderAgentZone()                            // 开气泡时按最新剧情状态渲染智能体快捷区
     renderModelZone()                            // 开气泡时按最新模型状态渲染接入区
     anchorBubble()
     state.bubble.classList.remove('hidden')
@@ -560,7 +797,7 @@
       if (!document.getElementById('bloub-pet-style')) {
         var st = document.createElement('style')
         st.id = 'bloub-pet-style'
-        st.textContent = "\n/* 桌宠自注入样式（单一来源；var 兜底链兼容经典 --panel/--border/--accent 与原型 --surface/--line-v2/--brand-v2 两套变量） */\n.bloub-pet {\n  position: fixed; z-index: 90;\n  width: 104px; height: 104px;\n  cursor: grab;\n  touch-action: none;\n  filter: drop-shadow(0 14px 34px rgba(0,0,0,.35));\n  transition: opacity .3s;\n}\n.bloub-pet:active { cursor: grabbing; }\n.bloub-pet.pet-hidden { opacity: 0; pointer-events: none; }\n.bloub-pet .pet-host { width: 104px; height: 104px; }\n.bloub-pet:focus-visible { outline: 1px solid var(--brand-v2, var(--accent, #a5641f)); outline-offset: 4px; border-radius: 10px; }\n.bloub-pet[data-state=\"thinking\"] { filter: drop-shadow(0 10px 26px rgba(0,0,0,.35)) drop-shadow(0 0 18px var(--accent-glow, rgba(201,139,75,.12))); }\n\n.pet-bubble {\n  position: fixed; z-index: 95;\n  width: min(320px, calc(100vw - 48px));\n  background: var(--surface, var(--panel, #fff));\n  border: 1px solid var(--line-strong-v2, var(--border-strong, #888));\n  border-radius: 10px;\n  box-shadow: 0 18px 50px rgba(0,0,0,.4);\n  overflow: hidden;\n  animation: pet-bubble-in .28s var(--ease-spring, cubic-bezier(.2,.8,.2,1));\n}\n.pet-bubble.hidden { display: none; }\n@keyframes pet-bubble-in { from { transform: translateY(10px) scale(.96); opacity: 0; } }\n.pet-bubble-head {\n  display: flex; align-items: center; justify-content: space-between;\n  padding: 8px 10px 8px 14px;\n  border-bottom: 1px solid var(--line-v2, var(--border, #ddd));\n  background: var(--surface-raised, var(--panel-2, #f5f5f6));\n}\n.pet-bubble-title { font-size: 12px; font-weight: 700; color: var(--text-primary, var(--text, #222)); letter-spacing: 1px; }\n.pet-bubble-x { border: 0; background: transparent; color: var(--text-faint-v2, var(--text-faint, #999)); cursor: pointer; width: 22px; height: 22px; padding: 0; }\n.pet-bubble-x:hover { color: var(--text-primary, var(--text, #222)); }\n.pet-bubble-x .ic { width: 12px; height: 12px; stroke: currentColor; stroke-width: 1.4; fill: none; }\n.pet-bubble-body { padding: 12px 14px; max-height: 260px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }\n.pet-bubble-tip { font-size: 12px; line-height: 1.7; color: var(--text-muted-v2, var(--text-dim, #666)); }\n.pet-bubble-qa { display: flex; flex-direction: column; gap: 4px; }\n.pet-bubble-q { font-size: 12px; color: var(--text-primary, var(--text, #222)); font-weight: 600; }\n.pet-bubble-q::before { content: \"问 \"; color: var(--text-faint-v2, var(--text-faint, #999)); font-weight: 400; }\n.pet-bubble-a { font-size: 12px; line-height: 1.7; color: var(--text-muted-v2, var(--text-dim, #666)); }\n.pet-bubble-a::before { content: \"灵 \"; color: var(--brand-v2, var(--accent, #a5641f)); font-weight: 700; }\n.pet-bubble-foot { display: flex; gap: 8px; padding: 10px 12px 12px; border-top: 1px solid var(--line-v2, var(--border, #ddd)); background: var(--surface, var(--panel, #fff)); }\n.pet-bubble-input {\n  flex: 1; min-width: 0; height: 32px; padding: 0 10px;\n  border: 1px solid var(--line-v2, var(--border, #ddd)); border-radius: 6px;\n  background: var(--canvas, var(--bg, #fff)); color: var(--text-primary, var(--text, #222)); font-size: 12px;\n}\n.pet-bubble-input:focus { outline: none; border-color: var(--brand-v2, var(--accent, #a5641f)); }\n.pet-bubble-send {\n  flex: none; height: 32px; min-width: 44px; padding: 0 10px;\n  border: 1px solid var(--brand-v2, var(--accent, #a5641f)); border-radius: 6px;\n  background: var(--brand-v2, var(--accent, #a5641f)); color: #231a0c; font-size: 12px; font-weight: 700; cursor: pointer;\n}\n.pet-bubble-send:hover { background: var(--brand-strong-v2, var(--accent-dim, #8a6538)); border-color: var(--brand-strong-v2, var(--accent-dim, #8a6538)); }\n\n/* 本地小模型接入区（消息区与输入行之间的固定条；状态驱动） */\n.pet-model-zone { padding: 0 12px 10px; display: flex; }\n.pet-model-zone:empty { display: none; }\n.pet-model-zone .pet-model-on { flex: 1; align-self: center; font-size: 11px; color: var(--ok, #3d9a50); }\n.pet-model-zone .pet-model-hint { align-self: center; font-size: 10px; color: var(--text-faint-v2, var(--text-faint, #999)); }\n.pet-model-zone .pet-model-loading { flex: 1; align-self: center; font-size: 11px; color: var(--text-muted-v2, var(--text-dim, #666)); animation: pet-pulse 1.2s ease-in-out infinite; }\n@keyframes pet-pulse { 50% { opacity: .45; } }\n.pet-model-zone .pet-model-dl { flex: 1; display: flex; flex-direction: column; gap: 4px; }\n.pet-model-zone .pet-model-bar { height: 4px; border-radius: 2px; background: var(--line-v2, var(--border, #ddd)); overflow: hidden; }\n.pet-model-zone .pet-model-bar i { display: block; height: 100%; border-radius: 2px; background: var(--brand-v2, var(--accent, #a5641f)); transition: width .3s; }\n.pet-model-zone .pet-model-pct { font-size: 11px; color: var(--text-muted-v2, var(--text-dim, #666)); }\n.pet-model-zone .pet-model-err { flex: 1; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }\n.pet-model-zone .pet-model-err-text { font-size: 11px; line-height: 1.5; color: var(--danger, #c0564a); }\n.pet-model-confirm { flex: 1; display: flex; flex-direction: column; gap: 8px; }\n.pet-model-confirm-text { font-size: 11px; line-height: 1.7; color: var(--text-muted-v2, var(--text-dim, #666)); }\n.pet-model-confirm-row { display: flex; gap: 8px; justify-content: flex-end; }\n.pet-chip {\n  border: 1px solid var(--line-v2, var(--border, #ddd)); border-radius: 999px;\n  height: 26px; padding: 0 12px; font-size: 11px; cursor: pointer; align-self: center;\n  background: var(--surface, var(--panel, #fff)); color: var(--text-primary, var(--text, #222));\n}\n.pet-chip:hover { border-color: var(--brand-v2, var(--accent, #a5641f)); color: var(--brand-v2, var(--accent, #a5641f)); }\n.pet-chip-ghost { border-color: transparent; color: var(--text-muted-v2, var(--text-dim, #666)); }\n.pet-chip-ghost:hover { border-color: var(--line-v2, var(--border, #ddd)); color: var(--text-primary, var(--text, #222)); }\n.pet-chip-model { border-color: var(--brand-v2, var(--accent, #a5641f)); color: var(--brand-v2, var(--accent, #a5641f)); font-weight: 700; }\n.pet-chip-go { border-color: var(--brand-v2, var(--accent, #a5641f)); background: var(--brand-v2, var(--accent, #a5641f)); color: #231a0c; font-weight: 700; }\n.pet-chip-go:hover { background: var(--brand-strong-v2, var(--accent-dim, #8a6538)); color: #231a0c; }\n\n/* 本地小模型回答：打字机光标（生成中闪烁） */\n.pet-bubble-a.gen::after { content: \"▍\"; color: var(--brand-v2, var(--accent, #a5641f)); animation: pet-caret .8s steps(1) infinite; }\n@keyframes pet-caret { 50% { opacity: 0; } }\n\n/* 右键快捷菜单 */\n.pet-menu {\n  position: fixed; z-index: 96;\n  min-width: 180px; padding: 6px;\n  background: var(--surface, var(--panel, #fff));\n  border: 1px solid var(--line-strong-v2, var(--border-strong, #888));\n  border-radius: 10px;\n  box-shadow: 0 18px 50px rgba(0,0,0,.4);\n  display: flex; flex-direction: column;\n  animation: pet-bubble-in .18s var(--ease-spring, cubic-bezier(.2,.8,.2,1));\n}\n.pet-menu.hidden { display: none; }\n.pet-menu-item {\n  border: 0; background: transparent; text-align: left;\n  min-height: 34px; padding: 0 12px; border-radius: 6px;\n  font-size: 12px; color: var(--text-primary, var(--text, #222)); cursor: pointer;\n}\n.pet-menu-item:hover:not(:disabled) { background: var(--brand-soft, rgba(165,100,31,.09)); color: var(--brand-v2, var(--accent, #a5641f)); }\n.pet-menu-item:disabled { cursor: default; }\n.pet-menu-dim { color: var(--ok, #3d9a50); }\n.pet-menu-sep { height: 1px; margin: 5px 8px; background: var(--line-v2, var(--border, #ddd)); }\n"
+        st.textContent = "\n/* 桌宠自注入样式（单一来源；var 兜底链兼容经典 --panel/--border/--accent 与原型 --surface/--line-v2/--brand-v2 两套变量） */\n.bloub-pet {\n  position: fixed; z-index: 90;\n  width: 104px; height: 104px;\n  cursor: grab;\n  touch-action: none;\n  filter: drop-shadow(0 14px 34px rgba(0,0,0,.35));\n  transition: opacity .3s;\n}\n.bloub-pet:active { cursor: grabbing; }\n.bloub-pet.pet-hidden { opacity: 0; pointer-events: none; }\n.bloub-pet .pet-host { width: 104px; height: 104px; }\n.bloub-pet:focus-visible { outline: 1px solid var(--brand-v2, var(--accent, #a5641f)); outline-offset: 4px; border-radius: 10px; }\n.bloub-pet[data-state=\"thinking\"] { filter: drop-shadow(0 10px 26px rgba(0,0,0,.35)) drop-shadow(0 0 18px var(--accent-glow, rgba(201,139,75,.12))); }\n\n.pet-bubble {\n  position: fixed; z-index: 95;\n  width: min(320px, calc(100vw - 48px));\n  background: var(--surface, var(--panel, #fff));\n  border: 1px solid var(--line-strong-v2, var(--border-strong, #888));\n  border-radius: 10px;\n  box-shadow: 0 18px 50px rgba(0,0,0,.4);\n  overflow: hidden;\n  animation: pet-bubble-in .28s var(--ease-spring, cubic-bezier(.2,.8,.2,1));\n}\n.pet-bubble.hidden { display: none; }\n@keyframes pet-bubble-in { from { transform: translateY(10px) scale(.96); opacity: 0; } }\n.pet-bubble-head {\n  display: flex; align-items: center; justify-content: space-between;\n  padding: 8px 10px 8px 14px;\n  border-bottom: 1px solid var(--line-v2, var(--border, #ddd));\n  background: var(--surface-raised, var(--panel-2, #f5f5f6));\n}\n.pet-bubble-title { font-size: 12px; font-weight: 700; color: var(--text-primary, var(--text, #222)); letter-spacing: 1px; }\n.pet-bubble-x { border: 0; background: transparent; color: var(--text-faint-v2, var(--text-faint, #999)); cursor: pointer; width: 22px; height: 22px; padding: 0; }\n.pet-bubble-x:hover { color: var(--text-primary, var(--text, #222)); }\n.pet-bubble-x .ic { width: 12px; height: 12px; stroke: currentColor; stroke-width: 1.4; fill: none; }\n.pet-bubble-body { padding: 12px 14px; max-height: 260px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }\n.pet-bubble-tip { font-size: 12px; line-height: 1.7; color: var(--text-muted-v2, var(--text-dim, #666)); }\n.pet-bubble-qa { display: flex; flex-direction: column; gap: 4px; }\n.pet-bubble-q { font-size: 12px; color: var(--text-primary, var(--text, #222)); font-weight: 600; }\n.pet-bubble-q::before { content: \"问 \"; color: var(--text-faint-v2, var(--text-faint, #999)); font-weight: 400; }\n.pet-bubble-a { font-size: 12px; line-height: 1.7; color: var(--text-muted-v2, var(--text-dim, #666)); }\n.pet-bubble-a::before { content: \"灵 \"; color: var(--brand-v2, var(--accent, #a5641f)); font-weight: 700; }\n.pet-bubble-foot { display: flex; gap: 8px; padding: 10px 12px 12px; border-top: 1px solid var(--line-v2, var(--border, #ddd)); background: var(--surface, var(--panel, #fff)); }\n.pet-bubble-input {\n  flex: 1; min-width: 0; height: 32px; padding: 0 10px;\n  border: 1px solid var(--line-v2, var(--border, #ddd)); border-radius: 6px;\n  background: var(--canvas, var(--bg, #fff)); color: var(--text-primary, var(--text, #222)); font-size: 12px;\n}\n.pet-bubble-input:focus { outline: none; border-color: var(--brand-v2, var(--accent, #a5641f)); }\n.pet-bubble-send {\n  flex: none; height: 32px; min-width: 44px; padding: 0 10px;\n  border: 1px solid var(--brand-v2, var(--accent, #a5641f)); border-radius: 6px;\n  background: var(--brand-v2, var(--accent, #a5641f)); color: #231a0c; font-size: 12px; font-weight: 700; cursor: pointer;\n}\n.pet-bubble-send:hover { background: var(--brand-strong-v2, var(--accent-dim, #8a6538)); border-color: var(--brand-strong-v2, var(--accent-dim, #8a6538)); }\n\n/* 本地小模型接入区（消息区与输入行之间的固定条；状态驱动） */\n.pet-model-zone { padding: 0 12px 10px; display: flex; }\n.pet-model-zone:empty { display: none; }\n.pet-model-zone .pet-model-on { flex: 1; align-self: center; font-size: 11px; color: var(--ok, #3d9a50); }\n.pet-model-zone .pet-model-hint { align-self: center; font-size: 10px; color: var(--text-faint-v2, var(--text-faint, #999)); }\n.pet-model-zone .pet-model-loading { flex: 1; align-self: center; font-size: 11px; color: var(--text-muted-v2, var(--text-dim, #666)); animation: pet-pulse 1.2s ease-in-out infinite; }\n@keyframes pet-pulse { 50% { opacity: .45; } }\n.pet-model-zone .pet-model-dl { flex: 1; display: flex; flex-direction: column; gap: 4px; }\n.pet-model-zone .pet-model-bar { height: 4px; border-radius: 2px; background: var(--line-v2, var(--border, #ddd)); overflow: hidden; }\n.pet-model-zone .pet-model-bar i { display: block; height: 100%; border-radius: 2px; background: var(--brand-v2, var(--accent, #a5641f)); transition: width .3s; }\n.pet-model-zone .pet-model-pct { font-size: 11px; color: var(--text-muted-v2, var(--text-dim, #666)); }\n.pet-model-zone .pet-model-err { flex: 1; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }\n.pet-model-zone .pet-model-err-text { font-size: 11px; line-height: 1.5; color: var(--danger, #c0564a); }\n.pet-model-confirm { flex: 1; display: flex; flex-direction: column; gap: 8px; }\n.pet-model-confirm-text { font-size: 11px; line-height: 1.7; color: var(--text-muted-v2, var(--text-dim, #666)); }\n.pet-model-confirm-row { display: flex; gap: 8px; justify-content: flex-end; }\n.pet-chip {\n  border: 1px solid var(--line-v2, var(--border, #ddd)); border-radius: 999px;\n  height: 26px; padding: 0 12px; font-size: 11px; cursor: pointer; align-self: center;\n  background: var(--surface, var(--panel, #fff)); color: var(--text-primary, var(--text, #222));\n}\n.pet-chip:hover { border-color: var(--brand-v2, var(--accent, #a5641f)); color: var(--brand-v2, var(--accent, #a5641f)); }\n.pet-chip-ghost { border-color: transparent; color: var(--text-muted-v2, var(--text-dim, #666)); }\n.pet-chip-ghost:hover { border-color: var(--line-v2, var(--border, #ddd)); color: var(--text-primary, var(--text, #222)); }\n.pet-chip-model { border-color: var(--brand-v2, var(--accent, #a5641f)); color: var(--brand-v2, var(--accent, #a5641f)); font-weight: 700; }\n.pet-chip-go { border-color: var(--brand-v2, var(--accent, #a5641f)); background: var(--brand-v2, var(--accent, #a5641f)); color: #231a0c; font-weight: 700; }\n.pet-chip-go:hover { background: var(--brand-strong-v2, var(--accent-dim, #8a6538)); color: #231a0c; }\n\n/* 本地小模型回答：打字机光标（生成中闪烁） */\n.pet-bubble-a.gen::after { content: \"▍\"; color: var(--brand-v2, var(--accent, #a5641f)); animation: pet-caret .8s steps(1) infinite; }\n@keyframes pet-caret { 50% { opacity: 0; } }\n\n/* 智能体快捷区与操作结果 */\n.pet-agent-zone { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 12px 10px; }\n.pet-agent-zone:empty { display: none; }\n.pet-chip-agent { height: 26px; padding: 0 11px; font-size: 11px; font-weight: 600; }\n.pet-agent-hint { align-self: center; font-size: 10px; color: var(--text-faint-v2, var(--text-faint, #999)); }\n.pet-agent-run { flex: 1; display: flex; align-items: center; gap: 8px; }\n.pet-agent-pct { flex: 1; font-size: 11px; color: var(--brand-v2, var(--accent, #a5641f)); font-weight: 700; animation: pet-pulse 1.2s ease-in-out infinite; }\n.pet-bubble-note { font-size: 11px; line-height: 1.7; color: var(--text-primary, var(--text, #222)); background: var(--canvas, var(--bg, #fafafa)); border: 1px solid var(--line-v2, var(--border, #ddd)); border-radius: 8px; padding: 8px 10px; white-space: pre-wrap; }\n.pet-bubble-note::before { content: \"★ \"; color: var(--brand-v2, var(--accent, #a5641f)); }\n.pet-bubble-actions { display: flex; gap: 6px; margin-top: 6px; flex-wrap: wrap; }\n\n/* 右键快捷菜单 */\n.pet-menu {\n  position: fixed; z-index: 96;\n  min-width: 180px; padding: 6px;\n  background: var(--surface, var(--panel, #fff));\n  border: 1px solid var(--line-strong-v2, var(--border-strong, #888));\n  border-radius: 10px;\n  box-shadow: 0 18px 50px rgba(0,0,0,.4);\n  display: flex; flex-direction: column;\n  animation: pet-bubble-in .18s var(--ease-spring, cubic-bezier(.2,.8,.2,1));\n}\n.pet-menu.hidden { display: none; }\n.pet-menu-item {\n  border: 0; background: transparent; text-align: left;\n  min-height: 34px; padding: 0 12px; border-radius: 6px;\n  font-size: 12px; color: var(--text-primary, var(--text, #222)); cursor: pointer;\n}\n.pet-menu-item:hover:not(:disabled) { background: var(--brand-soft, rgba(165,100,31,.09)); color: var(--brand-v2, var(--accent, #a5641f)); }\n.pet-menu-item:disabled { cursor: default; }\n.pet-menu-dim { color: var(--ok, #3d9a50); }\n.pet-menu-sep { height: 1px; margin: 5px 8px; background: var(--line-v2, var(--border, #ddd)); }\n"
         document.head.appendChild(st)
       }
       var root = document.createElement('div')
@@ -634,7 +871,7 @@
         if (state.menuOpen && !root.contains(e.target) && !state.menu.contains(e.target)) closeMenu()
       }, true)
       document.addEventListener('keydown', function (e) {
-        if (e.key === 'Escape') { closeMenu(); closeBubble() }
+        if (e.key === 'Escape') { if (agent.running) agent.stop = true; closeMenu(); closeBubble() }
       })
 
       // 待机自发小表情（低频、不吵）
@@ -676,6 +913,9 @@
     ask: respond,                       // 测试/调试用：直接问规则库
     modelPhase: function () { return state.model.phase },   // 测试用：本地小模型镜像状态
     setCloudBrain: setCloudBrain,       // app.js 启动/配置变化时注入云端模型（内存持有，不落 localStorage）
+    bindAgent: bindAgent,               // app.js 注入智能体能力面（读选项/代选/剧情/插图）
+    agentIntent: detectAgentIntent,     // 测试用：智能体意图路由
+    agentAutopilotStop: agentStop,      // 测试用：停止托管
     brain: function () { return effectiveBrain() },         // 测试用：当前大脑（cloud / local / null）
     systemPrompt: PET_SYSTEM_PROMPT,    // 人设提示词展示副本（运行时正本在 shared/pet-model-prompt.cjs）
     get el() { return state.root }

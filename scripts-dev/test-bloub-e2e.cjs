@@ -478,6 +478,117 @@ async function main() {
   await win.evaluate(() => { const b = document.querySelector('#pet-bubble .pet-bubble-x'); if (b) b.click() })
   await win.waitForTimeout(200)
 
+  // ---- 10. 智能体：推荐选项 → 替我选 → 托管 2 轮 → 配图建议 → 提示词优化 ----
+  //     mock 剧情自带【A】【B】选项，托管是真刀真枪地代点并发送（FAKE 接缝只替代「判断」环节）
+  const petCenter2 = await centerOfPet()
+  await win.mouse.click(petCenter2[0], petCenter2[1])
+  await win.waitForTimeout(450)
+  const agentZone0 = await win.evaluate(() => {
+    const z = document.querySelector('#pet-bubble .pet-agent-zone')
+    if (!z) return null
+    return [...z.querySelectorAll('.pet-chip-agent')].map((b) => b.textContent)
+  })
+  check('agent-zone-chips', !!(agentZone0 && agentZone0.length >= 3
+    && agentZone0.some((t) => /这一幕选哪个/.test(t))
+    && agentZone0.some((t) => /托管 3 轮/.test(t))
+    && agentZone0.some((t) => /哪幕值得配图/.test(t))), '智能体快捷按钮齐备：' + (agentZone0 || []).join(' / '))
+  check('agent-zone-no-prompt-chip-without-illust', !(agentZone0 || []).some((t) => /优化生图提示词/.test(t)),
+    '生图端点未配置时不显示「优化生图提示词」（' + (agentZone0 || []).length + ' 个按钮）')
+
+  // 10a. 推荐：FAKE 决策 → 推荐【B】+「替我选」按钮
+  await win.click('#pet-bubble .pet-agent-zone .pet-chip-agent:has-text("这一幕选哪个")')
+  await win.waitForTimeout(400)
+  const recNote = await win.evaluate(() => {
+    const notes = [...document.querySelectorAll('#pet-bubble .pet-bubble-note')]
+    const last = notes[notes.length - 1]
+    return last ? { text: last.textContent, hasBtn: !!last.querySelector('.pet-bubble-actions .pet-chip-go') } : null
+  })
+  check('agent-recommend-note', !!(recNote && /推荐【B】/.test(recNote.text) && recNote.hasBtn),
+    '推荐结果：' + (recNote && recNote.text || '').slice(0, 30) + '…（附替我选按钮）')
+  // 10b. 替我选 → 代点【B】→ mock 推进一轮剧情
+  if (recNote && recNote.hasBtn) {
+    await win.click('#pet-bubble .pet-bubble-note .pet-bubble-actions .pet-chip-go')
+    let doneNote = null
+    for (let i = 0; i < 60; i++) {
+      await win.waitForTimeout(200)
+      doneNote = await win.evaluate(() => {
+        const notes = [...document.querySelectorAll('#pet-bubble .pet-bubble-note')]
+        const t = notes.map((n) => n.textContent).join('|')
+        return /替你选了【B】/.test(t) ? (/(这一轮完成了|生成没有完成)/.test(t) ? t : null) : null
+      })
+      if (doneNote) break
+    }
+    check('agent-play-choice-round', !!doneNote && /这一轮完成了/.test(doneNote),
+      '代选【B】完成一轮剧情生成')
+  }
+
+  // 10c. 自然语言托管：输入「托管 2 轮」→ 意图路由 → 连续代打
+  await win.fill('.pet-bubble-input', '托管 2 轮')
+  await win.click('.pet-bubble-send')
+  await win.waitForTimeout(500)
+  let sawStop = false
+  let autoDone = null
+  for (let i = 0; i < 120; i++) {
+    const st = await win.evaluate(() => {
+      const z = document.querySelector('#pet-bubble .pet-agent-zone')
+      const run = z && z.querySelector('.pet-agent-run')
+      const notes = [...document.querySelectorAll('#pet-bubble .pet-bubble-note')].map((n) => n.textContent).join('|')
+      return { running: !!(run && !run.closest('.hidden') && /停止托管/.test(run.textContent)), notes }
+    })
+    if (st.running) sawStop = true
+    if (/托管结束：一共替你打了 2 轮/.test(st.notes)) { autoDone = st.notes; break }
+    await win.waitForTimeout(250)
+  }
+  check('agent-autopilot-runs', !!autoDone, '托管 2 轮跑完：' + (autoDone || '未完成').slice(0, 40) + '…')
+  check('agent-autopilot-shows-stop', sawStop, '托管期间显示「停止托管」')
+  if (autoDone) {
+    check('agent-autopilot-picks', /第 1 轮选【A】/.test(autoDone) && /第 2 轮选【A】/.test(autoDone),
+      '每轮报告选择与理由（FAKE 决策固定选 A）')
+  }
+
+  // 10d. 配图建议：FAKE 决策 idx=0（最近一幕）+「就这幕，生成」；生图端点未配置 → 守卫提示
+  await win.click('#pet-bubble .pet-agent-zone .pet-chip-agent:has-text("哪幕值得配图")')
+  await win.waitForTimeout(400)
+  const illustNote = await win.evaluate(() => {
+    const notes = [...document.querySelectorAll('#pet-bubble .pet-bubble-note')]
+    const last = notes[notes.length - 1]
+    return last ? { text: last.textContent, hasBtn: !!last.querySelector('.pet-bubble-actions .pet-chip-go') } : null
+  })
+  check('agent-illust-note', !!(illustNote && /最值得配图的是/.test(illustNote.text) && illustNote.hasBtn),
+    '配图建议：' + (illustNote && illustNote.text || '').slice(0, 30) + '…')
+  if (illustNote && illustNote.hasBtn) {
+    // 点「最后一条 note」的操作按钮（10a 的替我选按钮已留在历史里，选择器必须精确）
+    await win.evaluate(() => {
+      const notes = [...document.querySelectorAll('#pet-bubble .pet-bubble-note')]
+      const last = notes[notes.length - 1]
+      const b = last.querySelector('.pet-bubble-actions .pet-chip-go')
+      if (b) b.click()
+    })
+    await win.waitForTimeout(350)
+    const guard = await win.evaluate(() => {
+      const notes = [...document.querySelectorAll('#pet-bubble .pet-bubble-note')]
+      return notes.map((n) => n.textContent).join('|')
+    })
+    check('agent-illust-guard', /生图端点未配置/.test(guard), '未配置插图端点时守卫提示（不盲发请求）')
+  }
+
+  // 10e. 自然语言提示词优化：「优化生图提示词」→ FAKE 返回固定提示词 + 两个操作按钮
+  await win.fill('.pet-bubble-input', '帮我优化生图的提示词')
+  await win.click('.pet-bubble-send')
+  await win.waitForTimeout(450)
+  const promptNote = await win.evaluate(() => {
+    const notes = [...document.querySelectorAll('#pet-bubble .pet-bubble-note')]
+    const last = notes[notes.length - 1]
+    return last ? { text: last.textContent, btns: [...last.querySelectorAll('.pet-bubble-actions .pet-chip')].map((b) => b.textContent) } : null
+  })
+  check('agent-prompt-optimize', !!(promptNote && /masterpiece/.test(promptNote.text)
+    && /优化后的生图提示词/.test(promptNote.text)), '提示词优化结果：' + (promptNote && promptNote.text || '').slice(0, 36) + '…')
+  check('agent-prompt-actions', !!(promptNote && promptNote.btns.length >= 2
+    && promptNote.btns.some((t) => /用这个生图/.test(t)) && promptNote.btns.some((t) => /复制/.test(t))),
+    '操作按钮：' + (promptNote && promptNote.btns || []).join(' / '))
+  await win.evaluate(() => { const b = document.querySelector('#pet-bubble .pet-bubble-x'); if (b) b.click() })
+  await win.waitForTimeout(200)
+
   await app.close()
   mock.server.close()
   console.log('')
