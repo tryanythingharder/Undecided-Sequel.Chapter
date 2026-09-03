@@ -17,6 +17,25 @@ async function main() {
   const dll = path.join(resources, 'app.asar.unpacked', 'node_modules', 'sqlite-vec-windows-x64', 'vec0.dll')
   if (!fs.existsSync(dll)) throw new Error('sqlite-vec 的 vec0.dll 未解包到 app.asar.unpacked')
 
+  // ---- 桌宠本地小模型依赖：node-llama-cpp（JS + win-x64 CPU/vulkan 后端）已解包（native .node 不能在 asar 内加载）----
+  const llamaJs = path.join(resources, 'app.asar.unpacked', 'node_modules', 'node-llama-cpp', 'dist', 'bindings', 'getLlama.js')
+  if (!fs.existsSync(llamaJs)) throw new Error('node-llama-cpp 的 dist/bindings/getLlama.js 未解包到 app.asar.unpacked（桌宠本地模型无法加载）')
+  const walkBins = (dir) => {
+    let found = []
+    for (const f of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, f.name)
+      if (f.isDirectory()) found = found.concat(walkBins(full))
+      else if (f.name.endsWith('.node')) found.push(full)
+    }
+    return found
+  }
+  const llamaBins = walkBins(path.join(resources, 'app.asar.unpacked', 'node_modules', '@node-llama-cpp'))
+  if (!llamaBins.length) throw new Error('@node-llama-cpp 的 .node 后端二进制未解包（桌宠本地模型无法加载）')
+  const backends = [...new Set(llamaBins.map((p) => path.basename(path.dirname(path.dirname(path.dirname(p))))))]
+  const unwanted = backends.filter((b) => b !== 'win-x64' && b !== 'win-x64-vulkan')
+  if (unwanted.length) throw new Error('桌宠模型后端混入了多余平台包（应只留 win-x64 CPU + Vulkan）：' + unwanted.join(', '))
+  console.log('  桌宠模型后端二进制：' + backends.join(', '))
+
   const app = await electron.launch({
     executablePath: executable,
     env: { ...process.env, ELECTRON_DISABLE_SECURITY_WARNINGS: 'true', SIXWORLDS_TEST: '1' }

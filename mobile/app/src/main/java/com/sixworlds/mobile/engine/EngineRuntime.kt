@@ -59,6 +59,7 @@ class EngineRuntime(context: Context) {
         val keys = files.keys()
         while (keys.hasNext()) {
             val rel = keys.next()
+            if (EngineImportPolicy.isIgnorableLegacy(rel)) continue   // 旧包派生文件（memory.db*/tmp）：跳过，不阻断导入
             require(pending.size < EngineImportPolicy.MAX_FILES) { "进度包中的引擎文件数量过多" }
             val raw = files.opt(rel)
             require(raw is String) { "进度包中的引擎文件内容必须是文本" }

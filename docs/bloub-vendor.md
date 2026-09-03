@@ -53,3 +53,23 @@ npx esbuild <入口.ts> --bundle --format=iife --global-name=Bloub \
 
 - `scripts-dev/test-bloub.cjs`（单元层）：15 状态合法性、3000 帧确定性、眨眼活性、挂载层契约；
 - `scripts-dev/test-bloub-e2e.cjs`（桌面层）：真实 Electron 渲染下挂载 / 逐帧动画 / 视线跟随 / 主题翻转 / 忙碌岛 thinking 姿态 / 自清理 / 重挂载。
+
+## 桌宠本地小模型（世界之灵的离线大脑）
+
+bloub 造型本身不含对话能力；本仓库在主进程接入 node-llama-cpp 常驻推理（`main.cjs` 的 PetModel 段）：
+
+- **模型**：预置一个约 400MB 的小模型（GGUF q4_0），经 hf-mirror 镜像下载到 `userData/pet-model/`，
+  一键接入按钮 → 二次确认（只提示大小不提示型号，产品需求）→ 下载进度 → 自动加载常驻；
+- **后端**：node-llama-cpp v3.x，Windows 上带 Vulkan（无独显/无 CUDA 的机器自动落 CPU 后端）；
+  ESM-only（顶层 await），主进程 CJS 里必须 `await import('node-llama-cpp')` 动态加载；
+- **会话**：常驻 `LlamaChatSession`（`model.createContext()` → `context.getSequence()`，v3 构造签名
+  需要单 options 对象，`systemPrompt` 字段名勿写成 `systemMessage`），KV 缓存跨回合复用，0.5B 二答约 1s；
+- **路由**：应用类问题由 `shared/bloub-pet.js` 的规则库精准回答（0.5B 对应用事实易幻觉），
+  规则未命中的闲聊才走 `pet:chat` 流式（50ms 攒批 `pet:chat-delta`，渲染层打字机匀速放出）；
+- **人设**：运行时正本在 `shared/pet-model-prompt.cjs`（人设 + 应用事实清单 + 「不确定就说不知道」），
+  `bloub-pet.js` 里的 `PET_SYSTEM_PROMPT` 是展示副本；
+- **打包**：electron-builder 需把 `node_modules/node-llama-cpp` 与 `@node-llama-cpp/win-x64{,-vulkan}`
+  同时收进 `files` 并 `asarUnpack`（native `.node` 不能在 asar 内 dlopen）；CUDA / arm64 / 其他平台
+  后端显式排除，安装包从 393MB 瘦回 165MB；
+- **测试接缝**：`SIXWORLDS_PET_FAKE=1` + `SIXWORLDS_PET_MODEL_URL=<本地慢速源>` 走真实下载管线 +
+  假推理（脚本化流式回复），CI 里完整覆盖按钮 → 确认 → 进度 → 就绪 → 问答路由，全程不真下 400MB。

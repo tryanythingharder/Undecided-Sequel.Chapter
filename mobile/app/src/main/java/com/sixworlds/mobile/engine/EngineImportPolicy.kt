@@ -30,4 +30,10 @@ internal object EngineImportPolicy {
         require(target.path.startsWith(root.path + File.separator)) { "引擎文件路径越界" }
         return target
     }
+
+    /** 旧版导出包可能携带派生索引/临时文件（memory.db*、tmp/）：跳过不落盘，也不让整个导入失败 */
+    fun isIgnorableLegacy(relativePath: String): Boolean {
+        val rel = relativePath.replace('\\', '/')
+        return rel.substringBefore('/') == "tmp" || rel.substringAfterLast('/').startsWith("memory.db")
+    }
 }

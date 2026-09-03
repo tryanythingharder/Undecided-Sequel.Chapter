@@ -10,6 +10,9 @@
  *   6. 生成期反应：mock 回合 busy → thinking；完成 → 回 idle/notify（不再常驻 thinking）
  *   7. 回归：灵动岛已还原为原呼吸圆点（无 .bloub-svg）；空状态已还原静态印章
  *   8. 窄窗口（视口 760px）桌宠自动隐藏；恢复宽窗后回归
+ *   9. 本地小模型一键接入（SIXWORLDS_PET_FAKE 接缝 + 本地慢速假源，不真下 400MB）：
+ *      接入按钮 → 二次确认（只显示大小、不显示型号）→ 下载进度 → 自动就绪
+ *      → 就绪后规则优先回归 + 未命中问题走模型流式打字机
  * 用法：node scripts-dev/test-bloub-e2e.cjs
  */
 const path = require('path')
@@ -26,6 +29,8 @@ function check(name, cond, extra) {
 
 function startMock() {
   const reply = '【甲龙历 407.03.01｜清晨｜布耶纳村】薄雾笼罩的清晨，有人敲响了你的家门。\n\n【A】为他指路【B】闭门不开'
+  // 假模型文件：150KB 分 30 块慢速下发（走完下载进度条各阶段又不拖慢测试）
+  const fakeModel = Buffer.alloc(150 * 1024, 7)
   const server = http.createServer((req, res) => {
     let body = ''
     req.on('data', (c) => { body += c })
@@ -33,6 +38,17 @@ function startMock() {
       if (req.url.endsWith('/models')) {
         res.writeHead(200, { 'Content-Type': 'application/json' })
         res.end(JSON.stringify({ data: [{ id: 'mock-chat' }] }))
+        return
+      }
+      if (/pet-model(\.gguf)?$/.test(req.url)) {
+        res.writeHead(200, { 'Content-Type': 'application/octet-stream', 'Content-Length': String(fakeModel.length) })
+        let sent = 0
+        const timer = setInterval(() => {
+          const piece = Math.min(5 * 1024, fakeModel.length - sent)
+          res.write(fakeModel.subarray(sent, sent + piece))
+          sent += piece
+          if (sent >= fakeModel.length) { clearInterval(timer); res.end() }
+        }, 40)
         return
       }
       if (req.url.endsWith('/chat/completions')) {
@@ -59,6 +75,12 @@ function startMock() {
 }
 
 async function main() {
+  const centerOfPet = async () => {
+    return await win.evaluate(() => {
+      const r = document.querySelector('#bloub-pet').getBoundingClientRect()
+      return [r.x + r.width / 2, r.y + r.height / 2]
+    })
+  }
   const mock = await startMock()
   const base = 'http://127.0.0.1:' + mock.port
 
@@ -66,7 +88,14 @@ async function main() {
     executablePath: electronExecutable,
     args: ['.'],
     cwd: ROOT,
-    env: { ...process.env, ELECTRON_DISABLE_SECURITY_WARNINGS: 'true', SIXWORLDS_TEST: '1' }
+    env: {
+      ...process.env,
+      ELECTRON_DISABLE_SECURITY_WARNINGS: 'true',
+      SIXWORLDS_TEST: '1',
+      // 桌宠模型接缝：假下载源（mock /pet-model）+ 跳过 llama 推理（pet:chat 回脚本化回复）
+      SIXWORLDS_PET_FAKE: '1',
+      SIXWORLDS_PET_MODEL_URL: 'http://127.0.0.1:' + mock.port + '/pet-model.gguf'
+    }
   })
   let win = await app.firstWindow()
   await win.waitForTimeout(2200)
@@ -268,6 +297,83 @@ async function main() {
     const inMargin = petClassic.box[0] + petClassic.box[2] <= petClassic.vw - 40 || petClassic.box[0] >= petClassic.vw - petClassic.box[2] - 60
     check('classic-pet-in-margin', petClassic.box[0] > petClassic.vw * 0.5, '桌宠在右半区（x=' + petClassic.box[0] + '，vw=' + petClassic.vw + '）')
   }
+
+  // ---- 9. 本地小模型一键接入（假源 + SIXWORLDS_PET_FAKE，全程不下真实 400MB）----
+  // 9a. 打开气泡：接入按钮存在且只说大小、不显示型号
+  const petCenter = await centerOfPet()
+  await win.mouse.click(petCenter[0], petCenter[1])
+  await win.waitForTimeout(400)
+  const chip0 = await win.evaluate(() => {
+    const z = document.querySelector('#pet-bubble .pet-model-zone')
+    if (!z) return null
+    const b = z.querySelector('.pet-chip-model')
+    return b ? { text: b.textContent, zonePhase: z.dataset.phase } : null
+  })
+  check('pet-model-chip', !!chip0 && /400MB/.test(chip0.text) && !/qwen|0\.5b|instruct/i.test(chip0.text),
+    '「' + (chip0 && chip0.text) + '」（只说大小，无型号）')
+
+  // 9b. 点按钮 → 二次确认：只出现「约 400MB」与用途说明，无型号
+  await win.click('#pet-bubble .pet-model-zone .pet-chip-model')
+  await win.waitForTimeout(250)
+  const confirm = await win.evaluate(() => {
+    const c = document.querySelector('#pet-bubble .pet-model-confirm')
+    if (!c) return null
+    return { text: c.textContent, hasGo: !!c.querySelector('.pet-chip-go'), hasNo: !!c.querySelector('.pet-chip-ghost') }
+  })
+  check('pet-model-confirm-size-only', !!(confirm && /400MB/.test(confirm.text) && confirm.hasGo && confirm.hasNo
+    && !/qwen|0\.5b|instruct/i.test(confirm.text)), '确认文案含大小、无型号、双按钮')
+
+  // 9c. 确认下载 → 进度条出现（received > 0）
+  await win.click('#pet-bubble .pet-chip-go')
+  await win.waitForTimeout(400)
+  const dlMid = await win.evaluate(() => {
+    const z = document.querySelector('#pet-bubble .pet-model-zone')
+    return z ? { phase: z.dataset.phase, pct: (z.querySelector('.pet-model-pct') || {}).textContent || '' } : null
+  })
+  check('pet-model-downloading', !!(dlMid && (dlMid.phase === 'downloading' || dlMid.phase === 'loading' || dlMid.phase === 'ready') && (dlMid.pct || dlMid.phase !== 'downloading')),
+    'phase=' + (dlMid && dlMid.phase) + ' ' + (dlMid && dlMid.pct))
+
+  // 9d. 等待假模型下载完 + 自动就绪（FAKE 模式 loading 立即转 ready）
+  let ready = false
+  for (let i = 0; i < 40; i++) {
+    await win.waitForTimeout(250)
+    const s = await win.evaluate(() => window.BloubPet.modelPhase())
+    if (s === 'ready') { ready = true; break }
+  }
+  check('pet-model-ready', ready, '假源下载 → 自动接入 → ready')
+
+  // 9e. 就绪后：规则问题仍走规则库（Ctrl+F，不是模型腔）
+  await win.fill('.pet-bubble-input', '快捷键')
+  await win.click('.pet-bubble-send')
+  await win.waitForTimeout(300)
+  const ruleHit = await win.evaluate(() => {
+    const a = [...document.querySelectorAll('#pet-bubble .pet-bubble-a')]
+    return a[a.length - 1] ? a[a.length - 1].textContent : ''
+  })
+  check('pet-model-ready-rules-first', /Ctrl\+F/.test(ruleHit), '就绪后规则优先：' + ruleHit.slice(0, 24) + '…')
+
+  // 9f. 未命中问题 → 走本地模型流式（FAKE 脚本回复 + 打字机），结束无光标
+  //     FAKE 回复「（测试大脑）收到：「讲个笑话」」共 14 字；完成判定 = 光标消失即结束
+  await win.fill('.pet-bubble-input', '讲个笑话')
+  await win.click('.pet-bubble-send')
+  let sawTyping = false        // 期间出现过 gen 光标（生成中）
+  let sawPartial = false       // 期间读到过非空半截文本（打字机逐字放出）
+  let finalAnswer = ''
+  for (let i = 0; i < 80; i++) {
+    await win.waitForTimeout(150)
+    const st = await win.evaluate(() => {
+      const a = [...document.querySelectorAll('#pet-bubble .pet-bubble-a')]
+      const last = a[a.length - 1]
+      return last ? { text: last.textContent, gen: last.classList.contains('gen') } : { text: '', gen: false }
+    })
+    if (st.gen) sawTyping = true
+    if (st.gen && st.text.length > 0 && st.text.length < 14) sawPartial = true
+    if (!st.gen && st.text.length >= 14) { finalAnswer = st.text; break }
+  }
+  check('pet-model-chat-streams', /测试大脑/.test(finalAnswer) && sawPartial,
+    '答「' + finalAnswer.slice(0, 18) + '…」流式逐字（途中半截 ' + sawPartial + '）')
+  await win.evaluate(() => { const b = document.querySelector('#pet-bubble .pet-bubble-x'); if (b) b.click() })
+  await win.waitForTimeout(200)
 
   await app.close()
   mock.server.close()

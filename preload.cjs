@@ -83,4 +83,17 @@ contextBridge.exposeInMainWorld('api', {
   exportProgress: (payload) => ipcRenderer.invoke('progress:export', payload),
   // 进度包导入（移动端导出的包 → 桌面接续）：主进程校验并写引擎文件，会话数据由渲染层合并
   importProgress: () => ipcRenderer.invoke('progress:import'),
+  // 桌宠本地小模型（世界之灵的离线大脑）：状态/一键下载/取消 + 流式对话
+  petModelStatus: () => ipcRenderer.invoke('pet:model-status'),
+  petModelDownload: () => ipcRenderer.invoke('pet:model-download'),
+  petModelDownloadCancel: () => ipcRenderer.invoke('pet:model-download-cancel'),
+  petChat: (p) => ipcRenderer.invoke('pet:chat', p),
+  onPetModelProgress: (cb) => {
+    ipcRenderer.on('pet:model-progress', (_e, d) => cb(d))
+    return () => ipcRenderer.removeAllListeners('pet:model-progress')
+  },
+  onPetChatDelta: (cb) => {
+    ipcRenderer.on('pet:chat-delta', (_e, piece) => cb(piece))
+    return () => ipcRenderer.removeAllListeners('pet:chat-delta')
+  },
 })

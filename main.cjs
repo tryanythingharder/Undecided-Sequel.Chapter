@@ -432,7 +432,8 @@ app.whenReady().then(() => {
     }
   })
   createWindow()
-  // 窗口状态持久化：大小变化/移动/关闭时保存（去抖）
+  // 桌宠本地小模型：已下载过的用户开机自动接入（错开启动高峰，加载 ~6s 在后台完成）
+  if (petModelHasFile() && !process.env.SIXWORLDS_PET_FAKE) setTimeout(() => { petModelLoad() }, 2500)
   let stateTimer = null
   const debouncedSave = () => {
     clearTimeout(stateTimer)
@@ -467,6 +468,11 @@ app.on('window-all-closed', () => {
 app.on('will-quit', () => {
   try { storyEngine?.close?.() } catch {}
   try { sessionsDb?.close?.() } catch {}
+  try { petModel.dl?.abort() } catch {}          // 桌宠模型下载中断：.part 残件会被下次下载覆盖
+  try { petModel.session?.dispose?.() } catch {}
+  try { petModel.context?.dispose?.() } catch {}
+  try { petModel.model?.dispose?.() } catch {}
+  try { petModel.llama?.dispose?.() } catch {}
 })
 
 // ---- 诊断：语义索引状态（打包/用户环境排查用；引擎惰性创建，未初始化时返回 uninitialized） ----
@@ -1196,6 +1202,199 @@ ipcMain.handle('net:test', async (_evt, opts) => {
     if (e && (e.name === 'AbortError' || (e.message && /aborted/i.test(e.message)))) {
       return { ok: false, error: '连接超时（15 秒无响应）' }
     }
+    return { ok: false, error: String((e && e.message) || e) }
+  }
+})
+
+// ---- 桌宠本地小模型（世界之灵的离线对话大脑：下载 → 常驻 → pet:chat 流式） ----
+/* 状态机：absent（未下载）→ downloading → loading → ready；error 可回落
+ * - 文件落 userData/pet-model/pet-model.gguf（.part 临时 + 原子改名，中断不破坏正本）
+ * - 下载完自动加载（下载/加载进度经 'pet:model-progress' 推给渲染层，气泡里的接入按钮据此更新）
+ * - 会话常驻（KV 缓存跨回合复用，0.5B 二答 ~1s）；应用类问题渲染层规则库优先，模型只兜闲聊
+ * - 测试接缝：SIXWORLDS_PET_FAKE=1 跳过 llama 加载/推理（e2e 用假下载源 + 脚本化回复测 UI 流）；
+ *   SIXWORLDS_PET_MODEL_URL 可覆盖下载地址（默认 hf-mirror 镜像，境内直连 HuggingFace 不稳） */
+const PET_MODEL_URL_DEFAULT = 'https://hf-mirror.com/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_0.gguf'
+const PET_MODEL_MIN_BYTES = 100 * 1024 * 1024   // 正本完整性下限：低于此拒绝加载（防半截文件进 llama）
+const petModel = {
+  phase: 'absent', progress: 0, received: 0, total: 0, error: null,
+  dl: null,              // 下载 AbortController（取消用）
+  llama: null, model: null, context: null, session: null,
+  chatBusy: false, loadPromise: null
+}
+function petModelDir() { return path.join(app.getPath('userData'), 'pet-model') }
+function petModelFile() { return path.join(petModelDir(), 'pet-model.gguf') }
+function petModelHasFile() {
+  try { const st = fs.statSync(petModelFile()); return st.isFile() && st.size >= PET_MODEL_MIN_BYTES } catch { return false }
+}
+function pushPetModelStatus() {
+  const s = { phase: petModel.phase, progress: petModel.progress, received: petModel.received, total: petModel.total, error: petModel.error }
+  if (win && !win.isDestroyed()) win.webContents.send('pet:model-progress', s)
+}
+ipcMain.handle('pet:model-status', () => {
+  if (petModel.phase === 'absent' && petModelHasFile()) petModel.phase = 'ondisk'
+  return { phase: petModel.phase, progress: petModel.progress, received: petModel.received, total: petModel.total, error: petModel.error }
+})
+
+async function petModelLoad() {
+  if (petModel.phase === 'ready' || petModel.phase === 'loading') return petModel.loadPromise
+  if (process.env.SIXWORLDS_PET_FAKE) { petModel.phase = 'ready'; pushPetModelStatus(); return null }
+  petModel.loadPromise = (async () => {
+    try {
+      petModel.phase = 'loading'
+      petModel.error = null
+      pushPetModelStatus()
+      // ESM-only 依赖（顶层 await）：主进程 CJS 里只能动态 import
+      const { getLlama, LlamaChatSession } = await import('node-llama-cpp')
+      if (!petModel.llama) petModel.llama = await getLlama()
+      if (!petModel.model) petModel.model = await petModel.llama.loadModel({ modelPath: petModelFile() })
+      const context = await petModel.model.createContext({ contextSize: 2048 })
+      const session = new LlamaChatSession({
+        contextSequence: context.getSequence(),
+        systemPrompt: require('./shared/pet-model-prompt.cjs'),
+        autoDisposeSequence: false
+      })
+      try { petModel.session?.dispose?.() } catch {}
+      try { petModel.context?.dispose?.() } catch {}
+      petModel.context = context
+      petModel.session = session
+      petModel.phase = 'ready'
+      pushPetModelStatus()
+    } catch (e) {
+      petModel.phase = 'error'
+      petModel.error = String((e && e.message) || e)
+      petModel.session = null
+      pushPetModelStatus()
+    } finally {
+      petModel.loadPromise = null
+    }
+  })()
+  return petModel.loadPromise
+}
+
+ipcMain.handle('pet:model-download', async () => {
+  try {
+    if (petModel.phase === 'downloading') return { ok: true, started: false }
+    if (petModelHasFile()) { petModelLoad(); return { ok: true, started: false, exists: true } }
+    const url = new URL(process.env.SIXWORLDS_PET_MODEL_URL || PET_MODEL_URL_DEFAULT)
+    if (!['http:', 'https:'].includes(url.protocol)) return { ok: false, error: '模型地址仅支持 HTTP / HTTPS' }
+    const fake = !!process.env.SIXWORLDS_PET_FAKE
+    fs.mkdirSync(petModelDir(), { recursive: true })
+    const part = petModelFile() + '.part'
+    const controller = new AbortController()
+    petModel.dl = controller
+    petModel.phase = 'downloading'
+    petModel.progress = 0
+    petModel.received = 0
+    petModel.error = null
+    pushPetModelStatus()
+    try {
+      const res = await fetch(url, { signal: controller.signal })
+      if (!res.ok) throw new Error('下载失败：HTTP ' + res.status)
+      const declared = Number(res.headers.get('content-length') || 0)
+      petModel.total = declared > 0 ? declared : 0
+      if (!fake && petModel.total < PET_MODEL_MIN_BYTES) throw new Error('文件大小异常（' + petModel.total + ' 字节），已中止')
+      const reader = res.body.getReader()
+      const out = fs.createWriteStream(part)
+      let received = 0
+      let lastPush = 0
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        received += value.byteLength
+        out.write(Buffer.from(value))
+        const now = Date.now()
+        if (now - lastPush > 300) {
+          lastPush = now
+          petModel.received = received
+          petModel.progress = petModel.total ? received / petModel.total : 0
+          pushPetModelStatus()
+        }
+      }
+      await new Promise((resolve, reject) => out.end((err) => (err ? reject(err) : resolve())))
+      if (!fake && received < PET_MODEL_MIN_BYTES) throw new Error('下载不完整（' + received + ' 字节）')
+      fs.renameSync(part, petModelFile())
+      petModel.received = received
+      petModel.progress = 1
+      pushPetModelStatus()
+      petModelLoad()   // 下载完自动接入（loading → ready 由状态事件驱动气泡 UI）
+      return { ok: true }
+    } finally {
+      petModel.dl = null
+    }
+  } catch (e) {
+    const aborted = e && (e.name === 'AbortError' || /aborted/i.test(String(e.message || '')))
+    if (aborted) {
+      try { fs.rmSync(petModelFile() + '.part', { force: true }) } catch {}
+      petModel.phase = petModelHasFile() ? 'ondisk' : 'absent'
+      petModel.error = '已取消下载'
+    } else {
+      petModel.phase = petModelHasFile() ? 'ondisk' : 'absent'
+      petModel.error = String((e && e.message) || e)
+    }
+    pushPetModelStatus()
+    return { ok: false, error: petModel.error }
+  }
+})
+ipcMain.handle('pet:model-download-cancel', () => {
+  try { petModel.dl?.abort() } catch {}
+  return { ok: true }
+})
+
+// 桌宠对话：模型就绪时流式回答（50ms 攒批发 'pet:chat-delta'，与 chat:delta 同节奏）
+ipcMain.handle('pet:chat', async (_evt, p) => {
+  try {
+    const text = String((p && p.text) || '').trim().slice(0, 500)
+    if (!text) return { ok: false, error: '说了点什么吧' }
+    if (petModel.chatBusy) return { ok: false, error: '上一句还没说完呢' }
+    if (petModel.phase !== 'ready') return { ok: false, error: '本地小模型还没就绪', notReady: true }
+    if (process.env.SIXWORLDS_PET_FAKE) {
+      // e2e 接缝：脚本化流式回复（确定性内容，不加载真实模型）
+      petModel.chatBusy = true
+      try {
+        const reply = '（测试大脑）收到：「' + text + '」'
+        let acc = ''
+        for (const piece of reply.match(/.{1,4}/g) || []) {
+          acc += piece
+          if (win && !win.isDestroyed()) win.webContents.send('pet:chat-delta', piece)
+          await new Promise((r) => setTimeout(r, 25))
+        }
+        return { ok: true, content: acc }
+      } finally { petModel.chatBusy = false }
+    }
+    if (!petModel.session) {
+      await petModelLoad()
+      if (!petModel.session) return { ok: false, error: petModel.error || '本地小模型加载失败' }
+    }
+    petModel.chatBusy = true
+    let pending = ''
+    let deltaTimer = null
+    const flush = () => {
+      if (deltaTimer) { clearTimeout(deltaTimer); deltaTimer = null }
+      if (!pending) return
+      const d = pending
+      pending = ''
+      if (win && !win.isDestroyed()) win.webContents.send('pet:chat-delta', d)
+    }
+    const controller = new AbortController()
+    const kill = setTimeout(() => controller.abort(), 120000)
+    try {
+      const content = await petModel.session.prompt(text, {
+        maxTokens: 200,
+        temperature: 0.7,
+        signal: controller.signal,
+        onTextChunk: (chunk) => {
+          pending += chunk
+          if (!deltaTimer) deltaTimer = setTimeout(flush, 50)
+        }
+      })
+      return { ok: true, content }
+    } finally {
+      clearTimeout(kill)
+      flush()
+      petModel.chatBusy = false
+    }
+  } catch (e) {
+    petModel.chatBusy = false
     return { ok: false, error: String((e && e.message) || e) }
   }
 })

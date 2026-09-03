@@ -42,6 +42,14 @@
       "shared/**",
       "renderer/**",
       "renderer-proto/**",
+      "node_modules/node-llama-cpp/**",
+      "node_modules/@node-llama-cpp/win-x64/**",
+      "node_modules/@node-llama-cpp/win-x64-vulkan/**",
+      "!node_modules/@node-llama-cpp/win-x64-cuda/**",
+      "!node_modules/@node-llama-cpp/win-x64-cuda-ext/**",
+      "!node_modules/@node-llama-cpp/win-arm64/**",
+      "!node_modules/@node-llama-cpp/darwin-*/**",
+      "!node_modules/@node-llama-cpp/linux-*/**",
       "package.json"
     ],
     "win": {
@@ -73,7 +81,10 @@
     },
     "asarUnpack": [
       "node_modules/sqlite-vec/**",
-      "node_modules/sqlite-vec-*/**"
+      "node_modules/sqlite-vec-*/**",
+      "node_modules/node-llama-cpp/**",
+      "node_modules/@node-llama-cpp/win-x64/**",
+      "node_modules/@node-llama-cpp/win-x64-vulkan/**"
     ]
   },
   "devDependencies": {
@@ -82,6 +93,7 @@
     "playwright": "^1.62.1"
   },
   "dependencies": {
+    "node-llama-cpp": "^3.20.0",
     "sqlite-vec": "^0.1.9"
   }
 }

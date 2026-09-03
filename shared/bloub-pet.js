@@ -8,17 +8,11 @@
  *   - 拖拽：可搬到任意边距/角落，位置记忆（localStorage），窗口变化自动夹回视口
  *   - 窄窗口（边距 < 140px）自动隐藏，不打扰内容区
  *
- * ---- 后续接入本地小模型（对话/答疑自由化）----
- * 现在气泡问答走 PetAssistant.respond 的规则实现（关键词匹配使用指南）。
- * 接本地模型（Ollama / llama.cpp 等任意 OpenAI 兼容端点）时只需替换该函数，
- * 气泡 UI / 状态反应 / 拖拽全部无需改动：
- *   respond: function (text, history) {
- *     return window.api.sendChat({
- *       baseUrl: 'http://127.0.0.1:11434/v1',   // 本地端点
- *       apiKey: 'ollama', model: '<你的小模型>',
- *       messages: [{ role: 'system', content: PET_SYSTEM_PROMPT }].concat(history).concat([{ role: 'user', content: text }])
- *     }).then(function (r) { return r && r.ok ? r.content : null })
- *   }
+ * ---- 本地小模型（离线自由对话；主进程 main.cjs PetModel 段 + preload 暴露）----
+ * 气泡底部有「接入本地小模型 · 约 400MB」一键按钮 → 二次确认（只说大小，不说型号）
+ * → 主进程下载（hf-mirror，.part + 原子改名）→ 自动加载（node-llama-cpp 常驻会话）→ 就绪。
+ * 就绪后问答路由：应用类问题仍走 RULES 规则库（0.5B 对应用事实易幻觉，规则才是精准的），
+ * 规则未命中的闲聊走 pet:chat 流式（'pet:chat-delta' 增量 → 打字机逐字上屏 + 表情联动）。
  */
 (function () {
   'use strict'
@@ -72,9 +66,13 @@
     }
     return null
   }
-  var fallback = '这个问题我还答不上——本地小模型接入后就能自由对话了。现在可以问我：怎么开始 / 快捷键 / 换主题 / 未落账 / 导出进度包 / IF 分支。'
+  var fallback = '这个问题我还答不上——接入下方按钮的本地小模型（约 400MB）后就能自由对话了。现在可以问我：怎么开始 / 快捷键 / 换主题 / 未落账 / 导出进度包 / IF 分歧。'
 
-  var state = { root: null, bot: null, bubble: null, bubbleOpen: false, busy: false, token: 0 }
+  var state = {
+    root: null, bot: null, bubble: null, bubbleOpen: false, busy: false, token: 0,
+    model: { phase: 'absent', progress: 0, received: 0, total: 0, error: null },   // 本地小模型镜像状态
+    modelBusy: false, tw: null
+  }
 
   function nextTip() {
     var n = 0
@@ -110,6 +108,162 @@
       state.busy = false
       transient('alert', 2400, 'idle')           // 报错：惊叹号
     }
+  }
+
+  // ---- 本地小模型：状态镜像 / 接入区渲染 / 打字机流式 ----
+  function el(tag, cls, text) {
+    var n = document.createElement(tag)
+    if (cls) n.className = cls
+    if (text != null) n.textContent = text
+    return n
+  }
+  function fmtMB(n) { return Math.max(0, Math.round((n || 0) / 1048576)) + 'MB' }
+  function modelReady() { return state.model.phase === 'ready' }
+
+  function scrollBubble() {
+    var body = state.bubble && state.bubble.querySelector('.pet-bubble-body')
+    if (body) body.scrollTop = body.scrollHeight
+  }
+
+  function setModelState(s) {
+    if (!s) return
+    state.model = {
+      phase: String(s.phase || 'absent'),
+      progress: Number(s.progress) || 0,
+      received: Number(s.received) || 0,
+      total: Number(s.total) || 0,
+      error: s.error || null
+    }
+    if (state.bubbleOpen) renderModelZone()
+    var i = state.bubble && state.bubble.querySelector('.pet-bubble-input')
+    if (i) i.placeholder = modelReady() ? '问我任何事，或者随便聊聊…' : '问我怎么用，例如「快捷键」…'
+  }
+
+  // 接入区（气泡底部）：absent→一键按钮；confirm→二次确认；downloading→进度条；ready→已接入
+  function renderModelZone() {
+    var z = state.bubble && state.bubble.querySelector('.pet-model-zone')
+    if (!z) return
+    var m = state.model
+    z.innerHTML = ''
+    z.dataset.phase = m.phase
+    if (m.phase === 'ready') {
+      z.appendChild(el('span', 'pet-model-on', '本地小模型已接入 · 离线自由对话'))
+    } else if (m.phase === 'downloading') {
+      var dl = el('div', 'pet-model-dl')
+      var bar = el('div', 'pet-model-bar')
+      bar.appendChild(el('i')).style.width = Math.round(m.progress * 100) + '%'
+      dl.appendChild(bar)
+      dl.appendChild(el('span', 'pet-model-pct', m.total
+        ? Math.round(m.progress * 100) + '% · ' + fmtMB(m.received) + '/' + fmtMB(m.total)
+        : fmtMB(m.received)))
+      var c = el('button', 'pet-chip pet-chip-ghost', '取消')
+      c.addEventListener('click', function () { if (window.api) window.api.petModelDownloadCancel() })
+      dl.appendChild(c)
+      z.appendChild(dl)
+    } else if (m.phase === 'loading' || m.phase === 'ondisk') {
+      z.appendChild(el('span', 'pet-model-loading', m.phase === 'loading' ? '下载完成，正在接入…' : '正在接入本地小模型…'))
+    } else if (m.phase === 'error') {
+      var box = el('div', 'pet-model-err')
+      box.appendChild(el('span', 'pet-model-err-text', '接入失败：' + (m.error || '未知错误')))
+      var r = el('button', 'pet-chip', '重试')
+      r.addEventListener('click', function () { if (window.api) window.api.petModelDownload() })
+      box.appendChild(r)
+      z.appendChild(box)
+    } else {
+      var b = el('button', 'pet-chip pet-chip-model', '接入本地小模型 · 约 400MB')
+      b.addEventListener('click', showModelConfirm)
+      z.appendChild(b)
+    }
+  }
+
+  // 二次确认：只讲大小与用途，不显示型号（用户要求）
+  function showModelConfirm() {
+    var z = state.bubble.querySelector('.pet-model-zone')
+    if (!z) return
+    z.innerHTML = ''
+    z.dataset.phase = 'confirm'
+    var c = el('div', 'pet-model-confirm')
+    c.appendChild(el('div', 'pet-model-confirm-text',
+      '将下载约 400MB 的本地小模型到本机，接入后我可以离线陪你自由聊天（不影响故事功能，随时可重试）。'))
+    var row = el('div', 'pet-model-confirm-row')
+    var no = el('button', 'pet-chip pet-chip-ghost', '取消')
+    no.addEventListener('click', renderModelZone)
+    var yes = el('button', 'pet-chip pet-chip-go', '下载（约 400MB）')
+    yes.addEventListener('click', function () { if (window.api) window.api.petModelDownload() })
+    row.appendChild(no); row.appendChild(yes)
+    c.appendChild(row)
+    z.appendChild(c)
+    transient('exclaim', 1600, 'idle')
+  }
+
+  // 打字机：delta 按批到达，这里匀速放出（~60 字/秒），结束用主进程全文权威兜底
+  function twFeed(tw, piece) {
+    if (!tw.first) {
+      tw.first = true
+      if (state.bot) { state.bot.setState('wide'); state.root.dataset.state = 'wide' }   // 首字：睁大眼
+    }
+    tw.queue += piece
+    if (!tw.timer) tw.timer = setInterval(function () { twTick(tw) }, 33)
+  }
+  function twTick(tw) {
+    var n = Math.min(2, tw.queue.length)
+    if (n > 0) {
+      tw.el.textContent += tw.queue.slice(0, n)
+      tw.queue = tw.queue.slice(n)
+      scrollBubble()
+    }
+    if (!tw.queue.length && tw.done) {
+      clearInterval(tw.timer)
+      tw.timer = null
+      tw.el.classList.remove('gen')
+      if (tw.target && tw.el.textContent !== tw.target) tw.el.textContent = tw.target
+      scrollBubble()
+      transient('wink', 1800, state.busy ? 'thinking' : 'idle')   // 答完眨个眼
+      if (state.tw === tw) state.tw = null
+    }
+  }
+  function twKill(tw) {
+    if (tw.timer) clearInterval(tw.timer)
+    tw.el.classList.remove('gen')
+    if (state.tw === tw) state.tw = null
+  }
+
+  // 就绪后规则话术里「接入后就能…」的过时尾巴改写成现在时
+  function adjustRuleForModel(text) {
+    if (!modelReady()) return text
+    return text
+      .replace('接入本地小模型后就能和你自由对话啦', '本地小模型已经接好，现在就能自由对话。')
+      .replace('接入本地小模型后，任何问题都能聊。', '本地小模型已接入，任何问题都能聊。')
+  }
+
+  function modelAsk(q, aEl) {
+    var api = window.api
+    if (!api || !api.petChat) { aEl.textContent = fallback; return }
+    state.modelBusy = true
+    aEl.classList.add('gen')
+    var tw = { queue: '', target: '', done: false, timer: null, el: aEl, first: false }
+    state.tw = tw
+    var off = api.onPetChatDelta(function (piece) { twFeed(tw, piece) })
+    // 等首答期间常驻思考表情（0.5B 首答 ~1-7s）
+    state.token++
+    if (state.bot) { state.bot.setState('thinking'); state.root.dataset.state = 'thinking' }
+    var fail = function (r) {
+      off && off()
+      twKill(tw)
+      state.modelBusy = false
+      aEl.classList.add('pet-model-err-text')
+      aEl.textContent = (r && r.notReady) ? '本地小模型还没就绪，稍等一下再问我。' : ('出了点小问题：' + ((r && r.error) || '未知错误'))
+      scrollBubble()
+      transient('alert', 2400, state.busy ? 'thinking' : 'idle')
+    }
+    api.petChat({ text: q }).then(function (r) {
+      if (!r || !r.ok) return fail(r)
+      off && off()
+      tw.target = r.content || ''
+      tw.done = true
+      if (!tw.timer && !tw.queue.length) twTick(tw)   // 没收到过 delta（极快/被攒批吞了）：直接收尾
+      state.modelBusy = false
+    }).catch(function (e) { fail(e && e.message ? { error: e.message } : {}) })
   }
 
   function poke() {
@@ -150,6 +304,7 @@
     function ask() {
       var q = input.value.trim()
       if (!q) return
+      if (state.modelBusy) return
       input.value = ''
       var qa = document.createElement('div')
       qa.className = 'pet-bubble-qa'
@@ -158,11 +313,19 @@
       qEl.textContent = q
       var aEl = document.createElement('div')
       aEl.className = 'pet-bubble-a'
-      aEl.textContent = respond(q) || fallback
       qa.appendChild(qEl); qa.appendChild(aEl)
       body.appendChild(qa)
       body.scrollTop = body.scrollHeight
-      poke()
+      var hit = respond(q)
+      if (hit) {                       // 应用类问题：规则库精准回答（0.5B 对应用事实易幻觉）
+        aEl.textContent = adjustRuleForModel(hit)
+        poke()
+      } else if (modelReady()) {       // 规则未命中且模型就绪：本地小模型流式闲聊
+        modelAsk(q, aEl)
+      } else {
+        aEl.textContent = fallback
+        poke()
+      }
     }
     send.addEventListener('click', ask)
     input.addEventListener('keydown', function (e) {
@@ -171,7 +334,8 @@
     })
     foot.appendChild(input); foot.appendChild(send)
     body.appendChild(tip)
-    b.appendChild(head); b.appendChild(body); b.appendChild(foot)
+    var zone = el('div', 'pet-model-zone')       // 本地小模型接入区（消息区与输入行之间的固定条）
+    b.appendChild(head); b.appendChild(body); b.appendChild(zone); b.appendChild(foot)
     return b
   }
 
@@ -181,6 +345,7 @@
       if (t) t.textContent = nextTip()
       return
     }
+    renderModelZone()                            // 开气泡时按最新模型状态渲染接入区
     anchorBubble()
     state.bubble.classList.remove('hidden')
     state.bubbleOpen = true
@@ -250,7 +415,7 @@
       if (!document.getElementById('bloub-pet-style')) {
         var st = document.createElement('style')
         st.id = 'bloub-pet-style'
-        st.textContent = "\n/* 桌宠自注入样式（单一来源；var 兜底链兼容经典 --panel/--border/--accent 与原型 --surface/--line-v2/--brand-v2 两套变量） */\n.bloub-pet {\n  position: fixed; z-index: 90;\n  width: 104px; height: 104px;\n  cursor: grab;\n  touch-action: none;\n  filter: drop-shadow(0 14px 34px rgba(0,0,0,.35));\n  transition: opacity .3s;\n}\n.bloub-pet:active { cursor: grabbing; }\n.bloub-pet.pet-hidden { opacity: 0; pointer-events: none; }\n.bloub-pet .pet-host { width: 104px; height: 104px; }\n.bloub-pet:focus-visible { outline: 1px solid var(--brand-v2, var(--accent, #a5641f)); outline-offset: 4px; border-radius: 10px; }\n.bloub-pet[data-state=\"thinking\"] { filter: drop-shadow(0 10px 26px rgba(0,0,0,.35)) drop-shadow(0 0 18px var(--accent-glow, rgba(201,139,75,.12))); }\n\n.pet-bubble {\n  position: fixed; z-index: 95;\n  width: min(320px, calc(100vw - 48px));\n  background: var(--surface, var(--panel, #fff));\n  border: 1px solid var(--line-strong-v2, var(--border-strong, #888));\n  border-radius: 10px;\n  box-shadow: 0 18px 50px rgba(0,0,0,.4);\n  overflow: hidden;\n  animation: pet-bubble-in .28s var(--ease-spring, cubic-bezier(.2,.8,.2,1));\n}\n.pet-bubble.hidden { display: none; }\n@keyframes pet-bubble-in { from { transform: translateY(10px) scale(.96); opacity: 0; } }\n.pet-bubble-head {\n  display: flex; align-items: center; justify-content: space-between;\n  padding: 8px 10px 8px 14px;\n  border-bottom: 1px solid var(--line-v2, var(--border, #ddd));\n  background: var(--surface-raised, var(--panel-2, #f5f5f6));\n}\n.pet-bubble-title { font-size: 12px; font-weight: 700; color: var(--text-primary, var(--text, #222)); letter-spacing: 1px; }\n.pet-bubble-x { border: 0; background: transparent; color: var(--text-faint-v2, var(--text-faint, #999)); cursor: pointer; width: 22px; height: 22px; padding: 0; }\n.pet-bubble-x:hover { color: var(--text-primary, var(--text, #222)); }\n.pet-bubble-x .ic { width: 12px; height: 12px; stroke: currentColor; stroke-width: 1.4; fill: none; }\n.pet-bubble-body { padding: 12px 14px; max-height: 260px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }\n.pet-bubble-tip { font-size: 12px; line-height: 1.7; color: var(--text-muted-v2, var(--text-dim, #666)); }\n.pet-bubble-qa { display: flex; flex-direction: column; gap: 4px; }\n.pet-bubble-q { font-size: 12px; color: var(--text-primary, var(--text, #222)); font-weight: 600; }\n.pet-bubble-q::before { content: \"问 \"; color: var(--text-faint-v2, var(--text-faint, #999)); font-weight: 400; }\n.pet-bubble-a { font-size: 12px; line-height: 1.7; color: var(--text-muted-v2, var(--text-dim, #666)); }\n.pet-bubble-a::before { content: \"灵 \"; color: var(--brand-v2, var(--accent, #a5641f)); font-weight: 700; }\n.pet-bubble-foot { display: flex; gap: 8px; padding: 10px 12px 12px; border-top: 1px solid var(--line-v2, var(--border, #ddd)); background: var(--surface, var(--panel, #fff)); }\n.pet-bubble-input {\n  flex: 1; min-width: 0; height: 32px; padding: 0 10px;\n  border: 1px solid var(--line-v2, var(--border, #ddd)); border-radius: 6px;\n  background: var(--canvas, var(--bg, #fff)); color: var(--text-primary, var(--text, #222)); font-size: 12px;\n}\n.pet-bubble-input:focus { outline: none; border-color: var(--brand-v2, var(--accent, #a5641f)); }\n.pet-bubble-send {\n  flex: none; height: 32px; min-width: 44px; padding: 0 10px;\n  border: 1px solid var(--brand-v2, var(--accent, #a5641f)); border-radius: 6px;\n  background: var(--brand-v2, var(--accent, #a5641f)); color: #231a0c; font-size: 12px; font-weight: 700; cursor: pointer;\n}\n.pet-bubble-send:hover { background: var(--brand-strong-v2, var(--accent-dim, #8a6538)); border-color: var(--brand-strong-v2, var(--accent-dim, #8a6538)); }\n"
+        st.textContent = "\n/* 桌宠自注入样式（单一来源；var 兜底链兼容经典 --panel/--border/--accent 与原型 --surface/--line-v2/--brand-v2 两套变量） */\n.bloub-pet {\n  position: fixed; z-index: 90;\n  width: 104px; height: 104px;\n  cursor: grab;\n  touch-action: none;\n  filter: drop-shadow(0 14px 34px rgba(0,0,0,.35));\n  transition: opacity .3s;\n}\n.bloub-pet:active { cursor: grabbing; }\n.bloub-pet.pet-hidden { opacity: 0; pointer-events: none; }\n.bloub-pet .pet-host { width: 104px; height: 104px; }\n.bloub-pet:focus-visible { outline: 1px solid var(--brand-v2, var(--accent, #a5641f)); outline-offset: 4px; border-radius: 10px; }\n.bloub-pet[data-state=\"thinking\"] { filter: drop-shadow(0 10px 26px rgba(0,0,0,.35)) drop-shadow(0 0 18px var(--accent-glow, rgba(201,139,75,.12))); }\n\n.pet-bubble {\n  position: fixed; z-index: 95;\n  width: min(320px, calc(100vw - 48px));\n  background: var(--surface, var(--panel, #fff));\n  border: 1px solid var(--line-strong-v2, var(--border-strong, #888));\n  border-radius: 10px;\n  box-shadow: 0 18px 50px rgba(0,0,0,.4);\n  overflow: hidden;\n  animation: pet-bubble-in .28s var(--ease-spring, cubic-bezier(.2,.8,.2,1));\n}\n.pet-bubble.hidden { display: none; }\n@keyframes pet-bubble-in { from { transform: translateY(10px) scale(.96); opacity: 0; } }\n.pet-bubble-head {\n  display: flex; align-items: center; justify-content: space-between;\n  padding: 8px 10px 8px 14px;\n  border-bottom: 1px solid var(--line-v2, var(--border, #ddd));\n  background: var(--surface-raised, var(--panel-2, #f5f5f6));\n}\n.pet-bubble-title { font-size: 12px; font-weight: 700; color: var(--text-primary, var(--text, #222)); letter-spacing: 1px; }\n.pet-bubble-x { border: 0; background: transparent; color: var(--text-faint-v2, var(--text-faint, #999)); cursor: pointer; width: 22px; height: 22px; padding: 0; }\n.pet-bubble-x:hover { color: var(--text-primary, var(--text, #222)); }\n.pet-bubble-x .ic { width: 12px; height: 12px; stroke: currentColor; stroke-width: 1.4; fill: none; }\n.pet-bubble-body { padding: 12px 14px; max-height: 260px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }\n.pet-bubble-tip { font-size: 12px; line-height: 1.7; color: var(--text-muted-v2, var(--text-dim, #666)); }\n.pet-bubble-qa { display: flex; flex-direction: column; gap: 4px; }\n.pet-bubble-q { font-size: 12px; color: var(--text-primary, var(--text, #222)); font-weight: 600; }\n.pet-bubble-q::before { content: \"问 \"; color: var(--text-faint-v2, var(--text-faint, #999)); font-weight: 400; }\n.pet-bubble-a { font-size: 12px; line-height: 1.7; color: var(--text-muted-v2, var(--text-dim, #666)); }\n.pet-bubble-a::before { content: \"灵 \"; color: var(--brand-v2, var(--accent, #a5641f)); font-weight: 700; }\n.pet-bubble-foot { display: flex; gap: 8px; padding: 10px 12px 12px; border-top: 1px solid var(--line-v2, var(--border, #ddd)); background: var(--surface, var(--panel, #fff)); }\n.pet-bubble-input {\n  flex: 1; min-width: 0; height: 32px; padding: 0 10px;\n  border: 1px solid var(--line-v2, var(--border, #ddd)); border-radius: 6px;\n  background: var(--canvas, var(--bg, #fff)); color: var(--text-primary, var(--text, #222)); font-size: 12px;\n}\n.pet-bubble-input:focus { outline: none; border-color: var(--brand-v2, var(--accent, #a5641f)); }\n.pet-bubble-send {\n  flex: none; height: 32px; min-width: 44px; padding: 0 10px;\n  border: 1px solid var(--brand-v2, var(--accent, #a5641f)); border-radius: 6px;\n  background: var(--brand-v2, var(--accent, #a5641f)); color: #231a0c; font-size: 12px; font-weight: 700; cursor: pointer;\n}\n.pet-bubble-send:hover { background: var(--brand-strong-v2, var(--accent-dim, #8a6538)); border-color: var(--brand-strong-v2, var(--accent-dim, #8a6538)); }\n\n/* 本地小模型接入区（消息区与输入行之间的固定条；状态驱动） */\n.pet-model-zone { padding: 0 12px 10px; display: flex; }\n.pet-model-zone:empty { display: none; }\n.pet-model-zone .pet-model-on { flex: 1; align-self: center; font-size: 11px; color: var(--ok, #3d9a50); }\n.pet-model-zone .pet-model-loading { flex: 1; align-self: center; font-size: 11px; color: var(--text-muted-v2, var(--text-dim, #666)); animation: pet-pulse 1.2s ease-in-out infinite; }\n@keyframes pet-pulse { 50% { opacity: .45; } }\n.pet-model-zone .pet-model-dl { flex: 1; display: flex; flex-direction: column; gap: 4px; }\n.pet-model-zone .pet-model-bar { height: 4px; border-radius: 2px; background: var(--line-v2, var(--border, #ddd)); overflow: hidden; }\n.pet-model-zone .pet-model-bar i { display: block; height: 100%; border-radius: 2px; background: var(--brand-v2, var(--accent, #a5641f)); transition: width .3s; }\n.pet-model-zone .pet-model-pct { font-size: 11px; color: var(--text-muted-v2, var(--text-dim, #666)); }\n.pet-model-zone .pet-model-err { flex: 1; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }\n.pet-model-zone .pet-model-err-text { font-size: 11px; line-height: 1.5; color: var(--danger, #c0564a); }\n.pet-model-confirm { flex: 1; display: flex; flex-direction: column; gap: 8px; }\n.pet-model-confirm-text { font-size: 11px; line-height: 1.7; color: var(--text-muted-v2, var(--text-dim, #666)); }\n.pet-model-confirm-row { display: flex; gap: 8px; justify-content: flex-end; }\n.pet-chip {\n  border: 1px solid var(--line-v2, var(--border, #ddd)); border-radius: 999px;\n  height: 26px; padding: 0 12px; font-size: 11px; cursor: pointer; align-self: center;\n  background: var(--surface, var(--panel, #fff)); color: var(--text-primary, var(--text, #222));\n}\n.pet-chip:hover { border-color: var(--brand-v2, var(--accent, #a5641f)); color: var(--brand-v2, var(--accent, #a5641f)); }\n.pet-chip-ghost { border-color: transparent; color: var(--text-muted-v2, var(--text-dim, #666)); }\n.pet-chip-ghost:hover { border-color: var(--line-v2, var(--border, #ddd)); color: var(--text-primary, var(--text, #222)); }\n.pet-chip-model { border-color: var(--brand-v2, var(--accent, #a5641f)); color: var(--brand-v2, var(--accent, #a5641f)); font-weight: 700; }\n.pet-chip-go { border-color: var(--brand-v2, var(--accent, #a5641f)); background: var(--brand-v2, var(--accent, #a5641f)); color: #231a0c; font-weight: 700; }\n.pet-chip-go:hover { background: var(--brand-strong-v2, var(--accent-dim, #8a6538)); color: #231a0c; }\n\n/* 本地小模型回答：打字机光标（生成中闪烁） */\n.pet-bubble-a.gen::after { content: \"▍\"; color: var(--brand-v2, var(--accent, #a5641f)); animation: pet-caret .8s steps(1) infinite; }\n@keyframes pet-caret { 50% { opacity: 0; } }\n"
         document.head.appendChild(st)
       }
       var root = document.createElement('div')
@@ -323,6 +488,28 @@
         if (Math.random() < 0.5) transient(Math.random() < 0.5 ? 'wink' : 'wide', 1600, 'idle')
       }, 22000)
 
+      // 本地小模型状态同步：初始查询 + 订阅下载/加载进度（就绪时小庆祝一下）
+      try {
+        var api = window.api
+        if (api && api.petModelStatus) {
+          api.petModelStatus().then(function (s) {
+            var wasReady = modelReady()
+            setModelState(s)
+            if (!wasReady && modelReady()) transient('burst', 2000, 'idle')
+          }).catch(function () {})
+          if (api.onPetModelProgress) {
+            api.onPetModelProgress(function (s) {
+              var wasReady = modelReady()
+              setModelState(s)
+              if (!wasReady && modelReady()) {
+                transient('burst', 2000, 'idle')    // 下载→就绪：小烟花庆祝
+                renderModelZone()
+              }
+            })
+          }
+        }
+      } catch (e2) {}
+
       return root
     } catch (e) { return null }
   }
@@ -332,7 +519,8 @@
     event: onEvent,
     poke: function () { if (state.bot) poke() },
     ask: respond,                       // 测试/调试用：直接问规则库
-    systemPrompt: PET_SYSTEM_PROMPT,    // 本地小模型接入时复用的人设提示词
+    modelPhase: function () { return state.model.phase },   // 测试用：本地小模型镜像状态
+    systemPrompt: PET_SYSTEM_PROMPT,    // 人设提示词展示副本（运行时正本在 shared/pet-model-prompt.cjs）
     get el() { return state.root }
   }
 })()

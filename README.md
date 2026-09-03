@@ -94,9 +94,12 @@ AI 逐幕推进叙事、每幕给出 A/B/C 选项按钮，也可自由行动；�
 - 布局三模式（标准 / 专注 / 沉浸）+ 侧栏左右换向 + 灵动岛通知；
 - **世界之灵桌宠**（经典 / 原型工作台双方案）：常驻内容画布两侧空白边距的活体小机器人——呼吸、眨眼、视线
   跟随鼠标；生成叙事时化作思考三点、完成亮通知徽标、报错变惊叹号；点击戳一戳并打开帮助气泡
-  （使用指南小贴士 + 规则问答），可拖拽搬家、位置记忆、窄窗自动隐藏。后续将在气泡内接入本地小模型
-  实现自由对话。引擎为 bloub（[jeremy-prt/bloub](https://github.com/jeremy-prt/bloub)，MIT）的
-  一次性内嵌转译，详见 `docs/bloub-vendor.md`。
+  （使用指南小贴士 + 问答），可拖拽搬家、位置记忆、窄窗自动隐藏。引擎为 bloub
+  （[jeremy-prt/bloub](https://github.com/jeremy-prt/bloub)，MIT）的一次性内嵌转译，详见 `docs/bloub-vendor.md`。
+- **桌宠本地小模型**（离线自由对话）：气泡底部「接入本地小模型 · 约 400MB」一键按钮 → 二次确认
+  （只提示大小）→ 下载进度 → 自动接入，全程无需配置；接入后应用类问题仍由内置规则库精准回答，
+  规则未命中的闲聊交给本地模型流式生成（打字机逐字上屏 + 表情联动）。模型经 node-llama-cpp
+  （Vulkan/CPU 本地推理，无显卡也能跑）常驻主进程，下载落 userData，断网/无密钥均可对话。
 
 ### 模型与配置
 
@@ -203,7 +206,7 @@ npm run dist   # 打包 NSIS 安装版 + 便携版单文件（产物在 dist/）
 - `npm start` — 开发运行；所有脚本以 `SIXWORLDS_TEST=1` 启动并重定向 userData 到 `test-profile/`，**永不触碰真实用户配置**；
 - UI 回归：`verify.cjs`（34 项）、`e2e-mock.cjs`（mock 服务端全链路）、`test-choices.cjs`（选项解析）；
 - 内核工作台：`test-kernel-hub.cjs`（内核库 / AI 设计 / 保存 / 绑定 / 重启恢复 / 导入 / 删除回落）；
-- 世界之灵桌宠：`test-bloub.cjs`（57 项：15 状态 / 3000 帧确定性 / 规则问答契约）、`test-bloub-e2e.cjs`（真实渲染 17 项：边距常驻 / 视线 / 气泡问答 / 拖拽记忆 / 事件反应 / 窄窗适配）；
+- 世界之灵桌宠：`test-bloub.cjs`（57 项：15 状态 / 3000 帧确定性 / 规则问答契约）、`test-bloub-e2e.cjs`（真实渲染 26 项：边距常驻 / 视线 / 气泡问答 / 拖拽记忆 / 事件反应 / 窄窗适配 / 本地小模型一键接入全流程——假下载源接缝，不在 CI 下 400MB）；
 - 引擎测试：`test-story-engine.cjs`（42 项）、`test-access.cjs`（24 项权限）、`test-patch-reliability.cjs`（46 项协议容错）、`test-engine-e2e.cjs`；
 - 长篇压测：`stress-run.cjs`（1001 回合真实演进 / 3410 断言）、`stress-e2e.cjs`（真实 Electron 100 回合 + 重启 + 记忆挑战）；
 - 性能与记忆基准：`bench.cjs`（100~5000 回合）、`bench-fe.cjs`（前端大历史）、`bench-recall.cjs`（七类查询 × 距离分层 Recall）；
