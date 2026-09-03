@@ -7,10 +7,10 @@ const PATCH_BEGIN = '<<<STATE_PATCH>>>'
 const PATCH_END = '<<<END_PATCH>>>'
 const NO_STATE_CHANGE = '<<<NO_STATE_CHANGE>>>' // 条款 21/23：纯聊天回合的合法显式标记
 
-/* 容错标记匹配（真实模型常见变体：全角括号/少一个 >/内部空格/大小写/下划线） */
-const RE_BEGIN = /(?:<<<|＜＜＜|＜<<?)\s*STATE[_ ]?PATCH\s*(?:>{2,3}|＞＞?＞?)/i
-const RE_END = /(?:<<<|＜＜＜)\s*END[_ ]?PATCH\s*(?:>{2,3}|＞＞?＞?)/i
-const RE_NO_CHANGE = /(?:<<<|＜＜＜)\s*NO[_ ]?STATE[_ ]?CHANGE\s*(?:>{2,3}|＞＞?＞?)/i
+/* 容错标记匹配（真实模型常见变体：全角括号/少一个 >/内部空格/大小写/下划线/两个箭头） */
+const RE_BEGIN = /(?:<<<|＜＜＜|＜<<?|<<<?)\s*(?:STATE[_ ]?PATCH|state_patch)\s*(?:>{2,3}|＞＞?＞?)/i
+const RE_END = /(?:<<<|＜＜＜|＜<<?|<<<?)\s*END[_ ]?PATCH\s*(?:>{2,3}|＞＞?＞?)/i
+const RE_NO_CHANGE = /(?:<<<|＜＜＜|＜<<?|<<<?)\s*NO[_ ]?STATE[_ ]?CHANGE\s*(?:>{2,3}|＞＞?＞?)/i
 
 /* 从模型原始输出中提取 patch 块。
  * 返回 { found, narrative, patch, raw, noChange, unmarked }
@@ -28,46 +28,85 @@ function extractPatch(rawText) {
   const beginMatch = work.match(RE_BEGIN)
   if (beginMatch) {
     const begin = beginMatch.index
-    const narrative = work.slice(0, begin).trim()
+    let narrative = work.slice(0, begin).trim()
     const rest = work.slice(begin + beginMatch[0].length)
     const endMatch = rest.match(RE_END)
     const rawPatch = endMatch ? rest.slice(0, endMatch.index) : rest
     const parsed = tolerantParse(rawPatch)
-    return { found: true, noChange, narrative, patch: parsed.ok ? parsed.value : null, parse_error: parsed.ok ? null : parsed.error, raw: rawPatch }
+    return { found: true, noChange, narrative: scrubNarrative(narrative), patch: parsed.ok ? parsed.value : null, parse_error: parsed.ok ? null : parsed.error, raw: rawPatch }
   }
-  /* 兜底：无标记但回复末尾是含 turn_summary 的裸 JSON（弱模型常见失误）。
-   * 仅接受「尾段」JSON（起点在倒数 2000 字符内，且其后只剩空白/围栏/短尾注），
-   * 避免把叙事中段的示例 JSON 误当状态块。命中标记 unmarked=true，由提交层记警告。 */
+  /* 兜底：无标记但回复末尾是状态形状的裸 JSON（弱模型常见失误：丢标记/写函数包装/围栏包裹）。
+   * 采纳条件见 looksLikeStatePatch；命中标记 unmarked=true，由提交层记警告。 */
   if (!noChange) {
     const cand = findTailJson(work)
     if (cand) {
       const parsed = tolerantParse(cand.json)
-      if (parsed.ok && parsed.value && typeof parsed.value === 'object' && parsed.value.turn_summary != null) {
-        return { found: true, noChange, narrative: work.slice(0, cand.start).trim(), patch: parsed.value, raw: cand.json, unmarked: true }
+      if (parsed.ok && looksLikeStatePatch(parsed.value)) {
+        return { found: true, noChange, narrative: scrubNarrative(work.slice(0, cand.start)), patch: parsed.value, raw: cand.json, unmarked: true }
       }
     }
   }
-  return { found: false, noChange, narrative: work.trim(), patch: null, raw: work }
+  return { found: false, noChange, narrative: scrubNarrative(work), patch: null, raw: work }
 }
 
-/* 在文本尾部找最后一个平衡的 JSON 对象：起点须在 tail 窗口内，其后只允许短尾注 */
+/* 状态块形状判定：turn_summary 直收；否则要求 ≥2 个协议键（模型漏写 turn_summary 的常见病） */
+function looksLikeStatePatch(v) {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return false
+  if (v.turn_summary != null) return true
+  let n = 0
+  for (const k of PATCH_KEYS) if (v[k] !== undefined) n++
+  return n >= 2
+}
+
+/* 剥离叙事尾部的协议残渣：孤立的代码围栏行、```json、函数调用包装行（update_state( 等）、
+ * 「状态块：」类引导语——模型把协议写进正文的痕迹，读者不可见。逐行从尾往头剥，不动正文。 */
+function scrubNarrative(text) {
+  let t = String(text || '').trim()
+  const residueLine = /^\s*(?:```+[a-z]*|`+|＜{0,3}<{0,3}\s*(?:STATE[_ ]?PATCH|END[_ ]?PATCH|NO[_ ]?STATE[_ ]?CHANGE)\s*>{0,3}＞{0,3}|「?(?:状态块|状态记录|State\s*Patch)」?\s*[：:]?)\s*$/i
+  const funcWrap = /(?:^|\n)\s*[A-Za-z_][\w.]*\s*\(\s*$/   // update_state( 函数包装行
+  for (let guard = 0; guard < 12; guard++) {
+    const m = t.match(/\n([^\n]*)$/)
+    const lastLine = m ? m[1] : t
+    if (residueLine.test(lastLine)) { t = (m ? t.slice(0, m.index) : '').trim(); continue }
+    const fw = t.match(funcWrap)
+    if (fw && (m ? lastLine : t).match(/^[A-Za-z_][\w.]*\s*\(\s*$/)) { t = t.slice(0, fw.index).trim(); continue }
+    break
+  }
+  return t
+}
+
+/* 在文本尾部找最后一个平衡的 JSON 对象：起点须在 tail 窗口内，其后允许短尾注
+ * （含函数调用的右括号 `})`、闭合围栏、一句收束话——都是真实模型的常见尾巴） */
 function findTailJson(text) {
-  const window = 2000
+  const window = 3000
   const tailStart = Math.max(0, text.length - window)
   let i = text.lastIndexOf('{')
   while (i >= tailStart) {
     const depth = scanDepth(text, i)
     if (depth.end > i) {
       const json = text.slice(i, depth.end + 1)
-      /* 必须是状态块形状（含 turn_summary）才采纳；否则继续向前回溯更大的平衡对象 */
-      if (json.includes('"turn_summary"')) {
-        const after = text.slice(depth.end + 1).replace(/^```*\s*/, '').trim()
-        if (after.length <= 24) return { start: i, json }
+      /* 必须是状态块形状（turn_summary 或 ≥2 个协议键）才采纳；否则继续向前回溯更大的平衡对象 */
+      if (looksLikeStatePatchLoose(json)) {
+        const after = text.slice(depth.end + 1).trim()
+          .replace(/^[)）\]]+/, '')                                  // 函数调用包装的右括号
+          .replace(/^(```+|｀｀｀+)\s*/, '')                         // 闭合围栏
+          .replace(/^(?:<{1,3}|＜{1,3})\s*(?:END[_ ]?PATCH|NO[_ ]?STATE[_ ]?CHANGE)\s*(?:>{1,3}|＞{1,3})/i, '') // 残余结束标记
+          .trim()
+      /* 短尾注只接受「协议尾巴」（标点/短英文/短中文收束 ≤10 字）。大段中文叙事跟在 JSON 后面
+         * 说明这是叙事中段的示例 JSON，绝不能当状态块（尾部窗口内的正文回头扫会命中）。 */
+        if (after.length > 80) return null
+        const cjk = after.match(/[\u4e00-\u9fff]/g)
+        if (cjk && cjk.length > 10) return null
+        return { start: i, json }
       }
     }
     i = text.lastIndexOf('{', i - 1)
   }
   return null
+}
+/* 廉价预检：JSON 文本里出现协议键才值得 parse（避免对大段叙事 JSON 白做配平） */
+function looksLikeStatePatchLoose(jsonText) {
+  return /turn_summary|"scene"|"player_state"|"entity_changes"|"decisions"|"commitments"|"commitment_updates"|"relationships"|"threads"|"knowledge"|"causal"|"facts"|"events"|"commitment_updates"/.test(jsonText)
 }
 /* 从 start 的 '{' 起做括号配平（字符串感知），返回匹配 '}' 的下标；未闭合则返回 -1 */
 function scanDepth(text, start) {
@@ -185,12 +224,13 @@ function patchProtocolPrompt() {
     '<<<NO_STATE_CHANGE>>>',
     '协议规则：',
     '1. 叙事正文里绝不要提及本协议、JSON 或任何字段名；状态块（或 NO_STATE_CHANGE 标记）必须放在回复最末尾，读者不可见。',
-    '2. 只记录「本回合新发生的」状态变化；没有变化的类别可省略整个键。',
-    '3. decisions 只记录玩家真实做出的选择/输入（source 用 user_input 或 user_pick）；你给出的选项本身不是决定。',
-    '4. facts 是客观世界事实；玩家不知道的（秘密）用 secret_from_player:true 标记，且不要写进 knowledge。',
-    '5. 所有 importance 用 1~100：100 世界级转折，80+ 主线重大，50+ 重要，20+ 一般，<10 琐事。',
-    '6. 引用既有实体一律用名字（引擎负责匹配）；引用既有伏笔/承诺若知道编号用编号，否则用内容关键词。'
+    '2. 状态块不要用 Markdown 代码围栏（``` 或 ```json）包裹，也不要写成函数调用（如 update_state(...)）——只用 <<<STATE_PATCH>>> 和 <<<END_PATCH>>> 两行标记夹住原始 JSON。',
+    '3. 只记录「本回合新发生的」状态变化；没有变化的类别可省略整个键。',
+    '4. decisions 只记录玩家真实做出的选择/输入（source 用 user_input 或 user_pick）；你给出的选项本身不是决定。',
+    '5. facts 是客观世界事实；玩家不知道的（秘密）用 secret_from_player:true 标记，且不要写进 knowledge。',
+    '6. 所有 importance 用 1~100：100 世界级转折，80+ 主线重大，50+ 重要，20+ 一般，<10 琐事。',
+    '7. 引用既有实体一律用名字（引擎负责匹配）；引用既有伏笔/承诺若知道编号用编号，否则用内容关键词。'
   ].join('\n')
 }
 
-module.exports = { PATCH_BEGIN, PATCH_END, NO_STATE_CHANGE, extractPatch, tolerantParse, normalizePatch, patchProtocolPrompt, closeBrackets, findTailJson }
+module.exports = { PATCH_BEGIN, PATCH_END, NO_STATE_CHANGE, extractPatch, tolerantParse, normalizePatch, patchProtocolPrompt, closeBrackets, findTailJson, scrubNarrative, looksLikeStatePatch }

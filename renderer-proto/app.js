@@ -1926,11 +1926,16 @@
   // 不再每帧把整段已生成文本重写进 DOM（旧法每帧成本随篇幅线性增长，长回复越写越卡）
   let streamRaf = 0
   let streamRenderedLen = 0
-  // 状态引擎：流式期间实时隐藏 STATE_PATCH 协议块（含未完整的标记前缀）
-  const STREAM_MARK = '<<<STATE_PATCH>>>'
+  // 状态引擎：流式期间实时隐藏协议块（含未完整的标记前缀与常见变体：两箭头/全角/围栏行）
+  const STREAM_MARKS = ['<<<STATE_PATCH>>>', '<<<STATE_PATCH>', '<<< STATE_PATCH >>>', '<<<state_patch>>>', '＜＜＜STATE_PATCH＞＞＞', '```json', '```', 'update_state(']
+  const STREAM_MARK = '<<<STATE_PATCH>>>'   // hold 前缀判定仍以标准形态为基准
   function streamVisibleLen() {
-    const i = streaming.indexOf(STREAM_MARK)
-    if (i !== -1) return i
+    let cut = streaming.length
+    for (const mk of STREAM_MARKS) {
+      const i = streaming.indexOf(mk)
+      if (i !== -1) cut = Math.min(cut, i)
+    }
+    if (cut < streaming.length) return cut
     const hold = Math.min(streaming.length, STREAM_MARK.length - 1)
     for (let k = hold; k > 0; k--) {
       if (STREAM_MARK.startsWith(streaming.slice(streaming.length - k))) return streaming.length - k

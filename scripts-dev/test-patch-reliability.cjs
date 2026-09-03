@@ -186,6 +186,18 @@ const KERNEL = '可靠性测试内核。'
   check('容错: 中段裸 JSON 不误采纳', e4.found === false && e4.unmarked !== true, e4.found)
   const e5 = extractPatch('叙事。\n```json\n<<<STATE_PATCH>>>\n{"turn_summary":"c",}\n<<<END_PATCH>>>\n```')
   check('容错: 围栏包裹 + 尾逗号', e5.found === true && e5.patch && e5.patch.turn_summary === 'c', e5)
+  // ---- v1.4.2 加固病例：函数标头泄漏（用户实测形态）与更宽松的兜底 ----
+  const e6 = extractPatch('叙事正文……\n<<STATE_PATCH>>\n```json\n{"turn_summary":"今天","scene":{"location":"村口"}}\n```\n<<END_PATCH>>')
+  check('容错: 两箭头标记 + 围栏夹层', e6.found === true && e6.patch && e6.patch.turn_summary === '今天' && !/```|STATE_PATCH/.test(e6.narrative), e6.narrative)
+  const e7 = extractPatch('剧情推进。\nupdate_state(\n{"turn_summary":"一天","events":[{"type":"action","description":"x"}]}\n)')
+  check('容错: 函数调用包装（无标记）被剥开', e7.found === true && e7.unmarked === true && e7.patch && e7.patch.turn_summary === '一天' && !/update_state/.test(e7.narrative), e7.narrative)
+  const e8 = extractPatch('故事。\n{"scene":{"location":"城"},"facts":[{"key":"k","statement":"s"}]}')
+  check('容错: 缺 turn_summary 但 ≥2 协议键仍兜底', e8.found === true && e8.patch && e8.patch.scene && e8.patch.facts, { found: e8.found })
+  const e9 = extractPatch('正文。\nupdate_state(\n{"turn_summary":"z"}\n) 之后又写了一句收尾的话。')
+  check('容错: 函数包装后带中文长尾注 → 不采纳（可能只是叙事举例）', e9.found === false, e9.found)
+  const { scrubNarrative } = require('../engine/patch')
+  check('清洗: 尾部围栏/引导语/函数行逐层剥净', scrubNarrative('正文结束。\n\n```json\n状态块：\n') === '正文结束。' && scrubNarrative('他推开门。\nupdate_state(') === '他推开门。', 'ok')
+  check('清洗: 正常结尾一个字都不动', scrubNarrative('正常一句话结尾。') === '正常一句话结尾。' && scrubNarrative('含 { 引号的正常叙事。') === '含 { 引号的正常叙事。', 'ok')
 }
 
 console.log('\n== Patch 可靠性测试: ' + pass + ' 通过, ' + fail + ' 失败 ==')
