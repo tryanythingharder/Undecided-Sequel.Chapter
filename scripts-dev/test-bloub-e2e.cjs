@@ -98,9 +98,15 @@ async function main() {
     if (!svg) return null
     const paths = svg.querySelectorAll('path')
     const body = svg.querySelector('defs mask path')
-    return { aria: svg.getAttribute('aria-label'), d0: body ? body.getAttribute('d') : null, n: paths.length }
+    const cs = getComputedStyle(svg)
+    const r = svg.getBoundingClientRect()
+    // 可见性三重验证：计算样式 display/opacity + 非零渲染盒（防 display:none 型「假挂载」）
+    return { aria: svg.getAttribute('aria-label'), d0: body ? body.getAttribute('d') : null, n: paths.length,
+      display: cs.display, opacity: cs.opacity, box: [Math.round(r.width), Math.round(r.height)] }
   })
   check('empty-bot-mounted', !!sig, JSON.stringify(sig))
+  if (sig) check('empty-bot-visible', sig.display !== 'none' && sig.box[0] === 76 && sig.box[1] === 76,
+    '计算样式与渲染盒非零 display=' + sig.display + ' box=' + JSON.stringify(sig.box))
   if (sig) {
     await win.waitForTimeout(600)
     const d1 = await win.evaluate(() => {
@@ -180,12 +186,20 @@ async function main() {
   for (let i = 0; i < 20; i++) {
     island = await win.evaluate(() => {
       const dot = document.querySelector('#island-busy .island-dot')
-      return dot && dot.querySelector('.bloub-svg') ? { svg: true, host: dot.className } : null
+      if (!dot || !dot.querySelector('.bloub-svg')) return null
+      const host = document.querySelector('#island-busy')
+      const cs = getComputedStyle(host)
+      const r = host.getBoundingClientRect()
+      // 可见性：岛本体计算样式非 none 且渲染盒非零（防「假挂载」——历史遗留的
+      // display:none !important 曾让岛挂着却不可见，DOM 断言抓不到）
+      return { svg: true, host: dot.className, display: cs.display, box: [Math.round(r.width), Math.round(r.height)] }
     })
     if (island) break
     await win.waitForTimeout(150)
   }
   check('island-bot-mounted', !!(island && island.svg), '思考机器人随忙碌岛挂载 host=' + (island && island.host))
+  if (island) check('island-visible', island.display !== 'none' && island.box[0] > 0,
+    '岛本体可见 display=' + island.display + ' 宽=' + island.box[0] + 'px')
   if (island) {
     const bd0 = await win.evaluate(() => {
       const svg = document.querySelector('#island-busy .island-dot .bloub-svg')

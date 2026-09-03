@@ -1609,7 +1609,6 @@ body.sb-right .layout.workstage > .sidebar { order: 2; border-right: 0; border-l
 .command-dialog { max-height: min(560px, calc(100dvh - 80px)); background: var(--surface); border-color: var(--line-strong-v2); border-radius: 6px; }
 .command-head, .command-search-wrap { border-color: var(--line-v2); }
 .command-list button:hover, .command-list button.active { border-color: var(--brand-v2); background: rgba(214,164,91,.1); }
-.island-busy { display: none !important; }
 
 @media (max-width: 760px) {
   :root { --topbar-h-v2: 56px; --dock-w-v2: 0px; }
