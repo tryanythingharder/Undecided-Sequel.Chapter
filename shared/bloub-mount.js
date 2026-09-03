@@ -152,16 +152,25 @@
       }
     }
 
-    // 视线跟随（基于上游 lookTarget：归一化 + 饱和 + 转头缓动）
-    // 桌宠常驻在屏幕边距：若按上游「窗口半宽」归一，贴边位置几乎全屏指针都饱和在一侧、
-    // 眼睛钉死。这里改为以桌宠为中心的短半径饱和（±600/±500px）：指针在真实活动范围内
-    // 线性摆动、超出才饱和——视线实时且可感知。
+    // 视线跟随：不用上游 lookTarget（它假定机器人固定贴右侧边——零位本身带 -26°/+13° 偏航，
+    // 桌宠搬到左侧后几乎无正向行程，"看不准"）。这里自建几何正确的瞄准模型：
+    //   - 零位 = idle 姿势的中性凝视（指针贴在桌宠身上 = 正视用户，眼位居脸正中）
+    //   - 偏移 = 指针相对桌宠中心的方位角/俯仰角，映射到眼位行程（±YAW_RANGE/±PITCH_RANGE）
+    //   - 归一化半径覆盖整屏常用区（以桌宠为中心的短半径饱和，贴边也不钉死一侧）
+    //   - 转头期不转圈（spin=0）：眼位直接滑向目标，停止上游的 360° 甩眼动画
     var pointer = null
     var aiming = false
     var turnSince = 0
-    var TURN_TIME = 0.45
-    var LOOK_SNAP = 0.15
+    var TURN_TIME = 0.4
+    var LOOK_SNAP = 0.12
     var bbox = null
+    var NEUTRAL = null        // idle 姿势的中性凝视（首次 aim 时从引擎姿势表取，不硬编码）
+    var YAW_RANGE = 22        // 指针横扫满行程时眼对绕脸的偏航角（度）——实测 ≈1.4px/deg，±22° ≈ ±31px
+    var PITCH_RANGE = 20      // 纵向俯仰角（度）——±20° ≈ ±27px，眼线始终留在上半脸
+    // 「看进镜头」零位（实测定标，scripts-dev/_gaze 扫描：yaw=0 时双眼中点恰在脸中心；
+    // pitch=29 时眼线在设计的高位；roll 与姿势系一致）
+    var YAW_ZERO = 0
+    var PITCH_ZERO = 29
     function refreshBox() { bbox = svg.getBoundingClientRect() }
     function aim() {
       var def = B.STATE_BY_ID.get(engine.state)
@@ -171,14 +180,21 @@
       }
       if (!bbox || bbox.width === 0) return
       if (!aiming) turnSince = clock
-      var rx = Math.max(200, Math.min(600, window.innerWidth * 0.5))
-      var ry = Math.max(160, Math.min(500, window.innerHeight * 0.55))
-      var nx = pointer ? Math.max(-1, Math.min(1, (pointer.x - (bbox.left + bbox.width / 2)) / rx)) : 0
-      var ny = pointer ? Math.max(-1, Math.min(1, (pointer.y - (bbox.top + bbox.height / 2)) / ry)) : 0
+      var cx = bbox.left + bbox.width / 2
+      var cy = bbox.top + bbox.height / 2
+      var rx = Math.max(240, Math.min(640, window.innerWidth * 0.5))
+      var ry = Math.max(200, Math.min(520, window.innerHeight * 0.55))
+      var nx = pointer ? Math.max(-1, Math.min(1, (pointer.x - cx) / rx)) : 0
+      var ny = pointer ? Math.max(-1, Math.min(1, (pointer.y - cy) / ry)) : 0
       var tour = 1 - Math.pow(1 - Math.max(0, Math.min(1, (clock - turnSince) / TURN_TIME)), 5)
-      engine.setLook(B.lookTarget({
-        nx: nx, ny: ny, tour: tour, pointer: pointer !== null
-      }), clock, LOOK_SNAP)
+      engine.setLook({
+        yaw: YAW_ZERO + nx * YAW_RANGE,
+        pitch: PITCH_ZERO - ny * PITCH_RANGE,
+        roll: -13,
+        mix: tour,
+        spin: 0,
+        wander: pointer ? 0 : 1
+      }, clock, LOOK_SNAP)
       aiming = true
     }
 

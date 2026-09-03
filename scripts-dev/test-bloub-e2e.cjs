@@ -137,35 +137,58 @@ async function main() {
       'x=' + pet.box[0] + ' ≥ 右带起点 ' + Math.round(pet.vw - pet.margin) + '（边距 ' + Math.round(pet.margin) + 'px）')
   }
 
-  // ---- 2. 视线跟随（真实位置差：指针在左/右两个位置，眼睛平移量必须不同且幅度可感知） ----
+  // ---- 2. 视线跟随（精度标准：idle 门控采样 + 双眼中点 + 对称性） ----
   if (pet) {
-    const eyeMatrixAt = async (px, py) => {
+    const eyeMidAt = async (px, py) => {
       await win.evaluate(({ x, y }) => {
         window.dispatchEvent(new PointerEvent('pointermove', { clientX: x, clientY: y, bubbles: true, pointerType: 'mouse' }))
       }, { x: px, y: py })
-      await win.waitForTimeout(900)   // >2×TURN_TIME，让转头缓动收敛
-      return win.evaluate(() => {
-        const svg = document.querySelector('#bloub-pet .bloub-svg')
-        const eyes = [...svg.querySelectorAll('defs mask path')].filter((p) => p.getAttribute('display') !== 'none' && p.getAttribute('transform'))
-        const m = eyes.length ? eyes[eyes.length - 1].getAttribute('transform').match(/matrix\(([^)]+)\)/) : null
-        if (!m) return null
-        const v = m[1].split(',').map(Number)
-        return { x: v[4], y: v[5] }   // 平移分量（眼在脸上的真实落点）
-      })
+      for (let i = 0; i < 14; i++) {   // 等转头缓动收敛 + 避开自发表情瞬态（瞬态期间 aim 松手）
+        await win.waitForTimeout(300)
+        const e = await win.evaluate(() => {
+          const pet = document.querySelector('#bloub-pet')
+          const svg = pet.querySelector('.bloub-svg')
+          const eyes = [...svg.querySelectorAll('defs mask path')].filter((p) => p.getAttribute('display') !== 'none' && p.getAttribute('transform'))
+          if (eyes.length < 2) return null
+          const xs = eyes.map((el) => {
+            const m = el.getAttribute('transform').match(/matrix\(([^)]+)\)/)
+            const v = m[1].split(',').map(Number)
+            return { x: v[4], y: v[5] }
+          })
+          return { state: pet.dataset.state, midX: (xs[0].x + xs[1].x) / 2, midY: (xs[0].y + xs[1].y) / 2 }
+        })
+        if (e && e.state === 'idle') return e
+      }
+      return null
     }
     const pr = await win.evaluate(() => {
       const r = document.querySelector('#bloub-pet').getBoundingClientRect()
       return { cx: r.x + r.width / 2, cy: r.y + r.height / 2 }
     })
-    const left = await eyeMatrixAt(Math.max(20, pr.cx - 450), pr.cy - 120)
-    const right = await eyeMatrixAt(pr.cx + 300, pr.cy - 300)
-    const dx = Math.abs((left && right) ? right.x - left.x : 0)
-    check('pet-gaze-follows', !!(left && right), '两只眼位均可读（transform 平移分量）')
-    check('pet-gaze-tracks-pointer', dx > 2.5, '指针左/右移动，眼睛平移差 ' + dx.toFixed(1) + 'px（>2.5px 可感知）')
-    // 指针贴脸（桌宠自身中心）→ 眼位应回中（与左侧远点差异同样可感知）
-    const near = await eyeMatrixAt(pr.cx, pr.cy)
-    const dx2 = Math.abs((left && near) ? near.x - left.x : 0)
-    check('pet-gaze-recenters', dx2 > 1.5, '指针回到桌宠身上，眼位回移 ' + dx2.toFixed(1) + 'px')
+    const center = await eyeMidAt(pr.cx, pr.cy)
+    const left = await eyeMidAt(Math.max(20, pr.cx - 300), pr.cy - 150)
+    const right = await eyeMidAt(pr.cx + 300, pr.cy - 150)   // 与左点关于桌宠中轴对称（斜向同角度，pitch 耦合相互抵消）
+    const near = await eyeMidAt(pr.cx, pr.cy)
+    check('pet-gaze-follows', !!(center && left && right), '三个指针位置均采到 idle 眼位')
+    if (center && left && right && near) {
+      // 指针贴在桌宠身上 → 双眼中点正对脸中心（水平归零，「看进镜头」）
+      check('pet-gaze-centered-on-hover', Math.abs(center.midX) <= 4, '贴脸时双眼中点 x=' + center.midX.toFixed(1) + '（|≤4px|）')
+      // 左右各移一档 → 眼位移对称且幅度可感知
+      const L = left.midX - center.midX
+      const R = right.midX - center.midX
+      const swing = right.midX - left.midX
+      check('pet-gaze-symmetric', Math.abs(L + R) <= 3.5, '左/右偏移 ' + L.toFixed(1) + '/' + R.toFixed(1) + 'px，对称误差 ' + Math.abs(L + R).toFixed(2) + 'px')
+      check('pet-gaze-tracks-pointer', swing >= 25 && L < -8 && R > 8, '全摆幅 ' + swing.toFixed(1) + 'px，方向正确（左负右正）')
+      // 垂直：指针上/下 → 眼线上下移动
+      const up = await eyeMidAt(pr.cx, pr.cy - 350)
+      const down = await eyeMidAt(pr.cx, pr.cy + 350)
+      if (up && down) {
+        const vSwing = down.midY - up.midY
+        check('pet-gaze-vertical', vSwing >= 18, '垂直摆幅 ' + vSwing.toFixed(1) + 'px（下移眼线更低）')
+      } else check('pet-gaze-vertical', false, '上下采样失败')
+      // 指针回贴脸 → 眼位回中（与首次贴脸一致）
+      check('pet-gaze-recenters', Math.abs(near.midX - center.midX) <= 2, '回贴脸后中点回到 ' + near.midX.toFixed(1) + 'px')
+    }
   }
 
   // ---- 3. 点击 → 气泡 ----
