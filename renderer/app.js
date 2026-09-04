@@ -1530,14 +1530,23 @@
 
       msgEl.appendChild(div)
       div.dataset.mi = i
-      // Pending 徽标（条款 30）：明确区分「正常完成 / 未落账」，不悄悄假装已保存
-      if (m.role === 'assistant' && m.pending) {
-        const chip = document.createElement('button')
-        chip.className = 'msg-pending-chip'
-        chip.textContent = '⚠ 状态未落账 · 点击补录'
-        chip.title = '这一回合的结构化状态没有正式提交（模型缺状态块或校验未过）。点击立即尝试补录。'
-        chip.addEventListener('click', () => resolvePendingFlow(typeof m.pending === 'string' ? m.pending : null))
-        div.appendChild(chip)
+      // 落账徽标（条款 30）：三态明确区分「记账中 / 未落账 / 正常完成」，不悄悄假装已保存
+      if (m.role === 'assistant' && (m.pending || m.committing)) {
+        if (m.committing) {
+          // 记账中：后台补录进行时（不可点击，阅读/选项不受影响）
+          const chip = document.createElement('div')
+          chip.className = 'msg-committing-chip'
+          chip.textContent = '◌ 记忆记账中…'
+          chip.title = '正在把这一回合写入世界记忆（后台进行，不影响阅读和选择）。完成后自动消失。'
+          div.appendChild(chip)
+        } else {
+          const chip = document.createElement('button')
+          chip.className = 'msg-pending-chip'
+          chip.textContent = '⚠ 状态未落账 · 点击补录'
+          chip.title = '这一回合的结构化状态没有正式提交（模型缺状态块或校验未过）。点击立即尝试补录。'
+          chip.addEventListener('click', () => resolvePendingFlow(typeof m.pending === 'string' ? m.pending : null))
+          div.appendChild(chip)
+        }
       }
     })
 
@@ -2217,51 +2226,30 @@
     setSendButtonState(false)
 
     if (r && r.ok && r.content) {
-      // ---- 状态引擎：提取 STATE_PATCH → 校验 → 提交；缺失/损坏自动补丁重试 → Pending（条款 15-22/25/28/30） ----
+      // ---- 状态引擎：先入列立即可读，后补账（条款 15-22/25/28/30）----
+      // 时序原则：阅读永不被记账阻塞。回复一到就 push + 渲染（选项立即可点），
+      // 记账（提交/补录重试）随后进行；需要补录时消息挂 committing 标记实时可见。
       let narrative = r.content
       let pendingId = null
-      let pendingKept = false
+      let patchStatus = null
+      let patchReason = ''
       if (engineMeta) {
-        const commitBase = { storyId: engineMeta.storyId, sessionId: engineMeta.sessionId, playerInput: engineMeta.playerInput, intent: engineMeta.playerInput.slice(0, 200), model: cfg.model, retrievedIds: engineMeta.retrievedIds, contextSize: engineMeta.contextSize }
         try {
-          const cm = await api.engineCommit(Object.assign({}, commitBase, { raw: r.content, retryCount: 0 }))
-          if (cm && cm.data) {
-            if (cm.data.narrative) narrative = cm.data.narrative
-            pendingId = cm.data.pending_id || null
-            // 条款 17：PATCH_MISSING / PATCH_INVALID → 自动一次静默重试：只补状态块，不重写剧情（条款 25）
-            const retryable = !cm.data.committed && (cm.data.patch_status === 'PATCH_MISSING' || cm.data.patch_status === 'PATCH_INVALID' || cm.data.patch_status === 'PATCH_CONFLICT')
-            if (retryable) {
-              engineBusy = true // 补录期间禁止并发发送/重生成（不复位流式 UI，避免与 e2e/用户时序互踩）
-              try {
-                const retryMsgs = msgs.concat([
-                  { role: 'assistant', content: narrative },
-                  { role: 'user', content: patchRetryPrompt(cm.data.patch_status === 'PATCH_CONFLICT' ? ((cm.data.errors && cm.data.errors[0] && cm.data.errors[0].message) || '') : null) }
-                ])
-                const rr = await api.sendChat(Object.assign({}, payload, { messages: retryMsgs, reqId: 'rp' + Date.now().toString(36), silent: true }))
-                if (rr && rr.ok && rr.content) {
-                  const cm2 = await api.engineCommit(Object.assign({}, commitBase, { raw: rr.content, pendingId, retryCount: 1 }))
-                  if (cm2 && cm2.data && cm2.data.committed) {
-                    toast('状态已补录（模型首轮缺状态块）', 'ok', 3200)
-                  } else {
-                    pendingKept = !!(cm2 && cm2.data && cm2.data.pending_id) || !!pendingId
-                  }
-                } else pendingKept = !!pendingId
-              } catch { pendingKept = !!pendingId }
-              engineBusy = false
-            } else if (!cm.data.committed && pendingId) {
-              // PATCH_CONFLICT / COMMIT_FAILED：确定性失败不重试，直接进入 Pending（条款 18/28）
-              pendingKept = true
-            }
-            if (cm.data.errors && cm.data.errors.length && cm.data.committed !== true && !pendingKept) {
-              toast('状态记录未提交：' + cm.data.errors[0].message, 'err', 6000)
-            }
-          } else if (cm && cm.data && cm.data.narrative) {
-            narrative = cm.data.narrative
+          const cx = await api.engineCommit(Object.assign({ storyId: engineMeta.storyId, sessionId: engineMeta.sessionId, playerInput: engineMeta.playerInput, intent: engineMeta.playerInput.slice(0, 200), model: cfg.model, retrievedIds: engineMeta.retrievedIds, contextSize: engineMeta.contextSize, raw: r.content, retryCount: 0 }))
+          if (cx && cx.data) {
+            if (cx.data.narrative) narrative = cx.data.narrative
+            pendingId = cx.data.pending_id || null
+            patchStatus = cx.data.patch_status || null
+            if (cx.data.errors && cx.data.errors[0] && cx.data.errors[0].message) patchReason = String(cx.data.errors[0].message).slice(0, 300)
           }
         } catch { /* 引擎故障不阻断叙事 */ }
       }
-      if (pendingKept) toast('本回合状态未正式提交，已记录待补录（重启不丢失）', 'err', 6000)
-      s.messages.push({ role: 'assistant', content: narrative, at: Date.now(), pending: pendingKept ? (pendingId || true) : undefined })
+      // 立即入列：committed（正常）/ committing（需补录，记账进行中）/ pending（确定性失败）
+      // 可重试补录 = 有 pending 且不是确定性的 COMMIT_FAILED（后者直接亮待补录徽标，不再耗一次模型调用）
+      const retryable = !!(engineMeta && pendingId && patchStatus && patchStatus !== 'COMMIT_FAILED')
+      const needCommit = !!(engineMeta && pendingId)
+      const msg = { role: 'assistant', content: narrative, at: Date.now(), pending: needCommit ? (pendingId || true) : undefined, committing: retryable }
+      s.messages.push(msg)
       // 首条叙事确定会话标题
       if (s.title === '新世界线') {
         s.title = deriveTitle(narrative)
@@ -2270,6 +2258,46 @@
       if (wasAborted) toast('已停止生成（保留已生成内容）', 'info')
       // 后台时通知：生成完成（点通知回到窗口）
       api.notify({ title: '六面世界 · 世界回应已就绪', body: (s.title || '') + ' 的新一幕已生成' + (r.partial ? '（网络中断，内容不完整）' : '') }).catch(() => {})
+
+      // ---- 记账：缺失/损坏时静默重试（后台，不阻塞阅读） ----
+      if (engineMeta) {
+        const commitBase = { storyId: engineMeta.storyId, sessionId: engineMeta.sessionId, playerInput: engineMeta.playerInput, intent: engineMeta.playerInput.slice(0, 200), model: cfg.model, retrievedIds: engineMeta.retrievedIds, contextSize: engineMeta.contextSize }
+        // 需要补录：消息先亮「记账中」，跑完再落地（成功撤标记 / 失败留待补录）
+        if (needCommit && retryable) {
+          msg.committing = true
+          renderMessages()
+          ;(async () => {
+            let pendingKept = false
+            engineBusy = true // 补录期间禁止并发发送/重生成（消息顺序保证），但阅读与选择不受影响
+            try {
+              const retryMsgs = msgs.concat([
+                { role: 'assistant', content: narrative },
+                // 拒绝原因必须带上：实测 deepseek 会把 threads[update] 写成 ACTIVE（合法 RESOLVED|ABANDONED），
+                // 不带原因的盲重试会原样重蹈（test-memory-real PC-000002）；MISSING 没有原因可言，传 null
+                { role: 'user', content: patchRetryPrompt(patchStatus === 'PATCH_MISSING' ? null : (patchReason || null)) }
+              ])
+              const rr = await api.sendChat(Object.assign({}, payload, { messages: retryMsgs, reqId: 'rp' + Date.now().toString(36), silent: true }))
+              if (rr && rr.ok && rr.content) {
+                const cm2 = await api.engineCommit(Object.assign({}, commitBase, { raw: rr.content, pendingId, retryCount: 1 }))
+                if (cm2 && cm2.data && cm2.data.committed) {
+                  toast('状态已补录（模型首轮缺状态块）', 'ok', 3200)
+                } else {
+                  pendingKept = true
+                }
+              } else pendingKept = true
+            } catch { pendingKept = true }
+            engineBusy = false
+            msg.committing = false
+            msg.pending = pendingKept ? (pendingId || true) : undefined
+            saveSessions()
+            renderMessages()
+            if (pendingKept) toast('本回合状态未正式提交，已记录待补录（重启不丢失）', 'err', 6000)
+          })()
+        } else if (needCommit) {
+          // COMMIT_FAILED：确定性失败，后台重试必然重蹈覆辙——直接亮待补录徽标（不耗模型调用）
+          toast('本回合状态未正式提交，已记录待补录（重启不丢失）', 'err', 6000)
+        }
+      }
     } else if (r && r.ok && r.aborted) {
       // 没有收到任何内容也取消了
       toast('已停止生成', 'info')
@@ -2371,7 +2399,10 @@
           if (engineProtocolText) msgs2.push({ role: 'system', content: engineProtocolText })
           msgs2.push({ role: 'user', content: pc.player_input || '（玩家行动）' })
           msgs2.push({ role: 'assistant', content: pc.narrative || '' })
-          msgs2.push({ role: 'user', content: patchRetryPrompt(null) })
+          // 挂起时记录的拒绝原因必须回传（实测：threads[update] 写成 ACTIVE 这类校验错，盲重试会原样重蹈）
+          // 仅存状态码（PATCH_MISSING 等）时没有可解释的原因，退回通用补录提示词
+          const pcErr = String(pc.patch_error || '').trim()
+          msgs2.push({ role: 'user', content: patchRetryPrompt(/^PATCH_[A-Z_]+$/.test(pcErr) ? null : (pcErr.slice(0, 300) || null)) })
           const rr = await api.sendChat({ baseUrl: cfg.baseUrl, apiKey: cfg.apiKey, model: cfg.model, thinkLevel: cfg.thinkLevel || 'default', messages: msgs2, reqId: 'rp' + Date.now().toString(36), silent: true })
           if (rr && rr.ok && rr.content) {
             const rs = await api.engineResolvePending({ storyId: s.id, pendingId: pc.pending_id, raw: rr.content })

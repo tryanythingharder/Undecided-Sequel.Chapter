@@ -47,6 +47,14 @@ function validatePatch(patch, ctx) {
   }
   for (const cu of patch.commitment_updates || []) {
     if (!String(cu.ref || '').trim()) err(out, 'COMMITMENT_UPDATE_REF', 'commitment_updates 缺少 ref（编号或关键词）')
+    // 状态归一化：与 threads 对称——模型会把 commitments 写成 threads 的 OPEN/DONE（合法值 ACTIVE|FULFILLED|REVOKED|BROKEN|SUPERSEDED）
+    if (cu.status) {
+      const cnorm = { OPEN: 'ACTIVE', DONE: 'FULFILLED', CLOSED: 'FULFILLED', FINISHED: 'FULFILLED', COMPLETE: 'FULFILLED', CANCELLED: 'REVOKED', CANCELED: 'REVOKED' }[String(cu.status).toUpperCase()]
+      if (cnorm) {
+        warn(out, 'COMMITMENT_STATUS_NORMALIZED', 'commitment 状态 ' + cu.status + ' 按 ' + cnorm + ' 归一（commitments 用 ACTIVE/FULFILLED/REVOKED/BROKEN/SUPERSEDED）')
+        cu.status = cnorm
+      }
+    }
     if (cu.status && !canTransition(COMMITMENT_TRANSITIONS, 'ACTIVE', cu.status)) {
       err(out, 'COMMITMENT_BAD_STATUS', 'commitment 目标状态非法：' + cu.status)
     }
@@ -85,9 +93,19 @@ function validatePatch(patch, ctx) {
   for (const t of patch.threads || []) {
     const op = t.op || 'add'
     if (op === 'add' && !String(t.title || '').trim()) err(out, 'THREAD_TITLE_EMPTY', 'threads[add] 缺少 title')
+    // 状态归一化（add/update 通用）：模型高频把 thread 写成 commitments 的 ACTIVE
+    // （threads 合法值 OPEN/RESOLVED/ABANDONED）。实测 deepseek 在 6 回合长程补录里写 ACTIVE
+    // 且拒绝原因未回传时原样重蹈——可预期的同义偏差归一为警告（容忍格式、拒绝语义），不再让整回合记忆落不了账
+    if (t.status) {
+      const norm = { ACTIVE: 'OPEN', DONE: 'RESOLVED', CLOSED: 'RESOLVED', FINISHED: 'RESOLVED', DROPPED: 'ABANDONED' }[String(t.status).toUpperCase()]
+      if (norm) {
+        warn(out, 'THREAD_STATUS_NORMALIZED', 'thread 状态 ' + t.status + ' 按 ' + norm + ' 归一（threads 用 OPEN/RESOLVED/ABANDONED）')
+        t.status = norm
+      }
+    }
     if (op === 'update') {
       if (!String(t.ref || '').trim()) err(out, 'THREAD_UPDATE_REF', 'threads[update] 缺少 ref')
-      if (t.status && !canTransition(THREAD_TRANSITIONS, 'OPEN', t.status)) err(out, 'THREAD_BAD_STATUS', 'thread 目标状态非法：' + t.status)
+      if (t.status && !canTransition(THREAD_TRANSITIONS, 'OPEN', t.status)) err(out, 'THREAD_BAD_STATUS', 'thread 目标状态非法：' + t.status + '（threads 用 OPEN/RESOLVED/ABANDONED）')
     }
   }
 

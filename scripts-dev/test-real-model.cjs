@@ -284,7 +284,7 @@ async function main() {
       check('agent-recommend-real', !!(agentNote && /推荐【[A-D]】/.test(agentNote.text)), agentNote ? agentNote.text.slice(0, 60).replace(/\n/g, ' ') + '…' : '90s 内无推荐')
       if (agentNote) {
         const why = agentNote.text.replace(/\n+/g, ' ')
-        check('agent-recommend-has-why', /因为|理由|更|推进|主线|风险|收益/.test(why), why.slice(0, 80))
+        check('agent-recommend-has-why', why.replace(/^.*?——/, '').length > 12 && /因为|理由|更|推进|主线|风险|收益|戏剧|张力|伏笔|天赋|发现|引出|后续|可能/.test(why), why.slice(0, 80))
         check('agent-not-fake-seam', !/测试大脑/.test(agentNote.text), '非 SIXWORLDS_PET_FAKE 脚本化回复')
       }
     } else {
@@ -298,6 +298,10 @@ async function main() {
   check('real-profile-untouched', realGrew.length === 0, '真实档案 story 文件数 ' + realStoriesAfter.size + '（无新增: ' + (realGrew.join(',') || '无') + '）')
 
   await app.close()
+// 复制进来的真实加密密钥用完即清：测试档案恢复无密钥状态，
+  // 后续 mock 套件的 Bearer sk-mock 校验不会被真实密钥干扰（实测病例），也不在磁盘留副本
+  try { fs.rmSync(path.join(PROFILE, 'secrets.json'), { force: true }); fs.rmSync(path.join(PROFILE, 'Local State'), { force: true }) } catch {}
+
   for (const n of notes) console.log('NOTE  ' + n)
   console.log('==== ' + (fails.length ? fails.length + ' FAILED: ' + fails.join('; ') : 'ALL_PASS') + ' ====')
   process.exit(fails.length ? 1 : 0)

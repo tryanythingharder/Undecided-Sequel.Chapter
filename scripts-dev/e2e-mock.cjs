@@ -19,14 +19,15 @@ async function settingsWindow(app, closed) {
   return null
 }
 
-// 等引擎后台补录结束：发送按钮非停止 + (消息数:补录徽标数) 连续两轮稳定
+// 等引擎后台补录结束：发送按钮非停止 + (消息数:待补录徽标:记账中徽标) 连续两轮稳定且徽标全清
+// push-first 重构后补录在消息入列后后台进行（committing 徽标实时可见）——两处徽标都要清零
 async function waitEngineSettled(win, timeout) {
   const t0 = Date.now()
   let prev = null
   while (Date.now() - t0 < (timeout || 12000)) {
     const busy = await win.evaluate(() => document.querySelector('#btn-send').classList.contains('stop'))
-    const snap = await win.evaluate(() => document.querySelectorAll('.msg.assistant').length + ':' + document.querySelectorAll('.msg-pending-chip').length)
-    if (!busy && snap === prev) return true
+    const snap = await win.evaluate(() => document.querySelectorAll('.msg.assistant').length + ':' + document.querySelectorAll('.msg-pending-chip').length + ':' + document.querySelectorAll('.msg-committing-chip').length)
+    if (!busy && snap === prev && snap.endsWith(':0')) return true
     prev = snap
     await new Promise((r) => setTimeout(r, 300))
   }
@@ -202,7 +203,10 @@ async function main() {
   await sw.waitForTimeout(200)
   await sw.selectOption('#set-illust-preset', 'custom')
   await sw.fill('#set-illust-baseurl', base)
-  // 图像模型：下拉获取并选择 mock-image（密钥留空 → 复用文本模型密钥）
+  // 显式写死 mock 密钥：真实模型联调会往共享测试档案里复制真实加密密钥，重启后设置窗
+  // 可能把真实密钥补进这个输入框 → mock 校验 Bearer sk-mock 失败 401，下拉打不开（实测病例）
+  await sw.fill('#set-illust-apikey', 'sk-mock')
+  // 图像模型：下拉获取并选择 mock-image
   await sw.click('#btn-models-image')
   ok = false
   for (let i = 0; i < 30; i++) {
@@ -216,7 +220,7 @@ async function main() {
   await sw.waitForTimeout(150)
   check('image-model-picked', (await sw.locator('#set-illust-model').inputValue()) === 'mock-image')
   await sw.check('#set-illust-auto')
-  // 图像端点测试：留空密钥 → 复用文本模型密钥，应成功
+  // 图像端点测试：密钥与文本一致（mock 统一校验 Bearer sk-mock）→ 应成功
   await sw.click('#btn-test-image')
   ok = false
   for (let i = 0; i < 30; i++) {
@@ -414,7 +418,7 @@ async function main() {
   check('regen-btn-visible', (await regenBtn.count()) === 1)
   const assistantBefore = await win.locator('.msg.assistant').count()
   await regenBtn.click()
-  // 等待重新生成完成：按钮复位 且 消息数恢复（重试补录期间消息尚未回推，数量差 1）
+  // 等待重新生成完成：按钮复位 且 消息数恢复（push-first 后消息入列先于补录，数量即时恢复）
   ok = false
   for (let i = 0; i < 30; i++) {
     const n = await win.locator('.msg.assistant').count()

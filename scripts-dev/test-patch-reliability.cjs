@@ -200,5 +200,49 @@ const KERNEL = '可靠性测试内核。'
   check('清洗: 正常结尾一个字都不动', scrubNarrative('正常一句话结尾。') === '正常一句话结尾。' && scrubNarrative('含 { 引号的正常叙事。') === '含 { 引号的正常叙事。', 'ok')
 }
 
+// ============ 测试 11：线程/承诺状态同义偏差归一（deepseek 实测病例 PC-000002） ============
+{
+  // 病例来源：真实模型 6 回合长程补录两次把 threads[update].status 写成 ACTIVE
+  // （commitments 的合法值），拒绝原因未回传时盲重试原样重蹈 → 整回合记忆落不了账。
+  // 归一化后应为警告提交，而非 PATCH_CONFLICT 拒绝。
+  engine.ensureStory({ storyId: 'pr11', title: 'T11', kernelId: 'k', kernelText: KERNEL })
+  engine.commitFromRaw(wrap({ turn_summary: '立誓', threads: [{ op: 'add', title: '北松林的狼群', detail: '狼嚎暗示群体在附近', status: 'OPEN' }], commitments: [{ content: '出山前回村报平安', kind: 'promise' }] }), { storyId: 'pr11', sessionId: 'SES-p11', playerInput: '立誓' })
+  const story = engine.getStory('pr11')
+  const threadRef = story.threads[0] && story.threads[0].thread_id
+  const cmtRef = story.commitments[0] && story.commitments[0].commitment_id
+  check('t11: 前置——线程与承诺已建立', !!(threadRef && cmtRef), { threadRef, cmtRef })
+  // thread 写成 commitments 的 ACTIVE → 归一为 OPEN 警告提交
+  const rA = engine.commitFromRaw(wrap({ turn_summary: '推进', threads: [{ op: 'update', ref: threadRef, status: 'ACTIVE', detail: '线索仍在推进' }] }), { storyId: 'pr11', sessionId: 'SES-p11', playerInput: '推进' })
+  const sA = engine.getStory('pr11')
+  check('t11: thread ACTIVE 归一为 OPEN 提交成功', rA.committed === true, { status: rA.patch_status, errors: rA.errors })
+  check('t11: 归一是警告不是错误', (rA.warnings || []).some((w) => w.code === 'THREAD_STATUS_NORMALIZED'), rA.warnings)
+  check('t11: 磁盘状态为合法 OPEN', sA.threads[0].status === 'OPEN', sA.threads[0].status)
+  // thread DONE → RESOLVED 同理
+  const rD = engine.commitFromRaw(wrap({ turn_summary: '了结', threads: [{ op: 'update', ref: threadRef, status: 'DONE' }] }), { storyId: 'pr11', sessionId: 'SES-p11', playerInput: '了结' })
+  check('t11: thread DONE 归一为 RESOLVED', rD.committed === true && engine.getStory('pr11').threads[0].status === 'RESOLVED', engine.getStory('pr11').threads[0].status)
+  // commitment 写成 threads 的 OPEN → 归一为 ACTIVE
+  const rC = engine.commitFromRaw(wrap({ turn_summary: '确认', commitment_updates: [{ ref: cmtRef, status: 'OPEN', note: '仍在履行' }] }), { storyId: 'pr11', sessionId: 'SES-p11', playerInput: '确认' })
+  const sC = engine.getStory('pr11')
+  check('t11: commitment OPEN 归一为 ACTIVE 提交成功', rC.committed === true && sC.commitments[0].status === 'ACTIVE', { status: rC.patch_status, errors: rC.errors })
+  check('t11: commitment 归一是警告', (rC.warnings || []).some((w) => w.code === 'COMMITMENT_STATUS_NORMALIZED'), rC.warnings)
+  // 语义硬错误仍然拒绝（不可归一的状态，如 thread→BROKEN）
+  const rX = engine.commitFromRaw(wrap({ turn_summary: '乱写', threads: [{ op: 'update', ref: threadRef, status: 'BROKEN' }] }), { storyId: 'pr11', sessionId: 'SES-p11', playerInput: '乱写' })
+  check('t11: 不可归一的 thread BROKEN 仍拒绝', rX.committed === false && rX.patch_status === 'PATCH_CONFLICT', rX.patch_status)
+}
+
+// ============ 测试 12：值内全角引号不被「引号归一」破坏（deepseek 实测病例） ============
+{
+  const { extractPatch } = require('../engine/patch')
+  // 病例：模型在 events.description 里合法写入「“嚓”声」。旧 tolerantParse 无条件把全角引号
+  // 归一成裸 ASCII 引号 → 字符串提前终止 → 合法 JSON 被判 PATCH_INVALID，补录重试同样失败挂起。
+  const RAW = '叙事正文。\n<<<STATE_PATCH>>>\n{"turn_summary":"沿兽径深入松林","scene":{"location":"北方松林内兽径岔口"},\n "events":[\n   {"type":"action","description":"陆离沿兽径深入。","importance":35},\n   {"type":"discovery","description":"前方雾中传来极轻的“嚓”声，像踩断枯枝。","importance":55}\n ]}\n<<<END_PATCH>>>'
+  const e1 = extractPatch(RAW)
+  check('t12: 值内全角引号原样解析', e1.found === true && e1.parse_error == null && e1.patch && e1.patch.events.length === 2, e1.parse_error)
+  check('t12: 全角引号内容不被篡改', e1.patch && /“嚓”/.test(e1.patch.events[1].description), e1.patch && e1.patch.events[1].description)
+  // 反向病例仍兼容：键定界符写成全角引号 → 归一后可解析（次级尝试兜底）
+  const e2 = extractPatch('正文。\n<<<STATE_PATCH>>>\n{“turn_summary”:“前行”,“facts”:[{“key”:“k”,“statement”:“s”}]}\n<<<END_PATCH>>>')
+  check('t12: 全角定界符仍归一可解', e2.found === true && e2.parse_error == null && e2.patch && e2.patch.turn_summary === '前行', e2.parse_error)
+}
+
 console.log('\n== Patch 可靠性测试: ' + pass + ' 通过, ' + fail + ' 失败 ==')
 process.exit(fail ? 1 : 0)

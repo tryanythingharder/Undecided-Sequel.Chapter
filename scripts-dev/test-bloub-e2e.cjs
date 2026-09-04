@@ -600,22 +600,31 @@ async function main() {
   // 10c. 自然语言托管：输入「托管 2 轮」→ 意图路由 → 连续代打
   await win.fill('.pet-bubble-input', '托管 2 轮')
   await win.click('.pet-bubble-send')
-  await win.waitForTimeout(500)
-  let sawStop = false
-  let autoDone = null
-  for (let i = 0; i < 120; i++) {
-    const st = await win.evaluate(() => {
+  // 「停止托管」是瞬态 UI：push-first 落账重构后 mock 托管两轮可在一次轮询间隙内闪完，
+  // 轮询采样会漏看——改用 MutationObserver 事件驱动捕获（出现即记账，无论多短暂）
+  await win.evaluate(() => {
+    window.__sawAgentRun = false
+    window.__autoNotes = ''
+    const scan = () => {
       const z = document.querySelector('#pet-bubble .pet-agent-zone')
       const run = z && z.querySelector('.pet-agent-run')
-      const notes = [...document.querySelectorAll('#pet-bubble .pet-bubble-note')].map((n) => n.textContent).join('|')
-      return { running: !!(run && !run.closest('.hidden') && /停止托管/.test(run.textContent)), notes }
-    })
-    if (st.running) sawStop = true
+      if (run && /停止托管/.test(run.textContent)) window.__sawAgentRun = true
+      window.__autoNotes = [...document.querySelectorAll('#pet-bubble .pet-bubble-note')].map((n) => n.textContent).join('|')
+    }
+    window.__autoObs = new MutationObserver(scan)
+    window.__autoObs.observe(document.body, { childList: true, subtree: true })
+  })
+  await win.waitForTimeout(500)
+  let autoDone = null
+  for (let i = 0; i < 120; i++) {
+    const st = await win.evaluate(() => ({ run: window.__sawAgentRun, notes: window.__autoNotes }))
     if (/托管结束：一共替你打了 2 轮/.test(st.notes)) { autoDone = st.notes; break }
     await win.waitForTimeout(250)
   }
+  await win.evaluate(() => { try { window.__autoObs.disconnect() } catch {} })
+  const sawStop = await win.evaluate(() => window.__sawAgentRun)
   check('agent-autopilot-runs', !!autoDone, '托管 2 轮跑完：' + (autoDone || '未完成').slice(0, 40) + '…')
-  check('agent-autopilot-shows-stop', sawStop, '托管期间显示「停止托管」')
+  check('agent-autopilot-shows-stop', sawStop, '托管期间显示「停止托管」（MutationObserver 捕获瞬态）')
   if (autoDone) {
     check('agent-autopilot-picks', /第 1 轮选【A】/.test(autoDone) && /第 2 轮选【A】/.test(autoDone),
       '每轮报告选择与理由（FAKE 决策固定选 A）')

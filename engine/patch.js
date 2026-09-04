@@ -126,17 +126,24 @@ function scanDepth(text, start) {
   return { end: -1 }
 }
 
-/* 容错 JSON 解析：剥 markdown 围栏 → 尾逗号清除 → 智能引号归一 → 截断补全 → 首尾大括号裁剪 */
+/* 容错 JSON 解析：剥 markdown 围栏 → 多级尝试（原文直解 → 尾逗号/引号归一/截断补全的各组合）
+ * → 首尾大括号裁剪。引号归一（全角→半角）只做次级尝试：字符串值里合法含全角引号
+ * （实测 deepseek 在 events.description 里写「“嚓”声」，先归一会把值内引号变成裸 ASCII 引号，
+ * 恰好制造出「Expected ',' or '}'」解析错，把合法 JSON 判成 PATCH_INVALID）。 */
 function tolerantParse(s) {
   let t = String(s || '').trim()
   if (!t) return { ok: false, error: 'empty patch' }
   t = t.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '')
-  // 智能引号归一（避免模型/输入法产生全角引号）
-  t = t.replace(/[\u201c\u201d]/g, '"').replace(/[\u2018\u2019]/g, "'")
-  const attempts = [t]
-  attempts.push(t.replace(/,(\s*[}\]])/g, '$1')) // 尾逗号
-  // 截断补全：逐层闭合未闭合的括号（流式中断场景）
-  attempts.push(closeBrackets(t.replace(/,(\s*[}\]])/g, '$1')))
+  const norm = t.replace(/[\u201c\u201d]/g, '"').replace(/[\u2018\u2019]/g, "'")
+  const noTrailing = (x) => x.replace(/,(\s*[}\]])/g, '$1')
+  const attempts = [
+    t,                                  // 0: 原文直解——值内全角引号本就合法
+    noTrailing(t),                      // 1: 原文 + 尾逗号清除
+    norm,                               // 2: 引号归一（键/值定界符写全角的病例）
+    noTrailing(norm),                   // 3: 归一 + 尾逗号
+    closeBrackets(noTrailing(t)),        // 4: 原文 + 截断补全（流式中断）
+    closeBrackets(noTrailing(norm))     // 5: 归一 + 尾逗号 + 截断补全
+  ]
   for (const cand of attempts) {
     try { return { ok: true, value: JSON.parse(cand) } } catch (e) { /* next */ }
   }
@@ -223,7 +230,7 @@ function patchProtocolPrompt() {
     ' "events":[{"type":"action|dialogue|discovery|conflict|turning_point|arrival|departure|offscreen","description":"发生事件","importance":30,"participant_names":["实体名"]}],',
     ' "relationships":[{"source_name":"A","target_name":"B","relation_type":"friend|rival|ally|enemy|family|master_servant|romantic|other","strength_delta":5,"description":"关系变化"}],',
     ' "knowledge":[{"content":"玩家角色新得知的信息","how_learned":"observed|told_by|inferred"}],',
-    ' "threads":[{"op":"add","title":"新伏笔/长线标题","detail":"细节","importance":50},{"op":"update","ref":"THR-000001 或标题关键词","status":"RESOLVED|ABANDONED","detail":"进展"}],',
+    ' "threads":[{"op":"add","title":"新伏笔/长线标题","detail":"细节","importance":50},{"op":"update","ref":"THR-000001 或标题关键词","status":"RESOLVED|ABANDONED","detail":"进展"}], // threads 状态只有 OPEN/RESOLVED/ABANDONED：没有 ACTIVE——进行中就是 OPEN，别写成 ACTIVE',
     ' "causal":[{"cause":"因","effect":"可预见的果","importance":50}]}',
     '<<<END_PATCH>>>',
     '若本回合确实完全没有产生任何状态变化（例如纯寒暄、无新信息、无场景变动），则不要输出状态块，改为在回复最末尾输出一行：',

@@ -250,6 +250,10 @@ async function main() {
   check('kd-story-committed', !!(story && story.counters.turn >= 1 && (story.decisions.length || story.facts.length || story.events.length)), '新内核下落账: turn=' + (story && story.counters.turn) + ' facts=' + (story && story.facts.length) + ' events=' + (story && story.events.length))
 
   await app.close()
+// 复制进来的真实加密密钥用完即清：测试档案恢复无密钥状态，
+  // 后续 mock 套件的 Bearer sk-mock 校验不会被真实密钥干扰（实测病例），也不在磁盘留副本
+  try { fs.rmSync(path.join(PROFILE, 'secrets.json'), { force: true }); fs.rmSync(path.join(PROFILE, 'Local State'), { force: true }) } catch {}
+
   console.log('==== ' + (fails.length ? fails.length + ' FAILED: ' + fails.join('; ') : 'ALL_PASS') + ' ====')
   process.exit(fails.length ? 1 : 0)
 }

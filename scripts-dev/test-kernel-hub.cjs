@@ -113,18 +113,32 @@ async function main() {
 
   // 2c. 窄窗口：主画布与焦点层不发生横向覆盖
   // 先退出最大化：窗口状态持久化会恢复 maximized，而 Electron 在最大化时忽略 setSize，
-  // 画布宽度断言会拿到未收缩的视口（曾致本地全绿/断续失败的环境性 flake）
+  // 画布宽度断言会拿到未收缩的视口（曾致本地全绿/断续失败的环境性 flake）。
+  // setSize 后轮询等待视口真正收缩（窗口管理器/焦点竞态下 setSize 生效可能晚一拍），
+  // 超时才采样，避免把「未生效瞬间」错判为布局回归。
   await app.evaluate(({ BrowserWindow }) => { const w = BrowserWindow.getAllWindows()[0]; if (w.isMaximized()) w.unmaximize() })
   await win.waitForTimeout(250)
-  await app.evaluate(({ BrowserWindow }) => { BrowserWindow.getAllWindows()[0].setSize(800, 700) })
-  await win.waitForTimeout(250)
-  const narrow = await win.evaluate(() => {
-    const rect = (sel) => {
-      const r = document.querySelector(sel).getBoundingClientRect()
-      return { left: r.left, right: r.right, top: r.top, bottom: r.bottom, width: r.width }
+  await app.evaluate(({ BrowserWindow }) => { const w = BrowserWindow.getAllWindows()[0]; if (w.isMaximized()) w.unmaximize(); const b = w.getBounds(); w.setBounds({ x: b.x, y: b.y, width: 800, height: 700 }) })
+  const narrow = await (async () => {
+    let last = null
+    for (let i = 0; i < 24; i++) {
+      await win.waitForTimeout(250)
+      last = await win.evaluate(() => {
+        const rect = (sel) => {
+          const r = document.querySelector(sel).getBoundingClientRect()
+          return { left: r.left, right: r.right, top: r.top, bottom: r.bottom, width: r.width }
+        }
+        return { canvas: rect('.kernel-design-canvas'), ai: rect('.kernel-ai-pane'), source: rect('.kernel-editor-pane') }
+      })
+      if (last.canvas.right - last.canvas.left <= 800) return last
+      // 仍未收缩 → 窗口管理器竞态（连续回归下窗口未聚焦时 setSize 可能被吞），重发 setBounds
+      if (i > 0 && i % 4 === 0) {
+        await app.evaluate(({ BrowserWindow }) => { const w = BrowserWindow.getAllWindows()[0]; if (w.isMaximized()) w.unmaximize(); const b = w.getBounds(); w.setBounds({ x: b.x, y: b.y, width: 800, height: 700 }) })
+      }
     }
-    return { canvas: rect('.kernel-design-canvas'), ai: rect('.kernel-ai-pane'), source: rect('.kernel-editor-pane') }
-  })
+    console.log('DEBUG narrow-state', await app.evaluate(({ BrowserWindow }) => { const w = BrowserWindow.getAllWindows()[0]; return JSON.stringify({ bounds: w.getBounds(), maximized: w.isMaximized(), resizable: w.isResizable(), visible: w.isVisible() }) }))
+    return last
+  })()
   check('窄窗口画布宽度稳定', narrow.canvas.right - narrow.canvas.left <= 800, JSON.stringify(narrow))
   check('窄窗口源码层不覆盖主画布', narrow.source.width === 0 || narrow.source.left >= narrow.canvas.left, JSON.stringify(narrow))
   await app.evaluate(({ BrowserWindow }) => { BrowserWindow.getAllWindows()[0].setSize(1120, 760) })

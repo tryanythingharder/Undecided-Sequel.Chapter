@@ -61,15 +61,26 @@ server.listen(0, '127.0.0.1', async () => {
   const stW = vs.stats()
   check('warm-resync-semantic-hit', warmed, '补嵌后语义命中 F1')
   check('warm-chunks-stable', stW.chunks === 2, JSON.stringify(stW))
-  // 3b. 等本轮补嵌批次彻底结束（warm 轮询读到的命中可能来自 resync 前一瞬，慢机器上 calls 有滞后）
-  const callsSettle = Date.now() + 5000
-  while (calls < 1 && Date.now() < callsSettle) await new Promise((r) => setTimeout(r, 150))
-  const callsAfterWarm = calls
+  // 3b. 等本轮补嵌批次彻底结束：慢机器上 mock fetch 偶发瞬时失败会「重新入队」，
+  //     滞后的重试会在数秒后补一发请求——必须等调用数稳定（连续 2s 无增长）再取基线，
+  //     否则基线里不含这笔在途重试，第 4 步的幂等断言会把它误判成 refetch（回归实测病例）
+  async function waitCallsStable(minCalls) {
+    let stableSince = Date.now()
+    let last = calls
+    const deadline = Date.now() + 15000
+    while (Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 200))
+      if (calls !== last) { last = calls; stableSince = Date.now() }
+      else if (calls >= (minCalls || 1) && Date.now() - stableSince >= 2000) break
+    }
+    return last
+  }
+  const callsAfterWarm = await waitCallsStable(1)
   check('batched-requests', callsAfterWarm >= 1 && callsAfterWarm <= 3, 'mock 请求次数=' + callsAfterWarm)
-  // 4. 再 sync 幂等（缓存已热）：无新请求——等待窗口须覆盖慢机器上 150ms 补嵌调度
+  // 4. 再 sync 幂等（缓存已热）：无新请求——等调用数稳定后与基线比对
   vs.sync(mk())
-  await new Promise((r) => setTimeout(r, 1500))
-  check('cached-no-refetch', calls === callsAfterWarm, '重复 sync 请求 ' + callsAfterWarm + '→' + calls)
+  const callsIdempotent = await waitCallsStable(callsAfterWarm)
+  check('cached-no-refetch', callsIdempotent === callsAfterWarm, '重复 sync 请求 ' + callsAfterWarm + '→' + callsIdempotent)
   // 5. 近邻检索：查询向量同样走缓存——首次查询未热（跳过向量通道+入队补嵌），补嵌后再查命中
   vs.search('S1', '我还没报答的恩情，那位恩人是谁', 40)
   const dl5 = Date.now() + 6000

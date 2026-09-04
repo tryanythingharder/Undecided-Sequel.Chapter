@@ -48,6 +48,10 @@
       }
       // 迁移：无工作区归属的旧会话 → 归入第一个工作区（默认世界）
       let needsSave = false
+      // 自愈：记账中的临时标记只活在当次会话（补录重试期间防抖落盘会带上它）——重启后一律清除
+      for (const x of sessions) {
+        if (Array.isArray(x.messages)) for (const m of x.messages) { if (m && m.committing) { delete m.committing; needsSave = true } }
+      }
       const homeWs = () => (wsSnapshot()[0] && wsSnapshot()[0].id) || currentWsIdValue
       if (sessions.some((x) => !x.ws)) {
         for (const x of sessions) if (!x.ws) x.ws = homeWs()

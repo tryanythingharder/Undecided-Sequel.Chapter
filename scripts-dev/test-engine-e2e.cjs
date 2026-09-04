@@ -53,19 +53,25 @@ function startMock() {
           }
         } catch { last = { systemCount: 0 } }
         const reply = calls === 1 ? REPLY1 : (calls === 2 ? REPLY2 : REPLY3)
+        // 第 3 次（补录重试）人为延迟首块 1.5s：制造「叙事已入列可读、补录仍在后台」的窗口，供断言验证
+        const startDelay = calls === 3 ? 1500 : 0
         res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache' })
         let i = 0
-        const timer = setInterval(() => {
-          if (i >= reply.length) {
-            clearInterval(timer)
-            res.write('data: ' + JSON.stringify({ choices: [], usage: { prompt_tokens: 50, completion_tokens: 20, total_tokens: 70 } }) + '\n\n')
-            res.write('data: [DONE]\n\n')
-            res.end()
-            return
-          }
-          res.write('data: ' + JSON.stringify({ choices: [{ delta: { content: reply.slice(i, i + 12) } }] }) + '\n\n')
-          i += 12
-        }, 20)
+        const startStream = () => {
+          const timer = setInterval(() => {
+            if (i >= reply.length) {
+              clearInterval(timer)
+              res.write('data: ' + JSON.stringify({ choices: [], usage: { prompt_tokens: 50, completion_tokens: 20, total_tokens: 70 } }) + '\n\n')
+              res.write('data: [DONE]\n\n')
+              res.end()
+              return
+            }
+            res.write('data: ' + JSON.stringify({ choices: [{ delta: { content: reply.slice(i, i + 12) } }] }) + '\n\n')
+            i += 12
+          }, 20)
+        }
+        if (startDelay) setTimeout(startStream, startDelay)
+        else startStream()
         return
       }
       json(404, { error: 'not found: ' + req.url })
@@ -171,7 +177,18 @@ async function main() {
     const t = await win.locator('.msg.assistant .msg-body').last().textContent().catch(() => '')
     return !busy && t.includes('薄雾')
   }, 20000)
-  await sleep(1200) // 等 重试提交 + Pending 处置 IPC 回来
+  // ---- push-first 落账重构核心断言：叙事已入列可读，而补录仍在后台进行 ----
+  // （busy 解除早于 engineCommit 返回；先等「记账中」徽标亮起，再验证正文可读、重试已派发）
+  await until(async () => (await win.locator('.msg-committing-chip').count().catch(() => 0)) === 1, 8000)
+  const commitChipN = await win.locator('.msg-committing-chip').count().catch(() => 0)
+  check('turn2-readable-while-committing', commitChipN === 1, 'committing chip=' + commitChipN)
+  const readable = await win.locator('.msg.assistant .msg-body').last().textContent()
+  check('turn2-narrative-readable-before-commit-done', readable.includes('薄雾') && !readable.includes('<<<STATE_PATCH'), '正文已可读（未等补录）')
+  const callsPushed = mock.calls()
+  check('turn2-retry-dispatched-at-push', callsPushed === 3, 'calls=' + callsPushed)
+  // 等后台补录完成：徽标撤下（成功 → 无任何徽标）
+  await until(async () => (await win.locator('.msg-committing-chip').count().catch(() => 0)) === 0, 20000)
+  await sleep(600) // 等 commit IPC + 磁盘落盘
   const callsAfter = mock.calls()
   check('turn2-retry-exactly-once', callsAfter === 3, 'calls=' + callsAfter)
   const info = await until(async () => { try { const r = await fetch(base + '/__last'); const j = await r.json(); return j && j.systemCount >= 3 ? j : null } catch { return null } }, 5000)
