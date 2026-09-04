@@ -113,6 +113,9 @@ async function main() {
     env: { ...process.env, ELECTRON_DISABLE_SECURITY_WARNINGS: 'true', SIXWORLDS_TEST: '1' }
   })
   let win = await app.firstWindow()
+  // 视口保障：窄窗口（<1040px）桌宠按设计 pet-hidden，phase 6 的点击会落空。
+  // 与 test-bloub-e2e 同款防护（CI 1024×768 实测病例）
+  await app.evaluate(({ BrowserWindow }) => { const w = BrowserWindow.getAllWindows()[0]; w.unmaximize(); w.setSize(1280, 800); w.center() }).catch(() => {})
   await win.waitForTimeout(1200)
   // 清掉测试档案残留的 localStorage（secrets.json 是文件，不受影响），注入真实公开配置
   await win.evaluate((c) => {

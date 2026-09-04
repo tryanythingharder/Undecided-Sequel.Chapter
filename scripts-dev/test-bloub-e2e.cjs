@@ -99,6 +99,10 @@ async function main() {
     }
   })
   let win = await app.firstWindow()
+  // 视口保障：桌宠在窄窗口按设计让位内容（边距 <140px 时 pet-hidden）。
+  // CI 的 windows runner 显示器是 1024×768，不显式放大窗口的话整条桌宠链路都会被
+  // pet-hidden 吞掉（实测：点击无响应 → fill 30s 超时 → job 失败）。本地高分辨率不触发。
+  await app.evaluate(({ BrowserWindow }) => { const w = BrowserWindow.getAllWindows()[0]; w.unmaximize(); w.setSize(1280, 800); w.center() })
   await win.waitForTimeout(2200)
   try { await win.evaluate(() => localStorage.clear()) } catch {}
   await win.evaluate(() => window.api.setUiScheme('proto')).catch(() => {})
@@ -130,8 +134,10 @@ async function main() {
   })
   check('pet-mounted', !!pet, 'data-state=' + (pet && pet.state))
   if (pet) {
-    check('pet-visible', pet.display !== 'none' && pet.box[2] === 104 && pet.box[3] === 104,
-      'display=' + pet.display + ' box=' + JSON.stringify(pet.box))
+    // 可见 = display 且 opacity 且可接收指针事件：pet-hidden 只改 opacity/pointer-events，
+    // 只查 display 会漏判（CI 1024×768 实测病例：桌宠让位隐藏后点击全被吞，直到 fill 超时才炸）
+    check('pet-visible', pet.display !== 'none' && Number(pet.opacity) > 0.5 && pet.box[2] === 104 && pet.box[3] === 104,
+      'display=' + pet.display + ' opacity=' + pet.opacity + ' box=' + JSON.stringify(pet.box) + ' vw=' + pet.vw + '（边距不足会 pet-hidden，需要 ≥1280 视口）')
     const rightMarginZone = pet.box[0] >= pet.vw - pet.margin // 在右侧空白带（边距中）
     check('pet-default-right-margin', rightMarginZone,
       'x=' + pet.box[0] + ' ≥ 右带起点 ' + Math.round(pet.vw - pet.margin) + '（边距 ' + Math.round(pet.margin) + 'px）')
@@ -183,6 +189,12 @@ async function main() {
       const r = document.querySelector('#bloub-pet').getBoundingClientRect()
       return { cx: r.x + r.width / 2, cy: r.y + r.height / 2 }
     })
+    // 预热：先喂一个中性位再等双眼眼位真的收敛（新窗口/新挂载后的首次 look 有缓动与
+    // 表情瞬态，直接开采会把收敛过程当成方位漂移——实测本机新开 1280 窗口后首轮必炸）
+    await win.evaluate(({ x, y }) => {
+      window.dispatchEvent(new PointerEvent('pointermove', { clientX: x, clientY: y, bubbles: true, pointerType: 'mouse' }))
+    }, { x: pr.cx, y: pr.cy })
+    await win.waitForTimeout(1200)
     const center = await eyeMidAt(pr.cx, pr.cy)
     const left = await eyeMidAt(Math.max(20, pr.cx - 300), pr.cy - 150)
     const right = await eyeMidAt(pr.cx + 300, pr.cy - 150)   // 与左点关于桌宠中轴对称（斜向同角度，pitch 耦合相互抵消）
