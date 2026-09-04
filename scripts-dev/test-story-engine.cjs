@@ -187,10 +187,10 @@ engine.ensureStory({ storyId: 'storyC', title: '故事C', kernelId: 'k2', kernel
   const idsA = engine.getStory('storyA').decisions.map((d) => d.decision_id).concat(engine.getStory('storyA').facts.map((f) => f.fact_id))
   const ctxB = engine.buildContext('storyB', { playerInput: '长跑 雾林 妹妹' })
   check('t11: 长跑后 storyB 仍完全隔离（无任何 storyA 记忆命中）', ctxB.retrieved.retrieved_ids.every((id) => !idsA.includes(id)), ctxB.retrieved.retrieved_ids)
-  // 性能：平均每回合 < 100ms（文件存储；实测随账本体量增长（新故事 ~13ms，2000+ 记录 ~25-40ms），
-  // 且本机（Defender 实时扫描）run-to-run 波动实测 25→77ms，硬性小阈值必然 flaky。
-  // 阈值只用于捕捉算法级劣化（如曾抓到的 O(n) 索引损坏崩溃类问题）；真实值打印供人工审阅）
-  check('t11: 性能 合格（平均 ' + (dt / 1000).toFixed(2) + 'ms/回合 < 100ms）', dt / 1000 < 100, dt)
+  // 性能：平均每回合 < 300ms（文件存储；实测随账本体量增长（新故事 ~13ms，2000+ 记录 ~25-40ms），
+  // 本机（Defender 实时扫描）波动 25→77ms，GitHub CI 共享 vCPU runner 实测 134ms（77f3bf7 误杀）。
+  // 阈值只用于捕捉算法级劣化（O(n)/O(n²) 在 2000 回合账本下会到数百 ms~秒级）；真实值打印供人工审阅）
+  check('t11: 性能 合格（平均 ' + (dt / 1000).toFixed(2) + 'ms/回合 < 300ms）', dt / 1000 < 300, dt)
   // 持久化：重新加载引擎（模拟重启）后记忆仍在
   const engine2 = createEngine(tmp)
   enginesCreated.push(engine2)
