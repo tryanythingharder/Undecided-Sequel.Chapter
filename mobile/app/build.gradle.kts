@@ -13,6 +13,11 @@ plugins {
 
 val repoRoot = rootDir.parentFile // mobile/.. = 仓库根
 
+// 版本号与桌面端同源：release tag 打在仓库根版本上，移动端跟随（桌面 1.5.0 ⇒ APK 1.5.0）
+val pkgVersion = (groovy.json.JsonSlurper()
+    .parseText(repoRoot.resolve("package.json").readText()) as Map<*, *>)
+    .getOrDefault("version", "0.0.0").toString()
+
 val genAssets = layout.buildDirectory.dir("generated/engineAssets")
 val prepareEngineAssets = tasks.register<Copy>("prepareEngineAssets") {
     from(repoRoot.resolve("engine")) { into("engine") }
@@ -36,7 +41,7 @@ android {
         minSdk = 26
         targetSdk = 36
         versionCode = 1
-        versionName = "1.0.0"
+        versionName = pkgVersion
         ndk {
             abiFilters.add("arm64-v8a")
         }

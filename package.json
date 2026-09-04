@@ -74,10 +74,11 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "六面世界"
+      "shortcutName": "六面世界",
+      "artifactName": "SixWorlds-Setup-${version}.exe"
     },
     "portable": {
-      "artifactName": "六面世界-便携版-${version}.exe"
+      "artifactName": "SixWorlds-Portable-${version}.exe"
     },
     "asarUnpack": [
       "node_modules/sqlite-vec/**",

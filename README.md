@@ -2,11 +2,12 @@
 
 # 六面世界 · Six Worlds
 
-**一款 Windows 桌面端「AI 私人故事引擎」——内核即世界，导入即可玩，你的每个选择都算数。**
+**一款通用的 Windows 桌面「AI 故事引擎」——引擎只管叙事与记忆，世界由内核定义；换一份内核，就是一个全新的游戏。你的每个选择都算数。**
 
-AI 逐幕推进叙事、每幕给出 A/B/C 选项按钮，也可自由行动；内置故事状态引擎（九大账本长期记忆 +
-结构化落账），支持世界线分歧回溯（IF 线）、AI 插图生成、画廊集与故事存档导出。内核与玩法完全解耦：
-换个内核文件，就是换一个世界。兼容任意 OpenAI 兼容大模型端点。
+它不绑定任何特定世界：AI 逐幕推进叙事、每幕给出 A/B/C 选项按钮，也可自由行动；内置故事状态引擎
+（九大账本长期记忆 + 结构化落账），支持世界线分歧回溯（IF 线）、AI 插图生成、画廊集与故事存档导出。
+引擎与内核完全解耦：内置内核只是两个开箱即用的示例，**任意 Markdown 内核导入即可玩，AI 还能帮你把想法
+设计成内核**。兼容任意 OpenAI 兼容大模型端点。
 
 [功能总览](#功能总览) · [截图预览](#截图预览) · [快速开始](#快速开始) · [打包发布](#打包发布) · [开发与测试](#开发与测试) · [免责声明](#免责声明)
 
@@ -67,7 +68,7 @@ AI 逐幕推进叙事、每幕给出 A/B/C 选项按钮，也可自由行动；�
 
 ### 世界与世界线
 
-- **多工作区**：每个工作区独立的世界线集合 + 可绑定**专属世界内核**（不同世界并行、互不串线）；
+- **多工作区**：每个工作区独立的世界线集合 + 各自绑定的世界内核（不同世界并行、互不串线）；
 - **多世界线**：持久化保存、双击重命名、拖拽排序、按 今天/昨天/7 天内/更早 自动分组、相对时间显示；
 - **全局搜索**（侧栏，跨世界线标题+正文）+ **会话内搜索**（Ctrl+F，命中高亮 n/n 跳转，窗口外命中自动加载）；
 - **大历史流畅**：聊天窗口化渲染（每次仅 60 条进 DOM，向上滚动按页加载），几千条消息切换世界线依然跟手；
@@ -147,8 +148,9 @@ AI 逐幕推进叙事、每幕给出 A/B/C 选项按钮，也可自由行动；�
 
 | 文件 | 说明 |
 |---|---|
-| `六面世界 Setup 1.4.0.exe` | 安装版：可选目录、创建快捷方式 |
-| `六面世界-便携版-1.4.0.exe` | 免安装单文件，双击即用 |
+| `SixWorlds-Setup-1.5.0.exe` | 安装版：可选目录、创建快捷方式 |
+| `SixWorlds-Portable-1.5.0.exe` | 免安装单文件，双击即用 |
+| `SixWorlds-Android-1.5.0.apk` | Android 配套 App（导入桌面进度包接续游玩） |
 
 ### 方式二：源码运行
 
@@ -185,9 +187,17 @@ npm run dist   # 打包 NSIS 安装版 + 便携版单文件（产物在 dist/）
 
 - 国内网络慢可先设镜像：`$env:ELECTRON_MIRROR='https://npmmirror.com/mirrors/electron/'`
 - 打包只含运行必需文件（main / preload / 双内核 / engine / renderer），不含 node_modules 与开发脚本。
-- 本地无证书时会生成未签名产物，仅供测试；公开分发前须通过 electron-builder 支持的
-  `CSC_LINK` / `CSC_KEY_PASSWORD` 注入 Authenticode 代码签名证书，并用
-  `Get-AuthenticodeSignature` 确认状态为 `Valid`。
+- 打 git tag（如 `v1.5.0`）并推送，会触发 [.github/workflows/release.yml](.github/workflows/release.yml)
+  自动出 Release：桌面端跑完测试后打包上传 `SixWorlds-Setup-*.exe` 与 `SixWorlds-Portable-*.exe`，
+  Android 端用仓库 secrets 中的密钥签名后上传 `SixWorlds-Android-*.apk`。全部产物构建自同一份 tag 代码。
+
+**代码签名现状**：
+
+- **Android**：Release APK 由 CI 用仓库 secrets 中的密钥库真实签名（`apksigner verify` 可验证）。
+- **Windows**：Authenticode 签名需付费证书。仓库已接好注入通道——在 GitHub secrets 配置
+  `CSC_LINK`（证书，base64 的 .pfx 或 .p12）与 `CSC_KEY_PASSWORD` 后，release 构建即自动签名，
+  可用 `Get-AuthenticodeSignature` 确认状态为 `Valid`；未配置时产物未签名（SmartScreen 可能弹未知发布者警告，
+  属正常提示）。自签证书对本应分发的安装包没有意义，故未采用。
 
 ## 项目结构
 

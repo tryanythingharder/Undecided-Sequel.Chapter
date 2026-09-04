@@ -1,0 +1,127 @@
+name: Release
+
+# 打 tag（v*）触发：桌面端全量测试 + 打包，Android 签名构建，全部产物汇总成一份 GitHub Release。
+# 产物名固定 ASCII（SixWorlds-Setup/Portable/Android-<version>），与历史 Release 资产名一致。
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  desktop:
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      # 出包前先全量测试；--publish never：发布动作由下方 release job 统一做
+      # CSC_LINK/CSC_KEY_PASSWORD 未配置（空）时 electron-builder 自动跳过签名出未签名产物
+      - run: npm run dist -- --publish never
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+      - run: npm run test:packaged
+      - name: 收集桌面产物
+        run: |
+          New-Item -ItemType Directory -Force dist-assets | Out-Null
+          Copy-Item "dist\*.exe" dist-assets\
+          Get-ChildItem dist-assets
+        shell: pwsh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-assets
+          path: dist-assets/*.exe
+          if-no-files-found: error
+
+  android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+          cache: gradle
+      - uses: android-actions/setup-android@v3
+      # Release APK 必须真签名（未签名无法安装）——密钥库 base64 解到 runner 临时目录，
+      # 路径经 GITHUB_ENV 传给后续步骤，密钥库本体与密码绝不落仓库
+      - name: 解码签名密钥库
+        env:
+          STORE_B64: ${{ secrets.SIXWORLDS_RELEASE_STORE_B64 }}
+          STORE_PASSWORD: ${{ secrets.SIXWORLDS_RELEASE_STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.SIXWORLDS_RELEASE_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.SIXWORLDS_RELEASE_KEY_PASSWORD }}
+        run: |
+          if [ -z "$STORE_B64" ] || [ -z "$STORE_PASSWORD" ] || [ -z "$KEY_ALIAS" ] || [ -z "$KEY_PASSWORD" ]; then
+            echo "::error::缺少 Android 签名 secrets（SIXWORLDS_RELEASE_STORE_B64 / STORE_PASSWORD / KEY_ALIAS / KEY_PASSWORD）。Release APK 必须签名，已中止。"
+            exit 1
+          fi
+          echo "$STORE_B64" | base64 -d > "$RUNNER_TEMP/release.keystore"
+          echo "SIXWORLDS_RELEASE_STORE_FILE=$RUNNER_TEMP/release.keystore" >> "$GITHUB_ENV"
+      - run: chmod +x mobile/gradlew
+      - run: npm run test:android
+      - run: mobile/gradlew -p mobile assembleRelease
+        env:
+          SIXWORLDS_RELEASE_STORE_PASSWORD: ${{ secrets.SIXWORLDS_RELEASE_STORE_PASSWORD }}
+          SIXWORLDS_RELEASE_KEY_ALIAS: ${{ secrets.SIXWORLDS_RELEASE_KEY_ALIAS }}
+          SIXWORLDS_RELEASE_KEY_PASSWORD: ${{ secrets.SIXWORLDS_RELEASE_KEY_PASSWORD }}
+      # ABI 裁剪回归（release 仅 arm64-v8a），同时校验产物存在
+      - run: node scripts-dev/check-android-release.cjs
+        env:
+          SIXWORLDS_RELEASE_STORE_PASSWORD: ${{ secrets.SIXWORLDS_RELEASE_STORE_PASSWORD }}
+          SIXWORLDS_RELEASE_KEY_ALIAS: ${{ secrets.SIXWORLDS_RELEASE_KEY_ALIAS }}
+          SIXWORLDS_RELEASE_KEY_PASSWORD: ${{ secrets.SIXWORLDS_RELEASE_KEY_PASSWORD }}
+      - name: 验证 APK 已签名并重命名
+        run: |
+          APK=$(ls mobile/app/build/outputs/apk/release/*.apk | head -1)
+          echo "APK: $APK"
+          APKSIGNER=$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort | tail -1)
+          if [ -z "$APKSIGNER" ]; then echo "::error::未找到 apksigner"; exit 1; fi
+          if ! "$APKSIGNER" verify --print-certs "$APK"; then
+            echo "::error::APK 签名校验失败（未签名或签名无效）"
+            exit 1
+          fi
+          VERSION="${GITHUB_REF_NAME#v}"
+          cp "$APK" "SixWorlds-Android-$VERSION.apk"
+          ls -la SixWorlds-Android-*.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-assets
+          path: SixWorlds-Android-*.apk
+          if-no-files-found: error
+
+  release:
+    needs: [desktop, android]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: desktop-assets
+          path: assets
+      - uses: actions/download-artifact@v4
+        with:
+          name: android-assets
+          path: assets
+      - name: 汇总资产清单
+        run: ls -la assets/
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: assets/*
+          fail_on_unmatched_files: true
+          generate_release_notes: true
+          prerelease: ${{ contains(github.ref_name, '-') }}
