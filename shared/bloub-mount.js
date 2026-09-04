@@ -312,11 +312,15 @@
       render(engine.sample(clock))
     }
 
-    function onPointerMove(ev) { if (ev.pointerType !== 'touch') pointer = { x: ev.clientX, y: ev.clientY } }
-    function onPointerLeave() { pointer = null }
+    // 测试接缝（仅 e2e 视线断言用）：window.__PET_GAZE_LOCK__ 置位后忽略真实指针事件——
+    // 物理鼠标的随机抖动会与测试合成的 pointermove 竞争「最后写入者」，视线采样会把
+    // 「物理鼠标恰好抖了一下」误判成产品缺陷（本机/CI 均实测偶发）。产品路径不受影响。
+    function gazeLocked(ev) { return typeof window !== 'undefined' && !!window.__PET_GAZE_LOCK__ && !(ev && ev.__PET_TEST__) }
+    function onPointerMove(ev) { if (gazeLocked(ev)) return; if (ev.pointerType !== 'touch') pointer = { x: ev.clientX, y: ev.clientY } }
+    function onPointerLeave(ev) { if (gazeLocked(ev)) return; pointer = null }
     // 窗口失焦（用户点到别的软件）：指针已不在本窗口内，回中性平视。
     // pointerleave 只覆盖「指针从文档边缘划出」；跨软件点击不触发它，必须补 blur。
-    function onWinBlur() { pointer = null }
+    function onWinBlur() { if (gazeLocked()) return; pointer = null }
     function onVis() {
       documentHidden = document.hidden
       // 隐藏页停帧；恢复可见时重置转头计时，避免一回来就用旧 tour 瞬跳

@@ -145,6 +145,9 @@ async function main() {
 
   // ---- 2. 视线跟随（精度标准：idle 门控采样 + 双眼中点 + 对称性） ----
   if (pet) {
+    // 视线隔离：锁住真实指针输入（物理鼠标抖动会与合成事件竞争 aim 的最后写入者，
+    // 实测偶发把转头瞬态误判成方位错误）。合成的测试事件带 __PET_TEST__ 标记穿透锁定。
+    await win.evaluate(() => { window.__PET_GAZE_LOCK__ = true })
     // idle 门控采样：避开自发表情瞬态（瞬态期间 aim 松手，非 baseFace 状态没有双眼）
     const sampleEyes = () => win.evaluate(() => {
       const pet = document.querySelector('#bloub-pet')
@@ -160,20 +163,29 @@ async function main() {
     })
     const eyeMidAt = async (px, py) => {
       await win.evaluate(({ x, y }) => {
-        window.dispatchEvent(new PointerEvent('pointermove', { clientX: x, clientY: y, bubbles: true, pointerType: 'mouse' }))
+        const ev = new PointerEvent('pointermove', { clientX: x, clientY: y, bubbles: true, pointerType: 'mouse' })
+        ev.__PET_TEST__ = true
+        window.dispatchEvent(ev)
       }, { x: px, y: py })
-      for (let i = 0; i < 14; i++) {   // 等转头缓动收敛 + 避开自发表情瞬态
-        await win.waitForTimeout(300)
+      // LOOK_SNAP 0.12/帧：30px 摆幅收敛到 <1px 约需 21 帧（≈350ms）。
+      // 固定等 700ms 让转头弹簧完全静止后再采——过冲顶点附近采样会拿到假性小摆幅（实测偶发 2~6px）
+      await win.waitForTimeout(700)
+      for (let i = 0; i < 14; i++) {   // 之后只避自发表情瞬态
         const e = await sampleEyes()
         if (e && e.state === 'idle') return e
+        await win.waitForTimeout(300)
       }
       return null
     }
     // 指针离开窗口（pointerleave + blur）→ 回中性平视：连续 4 个样本必须居中且稳定（无 wander 游走）
     const eyeMidAfterLeave = async () => {
       await win.evaluate(() => {
-        window.dispatchEvent(new PointerEvent('pointermove', { clientX: 900, clientY: 200, bubbles: true, pointerType: 'mouse' }))
-        document.dispatchEvent(new PointerEvent('pointerleave'))
+        const ev = new PointerEvent('pointermove', { clientX: 900, clientY: 200, bubbles: true, pointerType: 'mouse' })
+        ev.__PET_TEST__ = true
+        window.dispatchEvent(ev)
+        const lv = new PointerEvent('pointerleave')
+        lv.__PET_TEST__ = true
+        document.dispatchEvent(lv)
         window.dispatchEvent(new Event('blur'))
       })
       const samples = []
@@ -192,7 +204,9 @@ async function main() {
     // 预热：先喂一个中性位再等双眼眼位真的收敛（新窗口/新挂载后的首次 look 有缓动与
     // 表情瞬态，直接开采会把收敛过程当成方位漂移——实测本机新开 1280 窗口后首轮必炸）
     await win.evaluate(({ x, y }) => {
-      window.dispatchEvent(new PointerEvent('pointermove', { clientX: x, clientY: y, bubbles: true, pointerType: 'mouse' }))
+      const ev = new PointerEvent('pointermove', { clientX: x, clientY: y, bubbles: true, pointerType: 'mouse' })
+      ev.__PET_TEST__ = true
+      window.dispatchEvent(ev)
     }, { x: pr.cx, y: pr.cy })
     await win.waitForTimeout(1200)
     const center = await eyeMidAt(pr.cx, pr.cy)
@@ -253,6 +267,8 @@ async function main() {
         check('pet-gaze-leave-stable', false, '离窗采样不足')
       }
     }
+    // 解锁：后续（点击/气泡/拖拽/经典方案）都按真实指针交互走
+    await win.evaluate(() => { window.__PET_GAZE_LOCK__ = false })
   }
 
   // ---- 3. 点击 → 气泡 ----
@@ -274,7 +290,8 @@ async function main() {
       '贴士「' + (bubble && bubble.tip && bubble.tip.slice(0, 12)) + '…」输入框 ' + (bubble && bubble.hasInput))
 
     // ---- 4. 规则问答 ----
-    if (bubble) {
+    // 气泡 DOM 恒存在；不可见时必须跳过整个问答段——否则 fill 对不可见输入框 30s 超时炸掉 job
+    if (bubble && bubble.visible) {
       await win.fill('.pet-bubble-input', '快捷键')
       await win.click('.pet-bubble-send')
       await win.waitForTimeout(300)
