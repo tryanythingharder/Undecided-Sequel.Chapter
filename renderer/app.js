@@ -2516,7 +2516,8 @@
     if (chipI) {
       if (illustReady()) {
         chipI.hidden = false
-        chipI.innerHTML = '<svg class="ic ic-sm" viewBox="0 0 16 16"><path d="M8 1.5 14.5 8 8 14.5 1.5 8Z"/><path d="M8 4.5 11.5 8 8 11.5 4.5 8Z"/></svg> ' + cfg.illustModel + (cfg.illustAuto ? ' · 自动' : '')
+        // illustModel 可经配置导入进入——拼接前转义，防导入恶意 JSON 注入 HTML（CSP 之外的纵深）
+        chipI.innerHTML = '<svg class="ic ic-sm" viewBox="0 0 16 16"><path d="M8 1.5 14.5 8 8 14.5 1.5 8Z"/><path d="M8 4.5 11.5 8 8 11.5 4.5 8Z"/></svg> ' + escapeHtml(cfg.illustModel) + (cfg.illustAuto ? ' · 自动' : '')
         chipI.title = '插图模型：' + cfg.illustModel + ' · 点击查看用量'
       } else {
         chipI.hidden = true
@@ -2946,8 +2947,23 @@
   let kernelHubEditingId = null // 只有 user:* 可原位保存；内置内核修改后另存副本
   let kernelHubSourceId = ''
   let kernelHubWorkspaceId = null // 设计画布当前载入的工作区；切换工作区后避免复用旧草稿
+  // 发布元数据（与原型工作台方案共用同一 localStorage 键）：状态（draft/published/archived）+ 版本号，
+  // 两方案读写同源，切方案后发布状态/版本不丢
+  const KERNEL_RELEASES_KEY = 'sixworlds.kernel.releases.v1'
+  let kernelReleases = (() => { try { const v = JSON.parse(localStorage.getItem(KERNEL_RELEASES_KEY) || '{}'); return v && typeof v === 'object' ? v : {} } catch { return {} } })()
+  function saveKernelReleases() {
+    try { localStorage.setItem(KERNEL_RELEASES_KEY, JSON.stringify(kernelReleases)) } catch { /* optional presentation metadata */ }
+  }
+  function kernelReleaseFor(k, meta) {
+    const saved = kernelReleases[k.id]
+    if (saved && typeof saved === 'object') return saved
+    const version = meta && (meta.version || meta.release)
+    const archived = !!(meta && (meta.archived || meta.status === 'archived'))
+    return { status: archived ? 'archived' : (k.source === 'builtin' ? 'published' : 'draft'), version: version || (k.source === 'builtin' ? '1.0' : '0.1') }
+  }
   let kernelEditorDirty = false
   let kernelAiBusy = false
+  let kernelAutoSaveTimer = 0
   let kernelAiReqId = null
   let kernelDesignChats = loadKernelDesignChats()
   let kernelRenderSeq = 0
@@ -3557,6 +3573,16 @@
     $('kernel-ai-context').textContent = (meta && meta.title) || $('kernel-edit-name').value.trim() || '未命名内核'
   }
 
+  // 内核草稿防抖自动保存（1100ms）：与原型工作台方案对齐——草稿不再有关机/误关丢失风险
+  function scheduleKernelAutoSave() {
+    if (kernelAutoSaveTimer) clearTimeout(kernelAutoSaveTimer)
+    if (!kernelEditorDirty || !kernelHubEditingId || !$('kernel-edit-name').value.trim() || !$('kernel-edit-text').value.trim()) return
+    kernelAutoSaveTimer = setTimeout(() => {
+      kernelAutoSaveTimer = 0
+      if (kernelEditorDirty && !kernelAiBusy) saveKernelEdit()
+    }, 1100)
+  }
+
   async function saveKernelEdit() {
     const name = $('kernel-edit-name').value.trim()
     const text = $('kernel-edit-text').value
@@ -3575,6 +3601,10 @@
     }
     $('kernel-edit-name').value = name
     setKernelDirty(false)
+    // 保存 = 草稿状态登记进发布元数据（已发布的内核不因保存而降级）
+    if (!kernelReleases[r.id]) kernelReleases[r.id] = { status: 'draft', version: '0.1' }
+    else if (kernelReleases[r.id].status !== 'published') kernelReleases[r.id].status = 'draft'
+    saveKernelReleases()
     // 若当前世界线正绑定该内核，热重载
     if (currentKernelRef() === r.id) await loadKernel()
     renderKernelAiMessages()
@@ -3593,9 +3623,15 @@
     }
     if (kernelEditorDirty || !kernelHubEditingId) await saveKernelEdit()
     if (kernelEditorDirty) return
+    // 发布登记：版本号自动 +0.1（首次 0.1 → 0.2），与原型工作台方案共用发布元数据
+    const release = kernelReleaseFor({ id: kernelHubEditingId, source: 'user' }, parseKernelMeta($('kernel-edit-text').value))
+    const parts = String(release.version || '0.1').split('.').map((v) => Number(v) || 0)
+    const nextVersion = (parts[0] || 0) + '.' + ((parts[1] || 0) + 1)
+    kernelReleases[kernelHubEditingId] = { status: 'published', version: nextVersion, publishedAt: Date.now() }
+    saveKernelReleases()
     kernelCheckpointAccepted = true
     renderKernelDesignSurface()
-    toast('内核已发布，可应用到任意世界线', 'ok', 5000)
+    toast('内核 v' + nextVersion + ' 已发布，可应用到任意世界线', 'ok', 5000)
     // 发布成功 → 弹窗确认是否立即应用并游玩（绑定当前工作区 + 回内容区聚焦输入）
     const meta = parseKernelMeta($('kernel-edit-text').value)
     const name = (meta && meta.title) || $('kernel-edit-name').value.trim() || '新内核'
@@ -3958,10 +3994,10 @@
     $('kernel-ai-input').focus()
   }))
   $('kernel-edit-text').addEventListener('input', () => {
-    updateKernelEditMeta(); setKernelDirty(true); kernelCheckpointAccepted = false; kernelValidation = { source: '', result: null }; renderKernelDesignSurface()
+    updateKernelEditMeta(); setKernelDirty(true); kernelCheckpointAccepted = false; kernelValidation = { source: '', result: null }; renderKernelDesignSurface(); scheduleKernelAutoSave()
   })
   $('kernel-edit-name').addEventListener('input', () => {
-    updateKernelEditMeta(); setKernelDirty(true); kernelCheckpointAccepted = false; renderKernelDesignSurface()
+    updateKernelEditMeta(); setKernelDirty(true); kernelCheckpointAccepted = false; renderKernelDesignSurface(); scheduleKernelAutoSave()
   })
 
   // 桌面宽屏下可拖动 AI / 源码分隔线；窄窗仍按上下布局自动重排。

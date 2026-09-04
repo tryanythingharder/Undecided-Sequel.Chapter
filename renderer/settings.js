@@ -345,6 +345,8 @@
       const cnt = r.count > 0 ? ('，共 ' + r.count + ' 个模型') : ''
       box.classList.add('ok')
       box.textContent = '连接成功' + cnt + (model ? ('，当前模型「' + model + '」' + (hit ? '在列表中' : '未在列表中（可能仍可用）')) : '')
+      // http 明文端点：请求能通，但后续所有请求的 API 密钥都会明文过网络——明确告知而非默默放行
+      if (/^http:\/\//i.test(baseUrl)) box.textContent += '；注意：http 端点不加密，密钥将以明文传输'
     } else {
       box.classList.add('err')
       box.textContent = (r && r.error) || '连接失败'

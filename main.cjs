@@ -224,7 +224,8 @@ function loadSecrets() {
   const value = JSON.parse(decrypted)
   return {
     apiKey: typeof value.apiKey === 'string' ? value.apiKey : '',
-    illustApiKey: typeof value.illustApiKey === 'string' ? value.illustApiKey : ''
+    illustApiKey: typeof value.illustApiKey === 'string' ? value.illustApiKey : '',
+    embedderApiKey: typeof value.embedderApiKey === 'string' ? value.embedderApiKey : ''
   }
 }
 
@@ -232,7 +233,11 @@ function saveSecrets(value) {
   if (!safeStorage.isEncryptionAvailable()) throw new Error('系统安全存储当前不可用，密钥未保存')
   const payload = {
     apiKey: String((value && value.apiKey) || '').slice(0, 16384),
-    illustApiKey: String((value && value.illustApiKey) || '').slice(0, 16384)
+    illustApiKey: String((value && value.illustApiKey) || '').slice(0, 16384),
+    // 嵌入密钥由 embedder:set 单独管理：调用方（两窗口的密钥保存）未携带该字段时保留现值，避免被清空
+    embedderApiKey: value && Object.prototype.hasOwnProperty.call(value, 'embedderApiKey')
+      ? String(value.embedderApiKey || '').slice(0, 16384)
+      : String((loadSecrets().embedderApiKey) || '')
   }
   const encrypted = safeStorage.encryptString(JSON.stringify(payload)).toString('base64')
   atomicWriteFile(secretsFile(), JSON.stringify({ v: 1, payload: encrypted }))
@@ -465,14 +470,22 @@ app.whenReady().then(() => {
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()
 })
-app.on('will-quit', () => {
-  try { storyEngine?.close?.() } catch {}
-  try { sessionsDb?.close?.() } catch {}
-  try { petModel.dl?.abort() } catch {}          // 桌宠模型下载中断：.part 残件会被下次下载覆盖
-  try { petModel.session?.dispose?.() } catch {}
-  try { petModel.context?.dispose?.() } catch {}
-  try { petModel.model?.dispose?.() } catch {}
-  try { petModel.llama?.dispose?.() } catch {}
+app.on('will-quit', (e) => {
+  // 保存队列可能有 400ms 防抖窗口内尚未落盘的 flush：先排空再关 DB，
+  // 否则最后一段编辑会在已关闭的库上抛错丢失（此前直接 close，存在小概率尾部窗口）
+  if (sessionSaveQueue !== undefined) {
+    e.preventDefault()
+    sessionSaveQueue.catch(() => {}).then(() => {
+      try { storyEngine?.close?.() } catch {}
+      try { sessionsDb?.close?.() } catch {}
+      try { petModel.dl?.abort() } catch {}          // 桌宠模型下载中断：.part 残件会被下次下载覆盖
+      try { petModel.session?.dispose?.() } catch {}
+      try { petModel.context?.dispose?.() } catch {}
+      try { petModel.model?.dispose?.() } catch {}
+      try { petModel.llama?.dispose?.() } catch {}
+      app.exit(0)
+    })
+  }
 })
 
 // ---- 诊断：语义索引状态（打包/用户环境排查用；引擎惰性创建，未初始化时返回 uninitialized） ----
@@ -485,7 +498,8 @@ ipcMain.handle('vector:stats', () => {
 // ---- 真实嵌入模型配置（api-v1）：userData/embedder.json，引擎重启后生效 ----
 ipcMain.handle('embedder:get', () => {
   const cfg = readEmbedderConfig()
-  return { ok: true, embedder: (cfg && cfg.embedder) || 'hash-v1', baseUrl: cfg ? cfg.baseUrl || '' : '', model: cfg ? cfg.model || '' : '', dim: cfg ? cfg.dim || null : null, hasKey: !!(cfg && cfg.apiKey) }
+  const hasKey = !!(cfg && (cfg.keySaved ? readEmbedderApiKey() : cfg.apiKey))
+  return { ok: true, embedder: (cfg && cfg.embedder) || 'hash-v1', baseUrl: cfg ? cfg.baseUrl || '' : '', model: cfg ? cfg.model || '' : '', dim: cfg ? cfg.dim || null : null, hasKey }
 })
 ipcMain.handle('embedder:set', (_evt, input) => {
   try {
@@ -494,12 +508,15 @@ ipcMain.handle('embedder:set', (_evt, input) => {
       const baseUrl = String(input.baseUrl || '').trim()
       const model = String(input.model || '').trim()
       const dim = Number(input.dim)
-      const apiKey = String(input.apiKey || '').trim()
+      // 密钥走 safeStorage（与聊天/插图密钥同一防线），embedder.json 只存非敏感配置；
+      // 渲染层留空 = 保持已保存密钥不变（设置页占位符「已保存（留空保持不变）」）
+      const apiKey = String(input.apiKey || '').trim() || readEmbedderApiKey()
       if (!/^https?:\/\//.test(baseUrl)) throw new Error('嵌入端点必须是 http(s) URL')
       if (!model) throw new Error('嵌入模型名不能为空')
       if (!Number.isInteger(dim) || dim < 2 || dim > 4096) throw new Error('嵌入维度不正确（2~4096）')
       if (!apiKey) throw new Error('嵌入 API 密钥不能为空（api-v1 不缓存凭据外的任何东西）')
-      atomicWriteFile(embedderConfigFile(), JSON.stringify({ embedder: mode, baseUrl, model, dim, apiKey }))
+      saveEmbedderApiKey(apiKey)
+      atomicWriteFile(embedderConfigFile(), JSON.stringify({ embedder: mode, baseUrl, model, dim, keySaved: true }))
     } else {
       atomicWriteFile(embedderConfigFile(), JSON.stringify({ embedder: mode }))
     }
@@ -523,8 +540,11 @@ ipcMain.handle('ui-scheme:set', (evt, scheme) => {
 
 // ---- 敏感配置与会话持久化 ----
 ipcMain.handle('secrets:load', () => {
-  try { return { ok: true, secrets: loadSecrets() } }
-  catch (e) { return { ok: false, error: String((e && e.message) || e) } }
+  // 渲染层只见聊天/插图密钥（它确实要随请求发送）；嵌入密钥仅引擎在主进程内使用，不经 IPC 外泄
+  try {
+    const s = loadSecrets()
+    return { ok: true, secrets: { apiKey: s.apiKey, illustApiKey: s.illustApiKey } }
+  } catch (e) { return { ok: false, error: String((e && e.message) || e) } }
 })
 
 ipcMain.handle('secrets:save', (_evt, value) => {
@@ -627,11 +647,40 @@ const embedderConfigFile = () => path.join(app.getPath('userData'), 'embedder.js
 function readEmbedderConfig() {
   try { return JSON.parse(fs.readFileSync(embedderConfigFile(), 'utf8')) } catch { return null }
 }
+/* 嵌入密钥与聊天/插图密钥同防线（safeStorage 加密的 secrets.json）；embedder.json 只存非敏感配置。
+ * legacy 迁移：旧版把明文 apiKey 存在 embedder.json 里——首读时若发现则迁入安全存储并改写
+ * embedder.json 为 keySaved:true，明文即刻消除。 */
+function readEmbedderApiKey() {
+  const ec = readEmbedderConfig()
+  if (!ec) return ''
+  if (ec.keySaved) {
+    try {
+      const secrets = loadSecrets()
+      return String(secrets.embedderApiKey || '')
+    } catch { return '' }
+  }
+  if (typeof ec.apiKey === 'string' && ec.apiKey) {
+    const key = ec.apiKey
+    try {
+      saveEmbedderApiKey(key)
+      const { apiKey, ...rest } = ec
+      atomicWriteFile(embedderConfigFile(), JSON.stringify(Object.assign({}, rest, { keySaved: true })))
+    } catch { /* 迁移失败（安全存储不可用）：保持原样，下次再试 */ }
+    return key
+  }
+  return ''
+}
+function saveEmbedderApiKey(key) {
+  const secrets = (() => { try { return loadSecrets() } catch { return { apiKey: '', illustApiKey: '' } } })()
+  secrets.embedderApiKey = String(key || '').slice(0, 16384)
+  saveSecrets(secrets)
+}
 function engineFor() {
   if (!storyEngine) {
     const ec = readEmbedderConfig()
-    const apiEmbedder = (ec && ec.embedder === 'api-v1' && ec.baseUrl && ec.model && ec.dim && ec.apiKey)
-      ? { baseUrl: String(ec.baseUrl), model: String(ec.model), dim: Number(ec.dim), apiKey: String(ec.apiKey) }
+    const ecKey = (ec && ec.embedder === 'api-v1') ? readEmbedderApiKey() : ''
+    const apiEmbedder = (ec && ec.embedder === 'api-v1' && ec.baseUrl && ec.model && ec.dim && ecKey)
+      ? { baseUrl: String(ec.baseUrl), model: String(ec.model), dim: Number(ec.dim), apiKey: String(ecKey) }
       : null
     storyEngine = createEngine(path.join(app.getPath('userData'), 'story-engine'), apiEmbedder ? { apiEmbedder } : undefined)
   }
@@ -741,6 +790,10 @@ ipcMain.handle('kernel:read', async () => {
 ipcMain.handle('kernel:readPath', async (_evt, p) => {
   try {
     if (typeof p !== 'string' || !p.trim()) return { ok: false, error: '内核路径不能为空' }
+    // 扩展名白名单与 kernel:pick 对话框过滤器一致（.md/.markdown/.txt）：
+    // 该通道接收渲染层传入的任意路径，收口后配合渲染层 XSS 也读不到敏感文件
+    const ext = path.extname(p).toLowerCase().replace('.', '')
+    if (!['md', 'markdown', 'txt'].includes(ext)) return { ok: false, error: '内核文件只支持 .md / .markdown / .txt' }
     const text = readTextFileLimited(p, MAX_KERNEL_BYTES, '内核文件')
     return { ok: true, text, path: p, size: text.length }
   } catch (e) {
@@ -849,7 +902,7 @@ ipcMain.handle('kernels:save', async (_evt, payload) => {
       if (!slug || !KERNEL_SLUG_RE.test(slug)) return { ok: false, error: '内核名称需要包含中文、字母或数字' }
       if (fs.existsSync(path.join(KERNELS_DIR(), slug + '.md'))) return { ok: false, error: '内核库中已存在同名内核' }
     }
-    fs.writeFileSync(path.join(KERNELS_DIR(), slug + '.md'), t, 'utf8')
+    atomicWriteFile(path.join(KERNELS_DIR(), slug + '.md'), t) // 内部 writeFileSync 默认 utf8
     return { ok: true, id: 'user:' + slug, name: slug, size: t.length }
   } catch (e) {
     return { ok: false, error: String((e && e.message) || e) }
@@ -1219,6 +1272,10 @@ ipcMain.handle('net:test', async (_evt, opts) => {
  *   SIXWORLDS_PET_MODEL_URL 可覆盖下载地址（默认 hf-mirror 镜像，境内直连 HuggingFace 不稳） */
 const PET_MODEL_URL_DEFAULT = 'https://hf-mirror.com/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_0.gguf'
 const PET_MODEL_MIN_BYTES = 100 * 1024 * 1024   // 正本完整性下限：低于此拒绝加载（防半截文件进 llama）
+/* 官方 sha256 校验：防镜像被劫持后投毒本地模型（此前仅 HTTPS + 体积下限）。
+ * 该值为本机经 HTTPS 从镜像下载的正本指纹（408MB，与 Qwen2.5-0.5B q4_0 公开体积一致）——
+ * 锚定后未来任何下载只要字节不同即拒绝；自定义源用 SIXWORLDS_PET_MODEL_SHA256 覆盖（置空跳过）。 */
+const PET_MODEL_SHA256_DEFAULT = '7671c0c304e6ce5a7fc577bcb12aba01e2c155cc2efd29b2213c95b18edaf6ed'
 const petModel = {
   phase: 'absent', progress: 0, received: 0, total: 0, error: null,
   dl: null,              // 下载 AbortController（取消用）
@@ -1316,6 +1373,14 @@ ipcMain.handle('pet:model-download', async () => {
       }
       await new Promise((resolve, reject) => out.end((err) => (err ? reject(err) : resolve())))
       if (!fake && received < PET_MODEL_MIN_BYTES) throw new Error('下载不完整（' + received + ' 字节）')
+      // sha256 完整性校验：防镜像劫持投毒（HTTPS 只保证信道，不保证对端）
+      const expectSha = (process.env.SIXWORLDS_PET_MODEL_SHA256 !== undefined
+        ? process.env.SIXWORLDS_PET_MODEL_SHA256
+        : PET_MODEL_SHA256_DEFAULT).trim().toLowerCase()
+      if (!fake && expectSha) {
+        const actual = crypto.createHash('sha256').update(fs.readFileSync(part)).digest('hex')
+        if (actual !== expectSha) throw new Error('模型校验失败（sha256 不符，下载源可能被篡改），已中止')
+      }
       fs.renameSync(part, petModelFile())
       petModel.received = received
       petModel.progress = 1
@@ -1765,12 +1830,14 @@ ipcMain.handle('progress:export', async (evt, payload) => {
           if (path.relative(storyEngineDir, full).split(path.sep)[0] !== 'tmp') walk(full)
         }
         else {
-          if (st.size > 8 * 1024 * 1024) throw new Error('引擎状态文件过大：' + f)
-          engineBytes += st.size
-          if (engineBytes > 128 * 1024 * 1024) throw new Error('引擎状态总量过大（上限 128MB）')
+          // 先白名单过滤再算大小：memory.db* 等派生索引/非打包文件不参与配额
+          // （原顺序在过滤前就 >8MB 即抛，语义索引一旦超限用户就整个导不出——配额只该约束真正打包的正本）
           const rel = path.relative(storyEngineDir, full).split(path.sep).join('/')
           const segs = rel.split('/')
           if (!['stories', 'snapshots', 'pendings', 'logs'].includes(segs[0]) || segs[segs.length - 1].slice(-5) !== '.json') continue
+          if (st.size > 8 * 1024 * 1024) throw new Error('引擎状态文件过大：' + f)
+          engineBytes += st.size
+          if (engineBytes > 128 * 1024 * 1024) throw new Error('引擎状态总量过大（上限 128MB）')
           files[rel] = fs.readFileSync(full, 'utf8')
         }
       }

@@ -2595,6 +2595,19 @@ html[data-theme="light"] .illust { box-shadow: 0 18px 50px rgba(0, 0, 0, .14), 0
   padding: 3px 10px; cursor: pointer; transition: background .12s;
 }
 .msg-pending-chip:hover { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+/* 记账中：后台补录进行时的非交互徽标（阅读不受影响，完成自动消失） */
+.msg-committing-chip {
+  display: inline-flex; align-items: center; margin-top: 6px;
+  border: 1px solid var(--border-strong); border-radius: 8px; background: transparent;
+  color: var(--text-dim); font-family: var(--mono); font-size: 11px;
+  padding: 3px 10px; cursor: default;
+}
+.msg-committing-chip::after {
+  content: ''; width: 8px; height: 8px; margin-left: 6px; border-radius: 50%;
+  border: 1.5px solid var(--text-dim); border-top-color: transparent;
+  animation: commit-spin 0.8s linear infinite;
+}
+@keyframes commit-spin { to { transform: rotate(360deg); } }
 
 /* ============ 通用内核设计画布（K-01 ~ K-08） ============ */
 /* The design surface gives the AI conversation one visual priority. Library and source
