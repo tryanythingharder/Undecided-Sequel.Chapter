@@ -132,17 +132,20 @@ async function main() {
     }
   })
   let win = await app.firstWindow()
-  // 视口保障：桌宠在窄窗口按设计让位内容（边距 <140px 时 pet-hidden）。
-  // CI 的 windows runner 显示器是 1024×768，不显式放大窗口的话整条桌宠链路都会被
-  // pet-hidden 吞掉（实测：点击无响应 → fill 30s 超时 → job 失败）。本地高分辨率不触发。
-  await app.evaluate(({ BrowserWindow }) => { const w = BrowserWindow.getAllWindows()[0]; w.unmaximize(); w.setSize(1280, 800); w.center() })
-  await win.waitForTimeout(2200)
   try { await win.evaluate(() => localStorage.clear()) } catch {}
   await win.evaluate(() => window.api.setUiScheme('proto')).catch(() => {})
   await win.waitForTimeout(1500)
   const wins = app.windows(); win = wins[wins.length - 1]
   await win.waitForTimeout(2600)
+  // 视口保障（必须在切方案重建窗口之后）：桌宠在窄窗口按设计让位内容
+  // （边距 <140px → pet-hidden）。CI 的 windows runner 显示器 1024×768，
+  // 且 setUiScheme 会整窗重建——重建前 setSize 会被默认窗口吞掉（实测 vw=1024）。
+  // setViewportSize 是 Playwright 直控视口，CI 上两次实测生效（1200）。
+  // 视口落定后清位置记忆并 reload：桌宠按最终几何以默认位重新挂载（右侧带），
+  // 避免拿到旧视口下算出的默认/残留位置（实测 x=263 → 右带断言假性失败）
+  await win.setViewportSize({ width: 1280, height: 800 })
   await win.evaluate((b) => {
+    localStorage.removeItem('sixworlds.pet.pos.v1')
     const KEY = 'sixworlds.codex.state.v3'
     const cur = JSON.parse(localStorage.getItem(KEY) || '{}')
     cur.baseUrl = b; cur.apiKey = 'sk-mock'; cur.model = 'mock-chat'
@@ -169,8 +172,11 @@ async function main() {
   if (pet) {
     // 可见 = display 且 opacity 且可接收指针事件：pet-hidden 只改 opacity/pointer-events，
     // 只查 display 会漏判（CI 1024×768 实测病例：桌宠让位隐藏后点击全被吞，直到 fill 超时才炸）
-    check('pet-visible', pet.display !== 'none' && Number(pet.opacity) > 0.5 && pet.box[2] === 104 && pet.box[3] === 104,
-      'display=' + pet.display + ' opacity=' + pet.opacity + ' box=' + JSON.stringify(pet.box) + ' vw=' + pet.vw + '（边距不足会 pet-hidden，需要 ≥1280 视口）')
+    const viewportOk = pet.vw >= 1240   // 视口保障生效的门线（1280 目标留容差）
+    const visibleOk = pet.display !== 'none' && Number(pet.opacity) > 0.5 && pet.box[2] === 104 && pet.box[3] === 104
+    check('pet-visible', visibleOk,
+      'display=' + pet.display + ' opacity=' + pet.opacity + ' box=' + JSON.stringify(pet.box) + ' vw=' + pet.vw
+        + (visibleOk ? '' : (viewportOk ? '（视口足够却隐藏——产品回归）' : '（环境受限：视口不足 1240，桌宠按设计让位——非产品缺陷）')))
     const rightMarginZone = pet.box[0] >= pet.vw - pet.margin // 在右侧空白带（边距中）
     check('pet-default-right-margin', rightMarginZone,
       'x=' + pet.box[0] + ' ≥ 右带起点 ' + Math.round(pet.vw - pet.margin) + '（边距 ' + Math.round(pet.margin) + 'px）')
