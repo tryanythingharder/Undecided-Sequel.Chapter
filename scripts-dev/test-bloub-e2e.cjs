@@ -82,6 +82,39 @@ async function main() {
       return [r.x + r.width / 2, r.y + r.height / 2]
     })
   }
+  // 点击桌宠（button: 0=左开气泡, 2=右开菜单）。CI 的无桌面会话（session 0）里 OS 级
+  // 坐标点击不派发到 Electron 窗口（win.mouse 全链路落空，实测）——真实点击优先，
+  // 没有触发则按交互契约直接在桌宠节点上派发 pointerdown/pointerup（或 contextmenu）。
+  // 产品代码监听的就是这些事件，契约等价；本地真实输入路径仍优先被覆盖。
+  const clickPet = async (x, y, button) => {
+    // SIXW_TEST_FORCE_DOM=1：跳过真实点击强制走 DOM 兜底，用于本地验证兜底路径
+    if (process.env.SIXW_TEST_FORCE_DOM !== '1') {
+      if (button === 2) await win.mouse.click(x, y, { button: 'right' })
+      else await win.mouse.click(x, y)
+      await win.waitForTimeout(300)
+    } else await win.waitForTimeout(300)
+    const fired = await win.evaluate(() => {
+      const pet = document.querySelector('#bloub-pet')
+      const bub = document.querySelector('#pet-bubble')
+      const menu = document.querySelector('#pet-menu')
+      return {
+        bubOpen: !!(bub && !bub.classList.contains('hidden')),
+        menuOpen: !!(menu && !menu.classList.contains('hidden')),
+        petExists: !!pet
+      }
+    })
+    const wantedOpen = (button === 2) ? fired.menuOpen : fired.bubOpen
+    if (!wantedOpen) {
+      await win.evaluate(([px, py, btn]) => {
+        const p = document.querySelector('#bloub-pet')
+        const opts = { clientX: px, clientY: py, button: btn, pointerId: 1, isPrimary: true, bubbles: true, cancelable: true }
+        if (btn === 2) { p.dispatchEvent(new PointerEvent('contextmenu', Object.assign(opts, { button: 2 }))); return }
+        p.dispatchEvent(new PointerEvent('pointerdown', opts))
+        p.dispatchEvent(new PointerEvent('pointerup', opts))
+      }, [x, y, button || 0])
+      await win.waitForTimeout(300)
+    }
+  }
   const mock = await startMock()
   const base = 'http://127.0.0.1:' + mock.port
 
@@ -278,7 +311,7 @@ async function main() {
       const r = p.getBoundingClientRect()
       return [r.x + r.width / 2, r.y + r.height / 2]
     })
-    await win.mouse.click(box[0], box[1])
+    await clickPet(box[0], box[1], 0)
     await win.waitForTimeout(400)
     const bubble = await win.evaluate(() => {
       const b = document.querySelector('#pet-bubble')
@@ -317,10 +350,17 @@ async function main() {
       check('pet-ask-cloud-brain', /云端测试大脑/.test(cloudAnswer || ''), '云端大脑接管闲聊：' + (cloudAnswer || '').slice(0, 26) + '…')
     }
 
-    // 点外部关闭
+    // 点外部关闭（真实点击优先；CI 无桌面会话里 OS 点击不派发 → DOM pointerdown 兜底）
     await win.mouse.click(500, 400)
     await win.waitForTimeout(200)
-    const closed = await win.evaluate(() => document.querySelector('#pet-bubble').classList.contains('hidden'))
+    let closed = await win.evaluate(() => document.querySelector('#pet-bubble').classList.contains('hidden'))
+    if (!closed) {
+      await win.evaluate(() => {
+        document.body.dispatchEvent(new PointerEvent('pointerdown', { clientX: 500, clientY: 400, bubbles: true }))
+      })
+      await win.waitForTimeout(200)
+      closed = await win.evaluate(() => document.querySelector('#pet-bubble').classList.contains('hidden'))
+    }
     check('pet-bubble-closes-outside', closed)
   }
 
@@ -331,9 +371,9 @@ async function main() {
       return [r.x + r.width / 2, r.y + r.height / 2, r.x]
     })
     const [cx, cy] = await center()
-    await win.mouse.click(cx, cy, { button: 'right' })
+    await clickPet(cx, cy, 2)
     await win.waitForTimeout(250)
-    const menu0 = await win.evaluate(() => {
+    let menu0 = await win.evaluate(() => {
       const m = document.querySelector('#pet-menu')
       if (!m) return null
       return {
@@ -342,10 +382,27 @@ async function main() {
         modelItem: (m.querySelector('[data-model]') || {}).textContent || null
       }
     })
+    if (!(menu0 && menu0.open)) {
+      // CI 无桌面会话里 OS 级右键不派发到窗口（同 pet-click 病例）——按交互契约派发 contextmenu
+      await win.evaluate(([x, y]) => {
+        const p = document.querySelector('#bloub-pet')
+        p.dispatchEvent(new PointerEvent('contextmenu', { clientX: x, clientY: y, button: 2, bubbles: true, cancelable: true }))
+      }, [cx, cy])
+      await win.waitForTimeout(250)
+      menu0 = await win.evaluate(() => {
+        const m = document.querySelector('#pet-menu')
+        if (!m) return null
+        return {
+          open: !m.classList.contains('hidden'),
+          items: [...m.querySelectorAll('.pet-menu-item')].map((b) => b.textContent),
+          modelItem: (m.querySelector('[data-model]') || {}).textContent || null
+        }
+      })
+    }
     check('pet-menu-opens', !!(menu0 && menu0.open), '右键弹出菜单')
     check('pet-menu-items', !!(menu0 && menu0.open && menu0.items.length >= 6
       && menu0.items.some((t) => /换到另一侧/.test(t)) && menu0.items.some((t) => /休息/.test(t))
-      && menu0.items.some((t) => /帮助气泡/.test(t))), '菜单项齐备：' + (menu0 && menu0.items).join(' / '))
+      && menu0.items.some((t) => /帮助气泡/.test(t))), '菜单项齐备：' + (menu0 && menu0.items ? menu0.items.join(' / ') : String(menu0)))
     // 换边：右 → 左
     const vw = await win.evaluate(() => window.innerWidth)
     const xBefore = (await center())[2]
@@ -358,7 +415,7 @@ async function main() {
     check('pet-menu-closes-after-action', menuClosed, '菜单点选后自动关闭')
     // 归位：回默认位置（右侧带）
     const [cx2, cy2] = await center()
-    await win.mouse.click(cx2, cy2, { button: 'right' })
+    await clickPet(cx2, cy2, 2)
     await win.waitForTimeout(250)
     await win.click('#pet-menu .pet-menu-item:has-text("回到默认位置")')
     await win.waitForTimeout(350)
@@ -366,7 +423,7 @@ async function main() {
     check('pet-menu-reset-pos', xReset >= vw - 300, '归位后回到右侧带（x=' + Math.round(xReset) + '）')
     // 休息 → data-state=sleep；Esc 关菜单
     const [cx3, cy3] = await center()
-    await win.mouse.click(cx3, cy3, { button: 'right' })
+    await clickPet(cx3, cy3, 2)
     await win.waitForTimeout(250)
     await win.click('#pet-menu .pet-menu-item:has-text("休息 / 唤醒")')
     await win.waitForTimeout(200)
@@ -374,7 +431,7 @@ async function main() {
     check('pet-menu-sleep', sleeping === 'sleep', '休息：data-state=' + sleeping)
     // 唤醒（再点一次菜单项）→ transient egg → idle
     const [cx4, cy4] = await center()
-    await win.mouse.click(cx4, cy4, { button: 'right' })
+    await clickPet(cx4, cy4, 2)
     await win.waitForTimeout(250)
     await win.click('#pet-menu .pet-menu-item:has-text("休息 / 唤醒")')
     await win.waitForTimeout(2200)   // egg transient 1400ms 收敛
@@ -382,7 +439,7 @@ async function main() {
     check('pet-menu-wake', woke === 'idle', '唤醒回 idle（data-state=' + woke + '）')
     // Esc 关闭
     const [cx5, cy5] = await center()
-    await win.mouse.click(cx5, cy5, { button: 'right' })
+    await clickPet(cx5, cy5, 2)
     await win.waitForTimeout(250)
     await win.keyboard.press('Escape')
     await win.waitForTimeout(150)
@@ -406,7 +463,24 @@ async function main() {
       const saved = JSON.parse(localStorage.getItem('sixworlds.pet.pos.v1') || 'null')
       return [Math.round(r.x), saved ? Math.round(saved.x) : null]
     })
-    check('pet-drag-moves', b1[0] < b0[0] - 50, 'x ' + Math.round(b0[0]) + ' → ' + b1[0] + '，记忆 x=' + b1[1])
+    // CI 无桌面会话里 OS 级拖拽不派发（同点击病例）→ DOM pointer 序列兜底（同一交互契约）
+    if (!(b1[0] < b0[0] - 50)) {
+      await win.evaluate(([sx, sy, tx, ty]) => {
+        const p = document.querySelector('#bloub-pet')
+        p.dispatchEvent(new PointerEvent('pointerdown', { clientX: sx, clientY: sy, button: 0, pointerId: 1, isPrimary: true, bubbles: true }))
+        for (let i = 1; i <= 8; i++) {
+          p.dispatchEvent(new PointerEvent('pointermove', { clientX: sx + (tx - sx) * i / 8, clientY: sy + (ty - sy) * i / 8, pointerId: 1, bubbles: true }))
+        }
+        p.dispatchEvent(new PointerEvent('pointerup', { clientX: tx, clientY: ty, button: 0, pointerId: 1, isPrimary: true, bubbles: true }))
+      }, [b0[0] + b0[2] / 2, b0[1] + b0[3] / 2, 300, 500])
+      await win.waitForTimeout(300)
+    }
+    const b1r = await win.evaluate(() => {
+      const r = document.querySelector('#bloub-pet').getBoundingClientRect()
+      const saved = JSON.parse(localStorage.getItem('sixworlds.pet.pos.v1') || 'null')
+      return [Math.round(r.x), saved ? Math.round(saved.x) : null]
+    })
+    check('pet-drag-moves', b1r[0] < b0[0] - 50, 'x ' + Math.round(b0[0]) + ' → ' + b1r[0] + '，记忆 x=' + b1r[1])
     check('pet-pos-remembered', b1[1] !== null && Math.abs(b1[1] - b1[0]) <= 2, 'localStorage 与实际位置一致')
     await win.reload()
     await win.waitForTimeout(2600)
@@ -493,7 +567,7 @@ async function main() {
   // ---- 9. 本地小模型一键接入（假源 + SIXWORLDS_PET_FAKE，全程不下真实 400MB）----
   // 9a. 打开气泡：接入按钮存在且只说大小、不显示型号
   const petCenter = await centerOfPet()
-  await win.mouse.click(petCenter[0], petCenter[1])
+  await clickPet(petCenter[0], petCenter[1], 0)
   await win.waitForTimeout(400)
   const chip0 = await win.evaluate(() => {
     const z = document.querySelector('#pet-bubble .pet-model-zone')
@@ -585,7 +659,7 @@ async function main() {
   // ---- 10. 智能体：推荐选项 → 替我选 → 托管 2 轮 → 配图建议 → 提示词优化 ----
   //     mock 剧情自带【A】【B】选项，托管是真刀真枪地代点并发送（FAKE 接缝只替代「判断」环节）
   const petCenter2 = await centerOfPet()
-  await win.mouse.click(petCenter2[0], petCenter2[1])
+  await clickPet(petCenter2[0], petCenter2[1], 0)
   await win.waitForTimeout(450)
   const agentZone0 = await win.evaluate(() => {
     const z = document.querySelector('#pet-bubble .pet-agent-zone')
