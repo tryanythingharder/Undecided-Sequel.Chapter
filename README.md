@@ -93,7 +93,8 @@
 
 - **双界面方案**：主题抽屉顶部「界面方案」一键切换 **经典界面 / 原型工作台**（后者按高保真原型实现：
   内容画布 + 内核设计画布 + 画廊 + 世界菜单 + 设置面板）；切换即时生效，会话 / 世界线 / 设置 / 进度双方案
-  完全共享，重启保持选择；
+  完全共享，重启保持选择。产品逻辑已按绞杀者模式收敛到 `shared/`（choices / search / gallery /
+  appearance / engine-flow / toast 六刀），双方案仅保留各自的布局与交互皮；
 - **7 套调色板**（经典琥珀 / 羊皮纸 / 林间 / 紫晶 / 海渊 / 蔷薇 / 高对比）× **明暗三态**（跟随系统 / 深 / 浅）；
 - 全部 14 组合关键对比度实测 WCAG AA；
 - 字体（无衬线/衬线）、圆角、密度、阅读列宽、字号（Ctrl+=/-/0）全部可调、即时预览；
@@ -236,7 +237,7 @@ npm run dist   # 打包 NSIS 安装版 + 便携版单文件（产物在 dist/）
 │   ├── settings.js       # 设置窗口逻辑（双窗口实时同步）
 │   └── styles.css        # 全部样式（CSS 变量驱动 7 调色板 × 明暗）
 ├── renderer-proto/       # 原型工作台方案（与 renderer/ 共享数据与设置，主题抽屉可切换）
-├── shared/               # 双方案共享层（会话持久化 / bloub 机器人引擎与挂载层）
+├── shared/               # 双方案共享层（绞杀者迁移：choices / search / gallery / appearance / engine-flow / toast + 会话持久化 / bloub 桌宠引擎）
 ├── sessions-db.cjs       # 会话 SQLite 主存（sessions.json 保留为兼容镜像）
 ├── kernel.md             # 内核《六面世界：人生模拟器》
 ├── kernel-xianxia.md     # 内核《玄寰界：修真人生模拟器》

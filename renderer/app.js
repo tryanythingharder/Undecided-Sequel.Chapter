@@ -886,45 +886,12 @@
     if (cfg.theme === 'dark' || cfg.theme === 'light') return cfg.theme
     return darkMQ.matches ? 'dark' : 'light'
   }
-  function applyTheme(theme) {
-    cfg.theme = theme
-    const root = document.documentElement
-    root.setAttribute('data-theme', resolvedTheme())
-    root.setAttribute('data-palette', PALETTES.some((p) => p.id === cfg.palette) ? cfg.palette : 'classic')
-    // nativeTheme 负责系统标题栏/滚动条：system/dark/light 原样透传
-    api.setTheme(theme === 'dark' || theme === 'light' ? theme : 'system')
-  }
+  const Appearance = window.AppearancePanel.createAppearance({ cfg: () => cfg, api, PALETTES, resolvedTheme })
+  const applyTheme = (theme) => Appearance.applyTheme(theme)
+  const applyAppearance = () => Appearance.applyAppearance()
+  const applyReading = () => Appearance.applyReading()
   // 跟随系统时，系统切换明暗要立即反映到界面
   darkMQ.addEventListener('change', () => { if (cfg.theme === 'system') applyTheme('system') })
-
-  // 外观全量应用：调色板 / 展示字体 / 圆角 / 文字密度 / 布局 / 侧栏方向
-  function applyAppearance() {
-    const root = document.documentElement
-    root.setAttribute('data-palette', PALETTES.some((p) => p.id === cfg.palette) ? cfg.palette : 'classic')
-    root.setAttribute('data-theme', resolvedTheme())
-    const fonts = ['sans', 'serif', 'mono', 'kai']
-    root.setAttribute('data-font', fonts.includes(cfg.fontUI) ? cfg.fontUI : 'sans')
-    const radii = ['none', 'small', 'standard', 'round']
-    if ((cfg.radius || 'standard') !== 'standard') root.setAttribute('data-radius', radii.includes(cfg.radius) ? cfg.radius : 'standard')
-    else root.removeAttribute('data-radius')
-    const dens = ['compact', 'standard', 'relaxed']
-    if ((cfg.density || 'standard') !== 'standard') root.setAttribute('data-density', dens.includes(cfg.density) ? cfg.density : 'standard')
-    else root.removeAttribute('data-density')
-    const layouts = ['sidebar', 'focus', 'immersive']
-    document.body.classList.remove('layout-focus', 'layout-immersive')
-    if (layouts.includes(cfg.layout) && cfg.layout !== 'sidebar') document.body.classList.add('layout-' + cfg.layout)
-    document.body.classList.toggle('sb-right', cfg.sbSide === 'right')
-  }
-
-  // ---- 阅读体验：字号 / 栏宽（data 属性驱动 CSS 变量） ----
-  function applyReading() {
-    const root = document.documentElement
-    const fs = { small: '13px', standard: '14.5px', large: '16px' }
-    const rw = { narrow: '640px', standard: '720px', wide: '860px', xwide: '980px' }
-    root.setAttribute('data-fontsize', cfg.fontSize || 'standard')
-    root.style.setProperty('--read-w', rw[cfg.readWidth] || rw.standard)
-    root.style.setProperty('--font-size', fs[cfg.fontSize] || fs.standard)
-  }
 
   // ---- 置顶 ----
   function setPin(on) {
@@ -1239,6 +1206,7 @@
   }
 
   function renderMessages() {
+    const searchState = Search.state()
     // 记住重绘前的滚动位置：贴底则重绘后仍贴底，否则保持原位（不打扰翻阅历史的用户）
     const prevScroll = msgEl.scrollTop
     wasNearBottom = msgEl.scrollHeight - msgEl.scrollTop - msgEl.clientHeight < 120
@@ -1372,10 +1340,10 @@
           body.appendChild(retryBtn)
         }
       }
-      // 搜索态：对命中片段高亮（HTML 已转义，安全）
-      else if (searchQuery && searchMatches.some((x) => x.msgIdx === i)) {
+      // 搜索态：对命中片段高亮（HTML 已转义，安全）；Search 闭包态经 state() 读取
+      else if (searchState.query && searchState.matches.some((x) => x.msgIdx === i)) {
         body.classList.add('plain')
-        const marked = markMessage(m.content, searchQuery)
+        const marked = markMessage(m.content, searchState.query)
         if (marked) body.innerHTML = marked.html
         else body.textContent = m.content
       }
@@ -1895,9 +1863,6 @@
 
   // ============ 消息搜索（Ctrl+F 在当前世界线内搜索） ============
   // 思路：维护 query 与命中索引，renderMessages 在渲染 body 时对命中片段包裹 <mark>
-  let searchQuery = ''
-  let searchMatches = [] // [{ msgIdx, count }]
-  let searchActive = -1   // 全局命中序号（0-based）
   const searchBar = $('search-bar')
   const searchInput = $('search-input')
 
@@ -1905,101 +1870,20 @@
   function escapeHtml(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') }
 
   // 计算一条消息中命中次数；同时返回包好 mark 的 HTML（不命中则 null，避免无谓重排）
-  function markMessage(content, query) {
-    if (!query) return null
-    const re = new RegExp(escapeRegExp(query), 'gi')
-    let count = 0
-    let out = ''
-    let last = 0
-    let m
-    while ((m = re.exec(content)) !== null) {
-      count++
-      out += escapeHtml(content.slice(last, m.index))
-      out += '<mark data-i="' + (count - 1) + '">' + escapeHtml(m[0]) + '</mark>'
-      last = m.index + m[0].length
-      if (m.index === re.lastIndex) re.lastIndex++ // 防止零宽死循环
-    }
-    out += escapeHtml(content.slice(last))
-    return { html: out, count }
-  }
-
-  // 搜索框打开/关闭
-  function openSearch() {
-    if (!searchBar.hidden) { searchInput.focus(); searchInput.select(); return }
-    cancelHideAnim(searchBar)
-    searchBar.hidden = false
-    searchInput.value = searchQuery
-    searchInput.focus()
-    runSearch(searchQuery)
-  }
-  function closeSearch() {
-    if (searchBar.hidden) return
-    hideWithAnim(searchBar, () => { searchBar.hidden = true })
-    searchQuery = ''
-    searchMatches = []
-    searchActive = -1
-    renderMessages()
-    $('input').focus()
-  }
-
-  // 执行搜索：计算命中、更新计数、跳到第一个命中
-  function runSearch(q) {
-    searchQuery = String(q || '')
-    searchMatches = []
-    searchActive = -1
-    const s = curSession()
-    if (searchQuery && s) {
-      const re = new RegExp(escapeRegExp(searchQuery), 'gi')
-      for (let i = 0; i < s.messages.length; i++) {
-        const c = String(s.messages[i].content || '')
-        const cnt = (c.match(re) || []).length
-        if (cnt) searchMatches.push({ msgIdx: i, count: cnt })
-      }
-    }
-    let total = 0
-    for (const x of searchMatches) total += x.count
-    $('search-count').textContent = total === 0 ? '0/0' : '1/' + total
-    $('search-prev').disabled = total < 2
-    $('search-next').disabled = total < 2
-    searchActive = total > 0 ? 0 : -1
-    renderMessages()
-    scrollToActiveMatch()
-  }
-
-  // 跳到当前命中：把对应 mark 标 active 并滚入视野（按绝对消息下标定位；不在窗口内则先扩窗加载）
-  function scrollToActiveMatch() {
-    if (searchActive < 0) return
-    let target = searchActive
-    const s = curSession()
-    for (const x of searchMatches) {
-      if (target < x.count) {
-        let msg = msgEl.querySelector('.msg[data-mi="' + x.msgIdx + '"]')
-        if (!msg && s) {
-          // 目标在渲染窗口之外：扩窗加载后重找（聊天历史分页语义）
-          renderWindow = Math.max(renderWindow, s.messages.length - x.msgIdx + RENDER_WINDOW)
-          renderMessages()
-          msg = msgEl.querySelector('.msg[data-mi="' + x.msgIdx + '"]')
-        }
-        if (msg) {
-          const marks = msg.querySelectorAll('mark')
-          marks.forEach((mk, i) => mk.classList.toggle('active', i === target))
-          const el = marks[target]
-          if (el) el.scrollIntoView({ block: 'center', behavior: 'smooth' })
-        }
-        return
-      }
-      target -= x.count
-    }
-  }
-
-  function searchStep(dir) {
-    let total = 0
-    for (const x of searchMatches) total += x.count
-    if (total === 0) return
-    searchActive = (searchActive + dir + total) % total
-    $('search-count').textContent = (searchActive + 1) + '/' + total
-    scrollToActiveMatch()
-  }
+  const Search = window.SearchPanel.createSearch({
+    $, msgEl, searchBar, searchInput,
+    curSession, escapeHtml, escapeRegExp,
+    renderMessages,
+    cancelHideAnim, hideWithAnim,
+    focusInput: () => $('input').focus(),
+    RENDER_WINDOW,
+    expandRenderWindow: (need) => { renderWindow = Math.max(renderWindow, need) },
+  })
+  const markMessage = (content, query) => Search.markMessage(content, query)
+  const openSearch = () => Search.openSearch()
+  const closeSearch = () => Search.closeSearch()
+  const runSearch = (q) => Search.runSearch(q)
+  const searchStep = (dir) => Search.searchStep(dir)
 
   searchInput.addEventListener('input', () => runSearch(searchInput.value))
   searchInput.addEventListener('keydown', (e) => {
@@ -2015,56 +1899,17 @@
   // ======== 故事状态引擎桥（结构化状态 + 长期记忆 + 检索） ========
   // 概念映射：Story = 世界线（s.id）· Session = 本次运行内对该故事的交互连接 · Turn = 一次提交
   // 存储在主进程 userData/story-engine/（按故事分文件 + 快照 + 回合日志），与 localStorage 叙事历史互补。
-  const storySess = new Map() // storyId -> sessionId（重启应用 = 新 Session；故事记忆跨 Session 持久）
-  let engineProtocolText = null // 输出协议说明书（每次运行取一次）
   // 条款 17：State Patch 缺失时的补录请求词——只要求补结构化状态，严禁重写剧情（条款 25）
   // 补录提示词：自带最小模板示例（弱模型按例输出可大幅提高合规率）；reason 用于冲突引导
-  function patchRetryPrompt(reason) {
-    const lines = [
-      '上一轮叙事已经生成。当前系统缺少合法 State Patch。',
-      '请仅根据上面已经生成的叙事和当前 State，输出对应的结构化 State Patch。',
-      '不要重新生成剧情。不要修改、扩写或复述已经生成的叙事。不要用 Markdown 代码围栏包裹。',
-      '回复的最末尾严格按此格式输出（最小可用示例）：',
-      '<<<STATE_PATCH>>>',
-      '{"turn_summary":"本回合一句话概括","scene":{"game_time":"故事内时间","location":"当前地点"},"events":[{"type":"action","description":"本回合发生的主要事件","importance":30}]}',
-      '<<<END_PATCH>>>',
-      '需要记录玩家的决定/新事实/承诺/关系变化/伏笔，就在 JSON 里加对应键：decisions / facts / commitments / commitment_updates / relationships / threads / causal / entity_changes（键可省略，值必须是数组）。',
-      '如果重新审视后确认这一回合确实没有任何状态变化，只输出一行：<<<NO_STATE_CHANGE>>>',
-      '除状态块（或 NO_STATE_CHANGE）外，不要输出任何其他文字。'
-    ]
-    if (reason) lines.splice(1, 0, '上一轮的输出因以下原因被系统拒绝：' + reason + ' —— 请修正后重新只输出状态块；引用编号若不存在，改用内容关键词或先创建对应记录。')
-    return lines.join('\n')
-  }
-  const PATCH_RETRY_PROMPT = patchRetryPrompt(null)
-  async function enginePrep(s, playerInput) {
-    try {
-      const ws = curWs()
-      const kernelId = currentKernelRef()
-      const en = await api.engineEnsure({ storyId: s.id, title: s.title, kernelId, kernelText: kernel ? kernel.text : '' })
-      if (!en || !en.ok) return null
-      let sessionId = storySess.get(s.id)
-      if (!sessionId) {
-        sessionId = 'SES-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 6)
-        storySess.set(s.id, sessionId)
-      }
-      const cx = await api.engineContext({ storyId: s.id, playerInput: String(playerInput || '') })
-      if (!cx || !cx.ok || !cx.data) return null
-      if (engineProtocolText == null) {
-        const pr = await api.engineProtocol()
-        engineProtocolText = pr && pr.ok ? pr.data : ''
-      }
-      return {
-        storyId: s.id,
-        sessionId,
-        // 已有结构化状态时才注入状态块（新故事第一回合无历史可注入，payload 与旧版一致）
-        block: cx.data.overview && cx.data.overview.engine_turn > 0 ? cx.data.block : '',
-        engineTurn: cx.data.overview ? cx.data.overview.engine_turn : 0,
-        retrievedIds: cx.data.retrieved_ids || [],
-        contextSize: cx.data.context_size || 0,
-        playerInput: String(playerInput || '')
-      }
-    } catch { return null } // 引擎任何故障都不阻断叙事主流程（降级为纯对话）
-  }
+  const EngineFlow = window.EngineFlow.createEngineFlow({
+    api,
+    curWs,
+    currentKernelRef,
+    kernel: () => kernel,
+  })
+  const patchRetryPrompt = (reason) => EngineFlow.patchRetryPrompt(reason)
+  const PATCH_RETRY_PROMPT = EngineFlow.patchRetryPrompt(null)
+  const enginePrep = (s, playerInput) => EngineFlow.enginePrep(s, playerInput)
 
   async function send(text, opts) {
     opts = opts || {}
@@ -2117,7 +1962,7 @@
     const history = s.messages.slice(-ctxN).map((m) => ({ role: m.role, content: m.content }))
     const msgs = [{ role: 'system', content: kernel.text }]
     if (engineMeta && engineMeta.block) msgs.push({ role: 'system', content: engineMeta.block })
-    if (engineMeta && engineProtocolText) msgs.push({ role: 'system', content: engineProtocolText })
+    if (engineMeta && EngineFlow.protocolText()) msgs.push({ role: 'system', content: EngineFlow.protocolText() })
     msgs.push(...history)
     const payload = {
       baseUrl: cfg.baseUrl,
@@ -2305,13 +2150,13 @@
     busy = true
     let okN = 0
     try {
-      if (engineProtocolText == null) { const pr = await api.engineProtocol(); engineProtocolText = pr && pr.ok ? pr.data : '' }
+      if (!EngineFlow.protocolText()) { const pr = await api.engineProtocol(); if (pr && pr.ok) EngineFlow.seedProtocolText(pr.data) }
       for (const pc of targets) {
         try {
           const prep = await enginePrep(s, pc.player_input || '')
           const msgs2 = [{ role: 'system', content: kernel.text }]
           if (prep && prep.block) msgs2.push({ role: 'system', content: prep.block })
-          if (engineProtocolText) msgs2.push({ role: 'system', content: engineProtocolText })
+          if (EngineFlow.protocolText()) msgs2.push({ role: 'system', content: EngineFlow.protocolText() })
           msgs2.push({ role: 'user', content: pc.player_input || '（玩家行动）' })
           msgs2.push({ role: 'assistant', content: pc.narrative || '' })
           // 挂起时记录的拒绝原因必须回传（实测：threads[update] 写成 ACTIVE 这类校验错，盲重试会原样重蹈）
@@ -2531,40 +2376,9 @@
   })
 
   // ============ Toast 通知 ============
-  function toast(msg, kind, dur) {
-    kind = kind || 'info' // ok | err | info
-    let wrap = document.querySelector('.toast-wrap')
-    if (!wrap) {
-      wrap = document.createElement('div')
-      wrap.className = 'toast-wrap'
-      // R34 屏幕阅读器：toast 作为状态通告区（err 用 alert 强打断）
-      wrap.setAttribute('aria-live', 'polite')
-      document.body.appendChild(wrap)
-    }
-    const el = document.createElement('div')
-    el.className = 'toast ' + kind
-    el.setAttribute('role', kind === 'err' ? 'alert' : 'status')
-    const icon = document.createElement('span')
-    icon.className = 'toast-icon'
-    icon.innerHTML = kind === 'ok'
-      ? '<svg class="ic" viewBox="0 0 16 16"><path d="M3.5 8.5 6.5 11.5 12.5 5"/></svg>'
-      : (kind === 'err'
-        ? '<svg class="ic" viewBox="0 0 16 16"><path d="M4 4l8 8M12 4l-8 8"/></svg>'
-        : '<svg class="ic" viewBox="0 0 16 16"><circle cx="8" cy="8" r="2.5"/></svg>')
-    const m = document.createElement('span')
-    m.className = 'toast-msg'
-    m.textContent = msg
-    el.appendChild(icon); el.appendChild(m)
-    wrap.appendChild(el)
-    const t = setTimeout(() => remove(), dur || 4200)
-    function remove() {
-      clearTimeout(t)
-      el.classList.add('leaving')
-      setTimeout(() => { el.remove() }, 220)
-    }
-    el.addEventListener('click', remove)
-    return { close: remove }
-  }
+  const Toast = window.ToastPanel.createToast({
+  })
+  function toast(msg, kind, dur) { return Toast.toast(msg, kind, dur) }
 
   // R76：忙碌灵动岛（生成中顶部胶囊；独立 DOM——不进 .toast-wrap、不用 .toast 类，
   // 完全避开 e2e 的 toast 选择器与 aria 通告区，纯视觉元素）
@@ -3956,135 +3770,24 @@
     try { localStorage.removeItem(KERNEL_SOURCE_WIDTH_KEY) } catch {}
   })
 
-  function openGallery() {
-    buildGallerySessionSelect()
-    renderGallery()
-    cancelHideAnim($('gallery'))
-    cancelHideAnim($('gallery-mask'))
-    $('gallery').hidden = false
-  }
-  function closeGallery() {
-    closeModalAnim($('gallery'), $('gallery-mask'), () => { $('gallery').hidden = true })
-  }
-  function buildGallerySessionSelect() {
-    const sel = $('gallery-session')
-    // 工作区隔离：画廊只列当前工作区的会话
-    const wsS = wsSessions()
-    // 默认选中当前会话；若 select 已有合法值则沿用（用于切换会话后重建）
-    const prev = sel && sel.value ? sel.value : null
-    const cur = (prev && wsS.some((s) => s.id === prev)) ? prev : (currentId || (wsS[0] && wsS[0].id) || '')
-    sel.innerHTML = ''
-    for (const s of wsS) {
-      const opt = document.createElement('option')
-      opt.value = s.id
-      const cnt = s.messages.filter((m) => m.illust).length
-      opt.textContent = s.title + '（' + cnt + ' 张）'
-      sel.appendChild(opt)
-    }
-    sel.value = wsS.some((s) => s.id === cur) ? cur : (wsS[0] && wsS[0].id) || ''
-  }
-  function renderGallery() {
-    const sel = $('gallery-session')
-    const sid = sel ? sel.value : null
-    const s = sessions.find((x) => x.id === sid) || null
-    const body = $('gallery-body')
-    body.innerHTML = ''
-    const imgs = s ? s.messages.map((m, i) => ({ m, i })).filter((x) => x.m.illust) : []
-    $('gallery-count').textContent = s ? (s.title + ' · ' + imgs.length + ' 张插图') : '无会话'
-    if (!imgs.length) {
-      const e = document.createElement('div')
-      e.className = 'gallery-empty'
-      e.textContent = s ? '这条世界线还没有插图。在对话中点击「插图」按钮，或开启自动插图。' : '暂无会话。'
-      body.appendChild(e)
-      return
-    }
-    imgs.forEach(({ m, i }) => {
-      const card = document.createElement('div')
-      card.className = 'gallery-card'
-      const img = document.createElement('img')
-      img.src = m.illust
-      img.alt = '插图'
-      img.title = '点击查看大图'
-      // 骨架屏：加载前显示占位动画，加载完成后淡入；异步解码避免大图卡住主线程（R81 画廊打开后短暂不可点的问题）
-      img.loading = 'lazy'
-      img.decoding = 'async'
-      img.addEventListener('load', () => img.classList.add('loaded'))
-      // 传入画廊全部插图，Lightbox 中可 ← → 切换
-      const allIllusts = imgs.map((x) => x.m.illust)
-      img.addEventListener('click', () => viewIllust(m.illust, allIllusts))
-      // R33b 键盘可达：Enter/Space 打开大图
-      img.tabIndex = 0
-      img.setAttribute('role', 'button')
-      img.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); img.click() }
-      })
-      // 叙事摘要：该插图所属回合的叙事片段（hover 卡片可见；外层浮层 + 内层截断，见 styles.css R85）
-      const excerptWrap = document.createElement('div')
-      excerptWrap.className = 'gallery-card-excerpt'
-      const excerpt = document.createElement('div')
-      excerpt.className = 'gallery-card-excerpt-text'
-      excerpt.textContent = summarize(m.content)
-      excerpt.title = excerpt.textContent
-      excerptWrap.appendChild(excerpt)
-      const meta = document.createElement('div')
-      meta.className = 'gallery-card-meta'
-      const time = m.illustAt ? new Date(m.illustAt).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : ('第' + (i + 1) + '条')
-      meta.textContent = time
-      const media = document.createElement('div')
-      media.className = 'gallery-media'
-      // 悬浮操作组：原型 K 的进卡显形按钮（重绘/存/删）
-      const actions = document.createElement('div')
-      actions.className = 'hover-actions'
-      const rb = document.createElement('button')
-      rb.textContent = '↻'
-      rb.title = '重新生成这张插图（重绘）'
-      rb.addEventListener('click', () => {
-        if (busy) { toast('请等当前回合结束', 'info'); return }
-        // 切到对应会话再重绘
-        if (s.id !== currentId) {
-          currentId = s.id
-          saveStore()
-          renderSessionList()
-          renderMessages()
-          updateTitle()
-          buildGallerySessionSelect()
-        }
-        closeGallery()
-        generateIllust(i, true)
-      })
-      const sb = document.createElement('button')
-      sb.textContent = '↓'
-      sb.title = '保存这张插图到本地'
-      sb.addEventListener('click', () => {
-        downloadIllust(m.illust, i)
-      })
-      const db = document.createElement('button')
-      db.textContent = '×'
-      db.className = 'del'
-      db.title = '删除这张插图（不影响对话文字）'
-      db.addEventListener('click', () => {
-        confirmDialog({
-          title: '删除这张插图？',
-          body: '将从画廊与对话中移除该插图，对话文字保留。',
-          danger: true,
-          okText: '删除'
-        }).then((ok) => {
-          if (!ok) return
-          m.illust = null
-          m.illustAt = null
-          m.illustError = null
-          saveSessions()
-          renderGallery()
-          if (s.id === currentId) renderMessages()
-          toast('已删除插图', 'info')
-        })
-      })
-      actions.appendChild(rb); actions.appendChild(sb); actions.appendChild(db)
-      media.appendChild(img); media.appendChild(excerptWrap); media.appendChild(actions)
-      card.appendChild(media); card.appendChild(meta)
-      body.appendChild(card)
-    })
-  }
+  const Gallery = window.GalleryPanel.createGallery({
+    $,
+    sessions: () => sessions,
+    currentId: () => currentId,
+    setCurrentId: (v) => { currentId = v },
+    wsSessions,
+    isBusy: () => busy,
+    saveStore, saveSessions,
+    renderSessionList, renderMessages, updateTitle,
+    summarize,
+    viewIllust, generateIllust, downloadIllust,
+    confirmDialog, toast,
+    cancelHideAnim, closeModalAnim,
+  })
+  const openGallery = () => Gallery.openGallery()
+  const closeGallery = () => Gallery.closeGallery()
+  const buildGallerySessionSelect = () => Gallery.buildGallerySessionSelect()
+  const renderGallery = () => Gallery.renderGallery()
 
   // 叙事摘要：去掉【】结构块后截取前 60 字
   function summarize(text) {

@@ -12,6 +12,18 @@ const { patchProtocolPrompt } = require('./patch')
 const { createVectorStore } = require('./vector-store')
 const crypto = require('crypto')
 
+/* 引擎包元数据（轻量落位）：桌面主进程 / 移动端 Javet 桥 / 测试共用同一入口，
+ * 版本号与宿主 package.json 同步演进（发布脚本与诊断日志引用此常量）。
+ * 不做独立 npm 包拆分（桌面单仓 ROI 低）；生态工具按 engine_version 判别兼容性。 */
+const ENGINE_VERSION = '1.5.0'
+const ENGINE_META = {
+  name: 'sixworlds-engine',
+  version: ENGINE_VERSION,
+  /* 协议兼容线：低于该版本的故事档需要走迁移（kernel 绑定 sha1 结构变化等破坏性改动时降位） */
+  statePatchProtocol: 2, // 1: 基础 State Patch  2: + causal_updates / 关系归一化
+  entry: 'engine/index.js',
+}
+
 function createEngine(dataDir, opts) {
   const store = new StateStore(dataDir)
   const engine = { store }
@@ -28,15 +40,15 @@ function createEngine(dataDir, opts) {
   const _storeVers = new Map() // storyId → store 缓存版本（用于检索兜底同步的脏判断）
   const storeVersionOf = (storyId) => store.retrVersion(storyId)
 
-  /* 创建或获取故事。kernelText 用于计算内核版本绑定（条款 39） */
+  /* 创建或获取故事。kernelText 用于计算内核版本绑定（条款 39）；engine_version 供生态工具判别 */
   engine.ensureStory = ({ storyId, title, kernelId, kernelText }) => {
     const kernelVersion = kernelText ? 'sha1:' + crypto.createHash('sha1').update(String(kernelText)).digest('hex').slice(0, 12) : 'unknown'
     if (store.exists(storyId)) {
       const story = store.getStory(storyId)
-      return { story, created: false, kernel_version: story.kernel.version, kernel_match: story.kernel.version === kernelVersion }
+      return { story, created: false, kernel_version: story.kernel.version, kernel_match: story.kernel.version === kernelVersion, engine_version: ENGINE_VERSION }
     }
     const story = store.createStory({ storyId, title, kernelId, kernelVersion, createdAt: Date.now() })
-    return { story, created: true, kernel_version: kernelVersion, kernel_match: true }
+    return { story, created: true, kernel_version: kernelVersion, kernel_match: true, engine_version: ENGINE_VERSION }
   }
 
   /* 显式内核迁移（须调用方明确意图） */
@@ -170,7 +182,8 @@ function createEngine(dataDir, opts) {
   engine.turnLog = (storyId, turnId) => store.readTurnLog(storyId, turnId)
 
   engine.protocolPrompt = patchProtocolPrompt
+  engine.meta = ENGINE_META
   return engine
 }
 
-module.exports = { createEngine }
+module.exports = { createEngine, ENGINE_VERSION, ENGINE_META }
