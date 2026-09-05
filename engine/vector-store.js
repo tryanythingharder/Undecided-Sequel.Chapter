@@ -1,6 +1,13 @@
-'use strict'
+'use strict';
 /* VectorStore —— 长期记忆语义索引（SQLite + sqlite-vec，派生索引，可随时重建）
  *
+ * 宿主环境宽限度：console 并非所有嵌入环境都提供（移动端 Javet 裸 V8 未注册 ConsoleInterceptor
+ * 即无 console）——降级路径若在此抛错，会把「优雅降级」变成「整库崩溃」，故统一走软日志出口。 */
+const __softWarn = (typeof console !== 'undefined' && console && typeof console.warn === 'function')
+  ? (m) => console.warn(m)
+  : (() => {})
+
+/* VectorStore 派生索引说明：
  * 定位：stories/*.json（StateStore）仍是唯一正本（条款 4/27 不变）；本层是**派生检索索引**，
  * 删除 memory.db 会在下一次 retrieve 时从正本自动重建，不存在第二份真相。
  *
@@ -102,9 +109,14 @@ const EMBEDDERS = {
    * （此时表维度也回落 256，自洽可用）。 */
   'api-v1': { id: 'api-v1', dim: 0, fn: embedV1 }
 }
-let activeEmbedderId = process.env.SIXWORLDS_EMBEDDER && EMBEDDERS[process.env.SIXWORLDS_EMBEDDER]
-  ? process.env.SIXWORLDS_EMBEDDER
-  : 'hash-v1'
+/* 嵌入器默认值：process 可能不存在（移动端 Javet 裸 V8 嵌入不注入 process 全局，
+ * 模块加载即抛会断掉整个引擎）——守卫后环境缺省回落 hash-v1，桌面行为不变 */
+let activeEmbedderId = (() => {
+  try {
+    const e = typeof process !== 'undefined' && process.env && process.env.SIXWORLDS_EMBEDDER
+    return (e && EMBEDDERS[e]) ? e : 'hash-v1'
+  } catch { return 'hash-v1' }
+})()
 
 function activeEmbedder() {
   return EMBEDDERS[activeEmbedderId]
@@ -242,7 +254,7 @@ function createVectorStore(dataDir, opts) {
       vecs.forEach((v, i) => cachePut(batch[i].text, v))
       resyncAfterWarm()
     }).catch((e) => {
-      console.warn('[vector-store] 异步补嵌失败（下次未热命中会重新入队）：' + String((e && e.message) || e).slice(0, 120))
+      __softWarn('[vector-store] 异步补嵌失败（下次未热命中会重新入队）：' + String((e && e.message) || e).slice(0, 120))
       missQueue = [] // 失败清队：离线时不反复打网络；后续未热命中自然重试
     }).finally(() => { warming = false; if (missQueue.length) scheduleWarm() })
   }
@@ -311,7 +323,7 @@ function createVectorStore(dataDir, opts) {
       try { db.exec("INSERT INTO chunks_fts(chunks_fts) VALUES('delete-all')") } catch {}
       db.exec('DELETE FROM chunks')
       db.exec("DELETE FROM meta WHERE key LIKE 'wm:%'")
-      console.warn('[vector-store] 向量表结构升级（分区/维度 ' + dim + '），旧索引已弃，将按需全量重嵌')
+      __softWarn('[vector-store] 向量表结构升级（分区/维度 ' + dim + '），旧索引已弃，将按需全量重嵌')
     }
     /* 分区表：KNN 天然限定在单故事分区内，采样窗口不被其他故事稀释。
      * 旧版扩展无分区能力 → 退化为旧表（KNN 超采样后过滤），再无 cosine → L2。 */
@@ -336,7 +348,7 @@ function createVectorStore(dataDir, opts) {
       const fc = db.prepare('PRAGMA freelist_count').get().freelist_count
       if (fc >= 64 && fc * 4 >= pc) {
         db.exec('VACUUM')
-        console.warn('[vector-store] 例行维护：空闲页 ' + fc + '/' + pc + '，已 VACUUM 压缩 memory.db')
+        __softWarn('[vector-store] 例行维护：空闲页 ' + fc + '/' + pc + '，已 VACUUM 压缩 memory.db')
       }
     } catch { /* 维护失败不影响功能 */ }
   }
@@ -349,10 +361,10 @@ function createVectorStore(dataDir, opts) {
     wipeDbFiles()
     try {
       initDb()
-      console.warn('[vector-store] 检测到索引损坏，已自动重建 memory.db')
+      __softWarn('[vector-store] 检测到索引损坏，已自动重建 memory.db')
       return true
     } catch (e2) {
-      console.warn('[vector-store] 已停用（重建失败：' + String((e2 && e2.message) || e2).slice(0, 120) + '）')
+      __softWarn('[vector-store] 已停用（重建失败：' + String((e2 && e2.message) || e2).slice(0, 120) + '）')
       db = null
       return false
     }
@@ -366,7 +378,7 @@ function createVectorStore(dataDir, opts) {
       if (!rebuildAfterCorruption(e1)) throw e1
     }
   } catch (e) {
-    console.warn('[vector-store] 已停用（' + String((e && e.message) || e).slice(0, 120) + '）；检索回退为纯词面+实体信号')
+    __softWarn('[vector-store] 已停用（' + String((e && e.message) || e).slice(0, 120) + '）；检索回退为纯词面+实体信号')
     return disabled
   }
 

@@ -1716,6 +1716,39 @@ ipcMain.handle('image:saveAll', async (evt, opts) => {
   }
 })
 
+// ---- 自动更新（electron-updater，仅 NSIS 安装版；便携版无自更新，README 已注明）----
+/* 环境隔离：测试（SIXWORLDS_TEST）/开发（未打包）一律返回 unavailable，不触网不弹窗——
+ * CI 的 dist+test:packaged 与本地 npm start 都走这条静默路径 */
+let updaterChecking = false
+ipcMain.handle('update:check', async () => {
+  try {
+    if (process.env.SIXWORLDS_TEST === '1' || !app.isPackaged) {
+      return { ok: true, available: false, reason: 'unavailable' }
+    }
+    if (updaterChecking) return { ok: true, available: false, reason: 'busy' }
+    updaterChecking = true
+    const { autoUpdater } = require('electron-updater')
+    autoUpdater.autoDownload = false          // 只检查+提示，下载安装由用户在设置页确认
+    autoUpdater.autoInstallOnAppQuit = true   // 已下载的更新退出时自动装
+    const result = await autoUpdater.checkForUpdates()
+    const version = result && result.updateInfo && result.updateInfo.version
+    if (!version || version === app.getVersion()) return { ok: true, available: false, reason: 'latest' }
+    return { ok: true, available: true, version }
+  } catch (e) {
+    return { ok: false, error: String((e && e.message) || e) }
+  } finally { updaterChecking = false }
+})
+ipcMain.handle('update:download', async () => {
+  try {
+    if (process.env.SIXWORLDS_TEST === '1' || !app.isPackaged) return { ok: false, error: '当前环境不可用' }
+    const { autoUpdater } = require('electron-updater')
+    await autoUpdater.downloadUpdate()
+    return { ok: true }
+  } catch (e) {
+    return { ok: false, error: String((e && e.message) || e) }
+  }
+})
+
 // ---- 系统通知：生成完成时（窗口最小化/失焦才发，不打扰前台用户） ----
 ipcMain.handle('notify', (_evt, opts) => {
   try {

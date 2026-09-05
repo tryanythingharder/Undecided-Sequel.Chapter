@@ -793,6 +793,9 @@ A 凡人（农家/商户/匠户/军户，可不修行）；B 宗门弟子（外�
 {
   "title": "玄寰界",
   "tagline": "玄寰界已就绪，等待第一位求道者",
+  "version": "1.5.0",
+  "author": "六面世界",
+  "license": "MIT",
   "startLabel": "开始修行",
   "startPayload": "开始",
   "quickLabel": "选择一个出身，或直接自由描述",

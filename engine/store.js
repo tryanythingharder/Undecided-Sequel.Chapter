@@ -161,8 +161,13 @@ class StateStore {
     const story = this.getStory(storyId)
     if (!story) throw new Error('story not found: ' + storyId)
     /* structuredClone：比 JSON 往返快 2-3 倍（性能基线中事务克隆是 commit 的大头之一），
-     * 且实体名索引 Map 被完整克隆（仍有效，免懒重建）。故事对象是纯数据，无函数/DOM 引用。 */
-    const staged = structuredClone(story)
+     * 且实体名索引 Map 被完整克隆（仍有效，免懒重建）。故事对象是纯数据，无函数/DOM 引用。
+     * structuredClone 是宿主 API 而非 V8 内建（移动端 Javet 裸 V8 没有）——缺省回落 JSON 往返：
+     * 慢 ~2 倍但语义等价，只是 _nameIndex 退化为 JSON 后的 {}（repositories 的 instanceof Map
+     * 防御已兜住，首次访问自动重建）。 */
+    const cloneFn = (typeof structuredClone === 'function') ? structuredClone : (o) => JSON.parse(JSON.stringify(o, (k, v) => (k === '_nameIndex' ? null : v)))
+    const staged = cloneFn(story)
+    if (staged._nameIndex && !(staged._nameIndex instanceof Map)) staged._nameIndex = null
     this._staging.set(storyId, staged)
     return staged
   }

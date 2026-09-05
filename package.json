@@ -19,13 +19,20 @@
     "test:perf": "node scripts-dev/bench.cjs && node scripts-dev/bench-recall.cjs && node scripts-dev/bench-fe.cjs && node scripts-dev/bench-vector.cjs",
     "test:packaged": "node scripts-dev/test-packaged.cjs",
     "icon": "electron scripts-dev/gen-icon.cjs",
-    "dist": "node -e \"fs.rmSync('dist',{recursive:true,force:true})\" && electron-builder --win nsis portable"
+    "dist": "node -e \"fs.rmSync('dist',{recursive:true,force:true})\" && electron-builder --win nsis portable --publish never"
   },
   "build": {
     "appId": "com.sixworlds.codex",
     "productName": "六面世界",
     "copyright": "MIT License",
     "electronDist": "node_modules/electron/dist",
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "tryanythingharder",
+        "repo": "Undecided-Sequel.Chapter"
+      }
+    ],
     "directories": {
       "output": "dist",
       "buildResources": "build"
@@ -94,6 +101,7 @@
     "playwright": "^1.62.1"
   },
   "dependencies": {
+    "electron-updater": "^6.8.9",
     "node-llama-cpp": "^3.20.0",
     "sqlite-vec": "^0.1.9"
   }

@@ -58,6 +58,9 @@ contextBridge.exposeInMainWorld('api', {
   // 真实嵌入模型配置（api-v1，OpenAI 兼容 /v1/embeddings）：引擎重启后生效
   embedderConfig: () => ipcRenderer.invoke('embedder:get'),
   saveEmbedderConfig: (cfg) => ipcRenderer.invoke('embedder:set', cfg),
+  // 软件更新（仅 NSIS 安装版；测试/开发环境返回 unavailable）
+  updateCheck: () => ipcRenderer.invoke('update:check'),
+  updateDownload: () => ipcRenderer.invoke('update:download'),
   // 主窗口 -> 设置窗口：运行时改动（模型/思考程度/主题等）实时同步给已打开的设置窗口
   mainChanged: (payload) => ipcRenderer.invoke('main:changed', payload),
   onCfgSync: (cb) => {

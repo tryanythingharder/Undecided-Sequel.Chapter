@@ -140,6 +140,27 @@
 - 自定义内核：进入顶部「内核设计」即可新建、AI 协作设计或导入任意 Markdown；内核可按 `KERNEL_META`
   声明标题、开场白与出身预设，未声明则使用通用模板。
 
+### 分享内核
+
+内核就是一个 `.md` 文件——把文件发给别人，对方在内核库里导入即玩。分享的内核可在
+`KERNEL_META` 中带上署名与版本（均为可选字段）：
+
+```json
+<!--KERNEL_META
+{
+  "title": "玄寰界",
+  "tagline": "一句话简介",
+  "version": "1.5.0",
+  "author": "你的名字",
+  "license": "CC BY-NC 4.0"
+}
+KERNEL_META-->
+```
+
+- `version`：内核自己的版本号（发布工作台发布时会自动 +0.1 递增，与上表内置版本无关）；
+- `author` / `license`：分享时的署名与许可声明，会显示在内核设计工作台；
+- 玩家侧导入即玩：内核库 → 导入 Markdown → 绑定到工作区。
+
 ## 快速开始
 
 ### 方式一：下载打包版（推荐）
@@ -190,6 +211,9 @@ npm run dist   # 打包 NSIS 安装版 + 便携版单文件（产物在 dist/）
 - 打 git tag（如 `v1.5.0`）并推送，会触发 [.github/workflows/release.yml](.github/workflows/release.yml)
   自动出 Release：桌面端跑完测试后打包上传 `SixWorlds-Setup-*.exe` 与 `SixWorlds-Portable-*.exe`，
   Android 端用仓库 secrets 中的密钥签名后上传 `SixWorlds-Android-*.apk`。全部产物构建自同一份 tag 代码。
+
+**自动更新**：安装版内置应用内更新——设置 → 高级 → 检查更新（发现新版本后自动下载，退出时安装）。
+便携版不参与自更新，请到 Releases 页下载新版覆盖。
 
 **代码签名现状**：
 

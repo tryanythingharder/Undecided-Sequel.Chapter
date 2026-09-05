@@ -13,7 +13,8 @@ const unit = [
   'scripts-dev/test-bloub.cjs',
   'scripts-dev/audit-acceptance.cjs',
   'scripts-dev/validate-kernel-xianxia.cjs',
-  'mobile/tools/bridge-test.mjs'
+  'mobile/tools/bridge-test.mjs',
+  'mobile/tools/bridge-sandbox.mjs'
 ]
 const desktop = [
   'scripts-dev/verify.cjs',

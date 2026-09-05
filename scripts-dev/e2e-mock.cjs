@@ -118,14 +118,27 @@ async function main() {
 
   const app = await electron.launch({
     executablePath: electronExecutable,
-    args: ['.'], cwd: path.join(__dirname, '..'), env: { ...process.env, ELECTRON_DISABLE_SECURITY_WARNINGS: 'true', SIXWORLDS_TEST: '1' }
+    args: ['.'], cwd: path.join(__dirname, '..'), env: { ...process.env, ELECTRON_DISABLE_SECURITY_WARNINGS: 'true', SIXWORLDS_TEST: '1', SIXWORLDS_UI_SCHEME: process.env.SIXWORLDS_UI_SCHEME || '' }
   })
-  const win = await app.firstWindow()
+  let win = await app.firstWindow()
   await win.waitForTimeout(1500)
+  // 方案矩阵（绞杀者迁移闸门）：SIXWORLDS_UI_SCHEME=proto 整轮跑在原型工作台——
+  // 双方案 DOM id 一致，断言天然双有效；切换会整窗重建，重取句柄再续
+  if (process.env.SIXWORLDS_UI_SCHEME === 'proto') {
+    const cur = await win.evaluate(() => window.api.uiScheme()).catch(() => 'classic')
+    if (cur !== 'proto') {
+      await win.evaluate(() => window.api.setUiScheme('proto')).catch(() => {})
+      await win.waitForTimeout(2600)
+      const wins = app.windows()
+      win = wins[wins.length - 1]
+    }
+  }
   // 干净状态
   await win.evaluate(() => localStorage.clear())
   await win.reload()
   await win.waitForTimeout(1500)
+  const winsAfter = app.windows()
+  win = winsAfter[winsAfter.length - 1]
 
   // 配置文本模型 + 图像模型（b64 模式 + 自动插图）——设置在独立窗口中操作
   await win.click('#btn-settings')

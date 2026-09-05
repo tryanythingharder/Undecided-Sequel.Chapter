@@ -855,6 +855,27 @@
     else if (r && r.error) toast('导出失败：' + r.error, 'err')
   })
 
+  // ============ 软件更新（仅 NSIS 安装版；测试/开发环境静默不可用） ============
+  {
+    const btn = $('btn-check-update')
+    const note = $('update-note')
+    if (btn) btn.addEventListener('click', async () => {
+      if (!api.updateCheck) { note.textContent = '当前版本不支持'; return }
+      btn.disabled = true
+      note.textContent = '正在检查…'
+      const r = await api.updateCheck()
+      btn.disabled = false
+      if (!r || r.ok === false) { note.textContent = '检查失败：' + ((r && r.error) || '网络异常'); return }
+      if (r.reason === 'unavailable') { note.textContent = '当前环境不支持自动更新（便携版请到 Releases 页下载新版）'; return }
+      if (r.reason === 'busy') { note.textContent = '正在检查，请稍候'; return }
+      if (!r.available) { note.textContent = '已是最新版本'; return }
+      note.textContent = '发现新版本 v' + r.version + '，正在下载…'
+      const d = await api.updateDownload()
+      if (d && d.ok) note.textContent = 'v' + r.version + ' 已下载——退出应用时自动安装'
+      else note.textContent = '下载失败：' + ((d && d.error) || '未知错误')
+    })
+  }
+
   // ============ 启动 ============
   ;(async function boot() {
     await hydrateSecrets()
