@@ -151,31 +151,11 @@
   let multiMode = false        // 显式多选模式（无需按住 Ctrl，普通点击即勾选）
   let choicesFoldUser = false  // 玩家手动收起选项区（置底时自动展开并复位）
   let choicesAutoFolded = false // 上滑查阅历史时自动收起
+  let choicesFoldGuard = 0 // 自动折叠防抖闸：折叠/展开后的 smooth 滚动动画期内不再自动折叠（防振荡，见滚动处理器）
   const sessionDrafts = new Map() // 每会话输入草稿（内存，切会话不丢）
   let sbFilter = '' // 侧栏全局搜索过滤词（跨所有世界线）
 
   // 内核开局界面元数据：内核文件可用 <!--KERNEL_META {json} KERNEL_META--> 自定义空态界面（标题/开场白/出身预设），未配置时回落内置默认
-  function parseKernelMeta(text) {
-    if (!text) return null
-    const m = String(text).match(/<!--KERNEL_META\s*([\s\S]*?)\s*KERNEL_META-->/)
-    if (!m) return null
-    try {
-      const o = JSON.parse(m[1])
-      if (!o || typeof o !== 'object') return null
-      const out = {}
-      for (const k of ['title', 'tagline', 'startLabel', 'startPayload', 'quickLabel', 'version', 'author', 'license']) {
-        if (typeof o[k] === 'string' && o[k].trim()) out[k] = o[k].trim()
-      }
-      if (Array.isArray(o.origins)) {
-        out.origins = o.origins
-          .filter((x) => x && typeof x.label === 'string' && typeof x.text === 'string' && x.label.trim() && x.text.trim())
-          .map((x) => ({ label: x.label.trim(), text: x.text.trim() }))
-          .slice(0, 8)
-        if (!out.origins.length) delete out.origins
-      }
-      return out
-    } catch (e) { return null } // 块损坏时静默回落默认界面
-  }
 
   // ---- 多会话：{ id, ws, title, messages: [{role, content, illust?}], updatedAt, createdAt } ----
   let sessions = []
@@ -913,23 +893,6 @@
   function currentKernelRef() {
     const ws = curWs()
     return (ws && (ws.kernelId || ws.kernelPath)) || cfg.kernelPath || 'builtin:kernel.md'
-  }
-  async function loadKernel() {
-    // 工作区专属内核（库 id 或旧路径）优先，其次全局配置，最后应用内置 kernel.md
-    const ws = curWs()
-    let r = await resolveKernelRef(currentKernelRef())
-    if (!r || !r.ok) r = await api.readKernel()
-    if (r && r.ok) {
-      kernel = r
-      const meta = parseKernelMeta(r.text)
-      $('kernel-state').textContent = '已加载 · ' + ((meta && meta.title) || r.name || '内核')
-      $('kernel-state').style.color = 'var(--ok)'
-      return true
-    }
-    kernel = null
-    $('kernel-state').textContent = '失败'
-    $('kernel-state').style.color = 'var(--danger)'
-    return false
   }
 
   // ---- 选项解析：兼容多种格式 ----
@@ -1821,47 +1784,6 @@
   // 状态引擎：流式期间实时隐藏协议块（含未完整的标记前缀与常见变体：两箭头/全角/围栏行）
   const STREAM_MARKS = ['<<<STATE_PATCH>>>', '<<<STATE_PATCH>', '<<< STATE_PATCH >>>', '<<<state_patch>>>', '＜＜＜STATE_PATCH＞＞＞', '```json', '```', 'update_state(']
   const STREAM_MARK = '<<<STATE_PATCH>>>'   // hold 前缀判定仍以标准形态为基准
-  function streamVisibleLen() {
-    let cut = streaming.length
-    for (const mk of STREAM_MARKS) {
-      const i = streaming.indexOf(mk)
-      if (i !== -1) cut = Math.min(cut, i)
-    }
-    if (cut < streaming.length) return cut
-    const hold = Math.min(streaming.length, STREAM_MARK.length - 1)
-    for (let k = hold; k > 0; k--) {
-      if (STREAM_MARK.startsWith(streaming.slice(streaming.length - k))) return streaming.length - k
-    }
-    return streaming.length
-  }
-  function flushStream() {
-    streamRaf = 0
-    if (!busy) return
-    const shown = streaming.slice(0, streamVisibleLen())
-    if (shown.length === streamRenderedLen) return
-    const bodies = msgEl.querySelectorAll('.msg.assistant .msg-body')
-    const last = bodies[bodies.length - 1]
-    if (!last) return
-    const firstNode = last.firstChild
-    if (firstNode && firstNode.nodeType === Node.TEXT_NODE && firstNode.data.length === streamRenderedLen && shown.length > streamRenderedLen) {
-      // 常规路径：文本节点内容恰好等于已渲染前缀 → 追加增量即可
-      firstNode.appendData(shown.slice(streamRenderedLen))
-    } else {
-      // 冷启动/外部重绘后：整体重建一次（含光标），之后回到追加路径
-      last.textContent = ''
-      last.appendChild(document.createTextNode(shown))
-      const dot = document.createElement('span')
-      dot.className = 'stream-dot'
-      dot.textContent = ' ▍'
-      last.appendChild(dot)
-    }
-    streamRenderedLen = shown.length
-    autoScroll()
-  }
-  function appendStream(piece) {
-    streaming += piece
-    if (!streamRaf) streamRaf = requestAnimationFrame(flushStream)
-  }
 
   // ============ 消息搜索（Ctrl+F 在当前世界线内搜索） ============
   // 思路：维护 query 与命中索引，renderMessages 在渲染 body 时对命中片段包裹 <mark>
@@ -1913,187 +1835,35 @@
   const PATCH_RETRY_PROMPT = EngineFlow.patchRetryPrompt(null)
   const enginePrep = (s, playerInput) => EngineFlow.enginePrep(s, playerInput)
 
-  async function send(text, opts) {
-    opts = opts || {}
-    const value = String(text || '').trim()
-    if (busy) return
-    if (engineBusy) { toast('上一回合状态正在补录，请稍候', 'info'); return }
-    if (!value && !opts.regen) return
-    if (!cfg.baseUrl || !cfg.apiKey || !cfg.model) {
-      toast('请先在设置中填写 API 地址、密钥与模型。', 'err')
-      openSettings()
-      return
-    }
-    if (!kernel) {
-      toast('内核未加载，无法开始。', 'err')
-      openSettings()
-      return
-    }
-
-    const s = curSession() || newSession()
-    // 发送即清空输入框（不等回复），草稿同步清除
-    if (!opts.regen) {
-      $('input').value = ''
-      fitInput()
-      sessionDrafts.delete(s.id)
-    }
-    if (opts.regen) {
-      // 移除末尾的 assistant 消息（若有），保留其前的 user 作为上下文重发
-      if (s.messages.length && s.messages[s.messages.length - 1].role === 'assistant') {
-        const discarded = s.messages.pop()
-        // 状态引擎：被抛弃的叙事留痕（永不静默覆盖，只增不删）
-        try { api.engineDiscard({ storyId: s.id, excerpt: String(discarded.content || '').slice(0, 400), reason: 'regen' }) } catch {}
-      }
-    } else {
-      s.messages.push({ role: 'user', content: value, at: Date.now() })
-    }
-    busy = true
-    streaming = ''
-    streamRenderedLen = 0
-    currentReqId = 'r' + Date.now().toString(36)
-    busyIsland = showBusyIsland() // R76：忙碌灵动岛（独立于 .toast，避免干扰 e2e toast 选择器）
-    if (window.BloubPet) window.BloubPet.event('busy') // 桌宠：生成期间化作 thinking
-    setSendButtonState(true)
-    renderMessages()
-    updateTitle()
-
-    // ---- 状态引擎：确保故事存在 + 检索长期记忆（任何故障静默降级为纯对话） ----
-    const engineMeta = opts.regen ? await enginePrep(s, value || (s.messages.filter((m) => m.role === 'user').pop() || {}).content || '') : await enginePrep(s, value)
-
-    const ctxN = Math.min(64, Math.max(2, Number(cfg.ctxCount) || 24))
-    const history = s.messages.slice(-ctxN).map((m) => ({ role: m.role, content: m.content }))
-    const msgs = [{ role: 'system', content: kernel.text }]
-    if (engineMeta && engineMeta.block) msgs.push({ role: 'system', content: engineMeta.block })
-    if (engineMeta && EngineFlow.protocolText()) msgs.push({ role: 'system', content: EngineFlow.protocolText() })
-    msgs.push(...history)
-    const payload = {
-      baseUrl: cfg.baseUrl,
-      apiKey: cfg.apiKey,
-      model: cfg.model,
-      // 思考程度（提供商支持 reasoning_effort 时生效，不支持自动回退默认）
-      thinkLevel: cfg.thinkLevel || 'default',
-      messages: msgs,
-      reqId: currentReqId
-    }
-
-    const r = await api.sendChat(payload)
-    const wasAborted = r && r.ok && r.aborted
-    busy = false
-    if (busyIsland) { busyIsland.close(); busyIsland = null } // R76：收纳忙碌灵动岛
-    if (window.BloubPet) window.BloubPet.event(r && r.ok && r.content ? 'done' : 'error') // 桌宠：完成亮徽标 / 报错惊叹号
-    if (streamRaf) { cancelAnimationFrame(streamRaf); streamRaf = 0 }
-    streaming = ''
-    streamRenderedLen = 0
-    currentReqId = null
-    setSendButtonState(false)
-
-    if (r && r.ok && r.content) {
-      // ---- 状态引擎：先入列立即可读，后补账（条款 15-22/25/28/30）----
-      // 时序原则：阅读永不被记账阻塞。回复一到就 push + 渲染（选项立即可点），
-      // 记账（提交/补录重试）随后进行；需要补录时消息挂 committing 标记实时可见。
-      let narrative = r.content
-      let pendingId = null
-      let patchStatus = null
-      let patchReason = ''
-      if (engineMeta) {
-        try {
-          const cx = await api.engineCommit(Object.assign({ storyId: engineMeta.storyId, sessionId: engineMeta.sessionId, playerInput: engineMeta.playerInput, intent: engineMeta.playerInput.slice(0, 200), model: cfg.model, retrievedIds: engineMeta.retrievedIds, contextSize: engineMeta.contextSize, raw: r.content, retryCount: 0 }))
-          if (cx && cx.data) {
-            if (cx.data.narrative) narrative = cx.data.narrative
-            pendingId = cx.data.pending_id || null
-            patchStatus = cx.data.patch_status || null
-            if (cx.data.errors && cx.data.errors[0] && cx.data.errors[0].message) patchReason = String(cx.data.errors[0].message).slice(0, 300)
-          }
-        } catch { /* 引擎故障不阻断叙事 */ }
-      }
-      // 立即入列：committed（正常）/ committing（需补录，记账进行中）/ pending（确定性失败）
-      // 可重试补录 = 有 pending 且不是确定性的 COMMIT_FAILED（后者直接亮待补录徽标，不再耗一次模型调用）
-      const retryable = !!(engineMeta && pendingId && patchStatus && patchStatus !== 'COMMIT_FAILED')
-      const needCommit = !!(engineMeta && pendingId)
-      const msg = { role: 'assistant', content: narrative, at: Date.now(), pending: needCommit ? (pendingId || true) : undefined, committing: retryable }
-      s.messages.push(msg)
-      // 首条叙事确定会话标题
-      if (s.title === '新世界线') {
-        s.title = deriveTitle(narrative)
-        renderSessionList()
-      }
-      if (wasAborted) toast('已停止生成（保留已生成内容）', 'info')
-      // 后台时通知：生成完成（点通知回到窗口）
-      api.notify({ title: '六面世界 · 世界回应已就绪', body: (s.title || '') + ' 的新一幕已生成' + (r.partial ? '（网络中断，内容不完整）' : '') }).catch(() => {})
-
-      // ---- 记账：缺失/损坏时静默重试（后台，不阻塞阅读） ----
-      if (engineMeta) {
-        const commitBase = { storyId: engineMeta.storyId, sessionId: engineMeta.sessionId, playerInput: engineMeta.playerInput, intent: engineMeta.playerInput.slice(0, 200), model: cfg.model, retrievedIds: engineMeta.retrievedIds, contextSize: engineMeta.contextSize }
-        // 需要补录：消息先亮「记账中」，跑完再落地（成功撤标记 / 失败留待补录）
-        if (needCommit && retryable) {
-          msg.committing = true
-          renderMessages()
-          ;(async () => {
-            let pendingKept = false
-            engineBusy = true // 补录期间禁止并发发送/重生成（消息顺序保证），但阅读与选择不受影响
-            try {
-              const retryMsgs = msgs.concat([
-                { role: 'assistant', content: narrative },
-                // 拒绝原因必须带上：实测 deepseek 会把 threads[update] 写成 ACTIVE（合法 RESOLVED|ABANDONED），
-                // 不带原因的盲重试会原样重蹈（test-memory-real PC-000002）；MISSING 没有原因可言，传 null
-                { role: 'user', content: patchRetryPrompt(patchStatus === 'PATCH_MISSING' ? null : (patchReason || null)) }
-              ])
-              const rr = await api.sendChat(Object.assign({}, payload, { messages: retryMsgs, reqId: 'rp' + Date.now().toString(36), silent: true }))
-              if (rr && rr.ok && rr.content) {
-                const cm2 = await api.engineCommit(Object.assign({}, commitBase, { raw: rr.content, pendingId, retryCount: 1 }))
-                if (cm2 && cm2.data && cm2.data.committed) {
-                  toast('状态已补录（模型首轮缺状态块）', 'ok', 3200)
-                } else {
-                  pendingKept = true
-                }
-              } else pendingKept = true
-            } catch { pendingKept = true }
-            engineBusy = false
-            msg.committing = false
-            msg.pending = pendingKept ? (pendingId || true) : undefined
-            saveSessions()
-            renderMessages()
-            if (pendingKept) toast('本回合状态未正式提交，已记录待补录（重启不丢失）', 'err', 6000)
-          })()
-        } else if (needCommit) {
-          // COMMIT_FAILED：确定性失败，后台重试必然重蹈覆辙——直接亮待补录徽标（不耗模型调用）
-          toast('本回合状态未正式提交，已记录待补录（重启不丢失）', 'err', 6000)
-        }
-      }
-    } else if (r && r.ok && r.aborted) {
-      // 没有收到任何内容也取消了
-      toast('已停止生成', 'info')
-    } else {
-      const errMsg = (r && r.error) || '未知错误'
-      s.messages.push({ role: 'assistant', content: '⚠️ [[世界引擎报错]]\n' + errMsg })
-      toast('世界引擎报错：' + errMsg, 'err')
-      api.notify({ title: '六面世界 · 生成失败', body: String(errMsg).slice(0, 120) }).catch(() => {})
-    }
-    // 累计本轮 token 用量到当前世界线（主进程从 usage 字段解析）
-    if (r && r.ok && r.usage) {
-      const u = r.usage
-      s.tokens = s.tokens || { prompt: 0, completion: 0, total: 0 }
-      s.tokens.prompt += Number(u.prompt_tokens) || 0
-      s.tokens.completion += Number(u.completion_tokens) || 0
-      s.tokens.total += Number(u.total_tokens) || 0
-      // 部分端点在 usage 里带回费用（如有则累计，右上角用量面板展示）
-      const c = Number(u.cost != null ? u.cost : (r.cost != null ? r.cost : NaN))
-      if (Number.isFinite(c)) s.tokens.cost = (s.tokens.cost || 0) + c
-      saveSessions()
-    }
-    const keepN = Math.min(400, Math.max(8, Number(cfg.keepCount) || 80))
-    if (s.messages.length > keepN) s.messages = s.messages.slice(s.messages.length - keepN)
-    touchSession()
-    renderMessages()
-    updateTitle()
-
-    // 自动插图：为刚生成的叙事生成
-    const last = s.messages.length - 1
-    if (r && r.ok && r.content && cfg.illustAuto && illustReady() && last >= 0) {
-      generateIllust(last, false, true)
-    }
+const sendSt = {
+    get busy() { return busy }, set busy(v) { busy = v },
+    get engineBusy() { return engineBusy }, set engineBusy(v) { engineBusy = v },
+    get busyIsland() { return busyIsland }, set busyIsland(v) { busyIsland = v },
+    get currentReqId() { return currentReqId }, set currentReqId(v) { currentReqId = v },
+    get streaming() { return streaming }, set streaming(v) { streaming = v },
+    get streamRaf() { return streamRaf }, set streamRaf(v) { streamRaf = v },
+    get streamRenderedLen() { return streamRenderedLen }, set streamRenderedLen(v) { streamRenderedLen = v },
   }
-
+  const SendOrch = window.SendFlow.createSend({
+    st: sendSt, $, api, msgEl,
+    STREAM_MARKS, STREAM_MARK, autoScroll,
+    cfg: () => cfg, kernel: () => kernel,
+    curSession, deriveTitle, fitInput, generateIllust, illustReady,
+    newSession, openSettings,
+    renderMessages, renderSessionList, saveSessions, sessionDrafts,
+    setSendButtonState, showBusyIsland, toast, touchSession, updateTitle,
+    enginePrep, patchRetryPrompt, protocolText: () => EngineFlow.protocolText(),
+  })
+  const send = SendOrch.send
+  const appendStream = (piece) => SendOrch.appendStream(piece)
+  const resolvePendingFlow = window.SendFlow.createResolvePendingFlow({
+    st: sendSt, $, api,
+    cfg: () => cfg, kernel: () => kernel,
+    curSession, renderMessages, toast,
+    enginePrep, patchRetryPrompt, protocolText: () => EngineFlow.protocolText(),
+    seedProtocolText: (t) => EngineFlow.seedProtocolText(t),
+    refreshPendingBanner,
+  })
   // 中途取消当前生成
   function stopGeneration() {
     if (!busy || !currentReqId) return
@@ -2139,46 +1909,6 @@
     } catch { el.classList.add('hidden') }
   }
 
-  async function resolvePendingFlow(pendingId) {
-    const s = curSession()
-    if (!s || busy || engineBusy) return
-    let targets = []
-    try {
-      const lr = await api.enginePendings({ storyId: s.id })
-      const list = (lr && lr.ok && Array.isArray(lr.data)) ? lr.data : []
-      targets = list.filter((x) => !pendingId || x.pending_id === pendingId)
-    } catch { return }
-    if (!targets.length) { toast('没有待补录的回合', 'info', 2200); refreshPendingBanner(); return }
-    busy = true
-    let okN = 0
-    try {
-      if (!EngineFlow.protocolText()) { const pr = await api.engineProtocol(); if (pr && pr.ok) EngineFlow.seedProtocolText(pr.data) }
-      for (const pc of targets) {
-        try {
-          const prep = await enginePrep(s, pc.player_input || '')
-          const msgs2 = [{ role: 'system', content: kernel.text }]
-          if (prep && prep.block) msgs2.push({ role: 'system', content: prep.block })
-          if (EngineFlow.protocolText()) msgs2.push({ role: 'system', content: EngineFlow.protocolText() })
-          msgs2.push({ role: 'user', content: pc.player_input || '（玩家行动）' })
-          msgs2.push({ role: 'assistant', content: pc.narrative || '' })
-          // 挂起时记录的拒绝原因必须回传（实测：threads[update] 写成 ACTIVE 这类校验错，盲重试会原样重蹈）
-          // 仅存状态码（PATCH_MISSING 等）时没有可解释的原因，退回通用补录提示词
-          const pcErr = String(pc.patch_error || '').trim()
-          msgs2.push({ role: 'user', content: patchRetryPrompt(/^PATCH_[A-Z_]+$/.test(pcErr) ? null : (pcErr.slice(0, 300) || null)) })
-          const rr = await api.sendChat({ baseUrl: cfg.baseUrl, apiKey: cfg.apiKey, model: cfg.model, thinkLevel: cfg.thinkLevel || 'default', messages: msgs2, reqId: 'rp' + Date.now().toString(36), silent: true })
-          if (rr && rr.ok && rr.content) {
-            const rs = await api.engineResolvePending({ storyId: s.id, pendingId: pc.pending_id, raw: rr.content })
-            if (rs && rs.ok && rs.data && rs.data.resolved) okN++
-          }
-        } catch { /* 单条失败不影响其余补录 */ }
-      }
-    } finally {
-      busy = false
-      toast(okN === targets.length ? ('已补录 ' + okN + ' 条回合状态') : ('补录完成 ' + okN + '/' + targets.length + '（其余保持待补录）'), okN ? 'ok' : 'err', 5000)
-      refreshPendingBanner()
-      renderMessages()
-    }
-  }
 
   // 复制文本到剪贴板
   async function copyText(text) {
@@ -2666,71 +2396,15 @@
   // ============ 画廊 ============
   // ============ 内核库（设计区）：列表 / 新建 / 编辑 / 导入 / 绑定 / 删除 ============
   // 内核 = 一个世界的规则书（Markdown）。引擎与内核解耦：换内核即换世界，玩法能力不变。
-  const KERNEL_TEMPLATE = [
-    '<!--KERNEL_META',
-    '{',
-    '  "title": "我的世界：人生模拟器",',
-    '  "tagline": "一句话介绍这个世界",',
-    '  "startLabel": "开始游戏",',
-    '  "origins": [',
-    '    { "label": "平民之子", "text": "我出生在平凡家庭，渴望改变命运" },',
-    '    { "label": "没落贵族", "text": "我出身没落贵族，背负家族期望" }',
-    '  ]',
-    '}',
-    'KERNEL_META-->',
-    '',
-    '# 我的世界：人生模拟器',
-    '',
-    '## 一、世界设定',
-    '',
-    '（描述世界观：时代、地理、势力、力量体系、经济与日常。写得越具体，AI 演绎越稳定。）',
-    '',
-    '## 二、运行规则',
-    '',
-    '1. 你是【世界模拟系统】：维护时间、人物、势力与因果；玩家只是世界里出生的一个人。',
-    '2. 世界不围绕玩家转动：NPC 有自己的目标与日程；玩家的特殊必须由行动挣来。',
-    '3. 每一幕以场景行开头：【公历 2026.01.01｜晨｜地点】（日期自定历法，格式须保持）。',
-    '4. 每一幕结尾输出【你需要决定】与 2-4 个选项，格式逐项一行：`A. 动作短句`（代价写进文案）；',
-    '   琐碎回合也照给选项（继续观察 / 谨慎行动 / 主动搭话），不空缺。',
-    '5. 重大改变（死亡、承诺、关系变化、获得/失去）必须真实发生并持续影响后续，不可自动回退。',
-    '6. 玩家自由输入优先于选项；只记录玩家明确确认的决定。',
-    '',
-    '## 三、状态记录',
-    '',
-    '严格遵守系统注入的【状态记录协议】：每幕末尾输出状态块，记录本回合新发生的变化；',
-    '纯闲聊回合输出 <<<NO_STATE_CHANGE>>>。'
-  ].join('\n')
-
-  const KERNEL_DESIGN_KEY = 'sixworlds.kernel.design.v1'
-  const KERNEL_DRAFT_KEY = '__draft__'
-  const KERNEL_DESIGN_SYSTEM = [
-    '你是一名叙事世界内核设计师，正在通用的多内核平台中与用户共同工作。',
-    '内核是可独立装载的 Markdown 规则书，不能依赖某个固定世界、作品或应用品牌。',
-    '你的工作是澄清目标、指出规则漏洞，并把已确认的设计同步到当前草稿。',
-    '必须保留合法的 KERNEL_META JSON；正文至少覆盖世界设定、玩家身份、运行规则、因果与失败、输出格式。',
-    '系统会另外注入状态记录协议，因此不要自行发明 STATE_PATCH、账本字段或引擎内部格式。',
-    '',
-    '回复先用简短中文说明本轮判断，再附带一种机器可应用的变更：',
-    '1. 新建或大范围重写时：<<<KERNEL_MD>>>完整 Markdown<<<END_KERNEL_MD>>>',
-    '2. 局部修改时：<<<KERNEL_PATCH>>>{"operations":[{"search":"草稿中唯一且完全相同的原文","replace":"替换后的完整文本"}]}<<<END_KERNEL_PATCH>>>',
-    '3. 本轮只讨论取舍、尚未确认修改时：在说明末尾输出 <<<NO_KERNEL_CHANGE>>>。',
-    'PATCH 的 search 必须能在当前草稿中唯一命中；不要同时输出两种变更块。',
-    '不要把变更块放进 Markdown 代码围栏。'
-  ].join('\n')
-
   let kernelHubEditingId = null // 只有 user:* 可原位保存；内置内核修改后另存副本
   let kernelHubSourceId = ''
   let kernelHubWorkspaceId = null // 设计画布当前载入的工作区；切换工作区后避免复用旧草稿
   let kernelEditorDirty = false
   let kernelAiBusy = false
   let kernelAiReqId = null
-  let kernelDesignChats = loadKernelDesignChats()
   let kernelRenderSeq = 0
   let kernelSearchTimer = null
-  let kernelFilter = 'all'
   let kernelAutoSaveTimer = 0
-  const KERNEL_RELEASES_KEY = 'sixworlds.kernel.releases.v1'
-  let kernelReleases = (() => { try { const v = JSON.parse(localStorage.getItem(KERNEL_RELEASES_KEY) || '{}'); return v && typeof v === 'object' ? v : {} } catch { return {} } })()
   let kernelCheckpointAccepted = false
   let kernelValidation = { source: '', result: null }
   let kernelLayerReturnFocus = null
@@ -2739,40 +2413,27 @@
   const commandInput = $('command-input')
   let commandReturnFocus = null
   let commandActiveIndex = 0
-
-  function loadKernelDesignChats() {
-    try {
-      const raw = JSON.parse(localStorage.getItem(KERNEL_DESIGN_KEY) || '{}')
-      return raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {}
-    } catch { return {} }
-  }
-
-  function saveKernelDesignChats() {
-    try { localStorage.setItem(KERNEL_DESIGN_KEY, JSON.stringify(kernelDesignChats)) } catch { /* 忽略本地存储失败 */ }
-  }
-
-  function saveKernelReleases() {
-    try { localStorage.setItem(KERNEL_RELEASES_KEY, JSON.stringify(kernelReleases)) } catch { /* optional presentation metadata */ }
-  }
-
-  function kernelReleaseFor(k, meta) {
-    const saved = kernelReleases[k.id]
-    if (saved && typeof saved === 'object') return saved
-    const version = meta && (meta.version || meta.release)
-    const archived = !!(meta && (meta.archived || meta.status === 'archived'))
-    return { status: archived ? 'archived' : (k.source === 'builtin' ? 'published' : 'draft'), version: version || (k.source === 'builtin' ? '1.0' : '0.1') }
-  }
-
-  function kernelChatKey() { return kernelHubSourceId || KERNEL_DRAFT_KEY }
-
-  function kernelChatMessages() {
-    const list = kernelDesignChats[kernelChatKey()]
-    return Array.isArray(list) ? list.filter((m) => m && (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string').slice(-40) : []
-  }
-
-  function setKernelChatMessages(list) {
-    kernelDesignChats[kernelChatKey()] = list.slice(-40)
-    saveKernelDesignChats()
+const KData = window.KernelData.createKernelData({
+    $, api,
+    sourceId: () => kernelHubSourceId,
+    currentKernelRef, resolveKernelRef,
+  })
+  const parseKernelMeta = (text) => KData.parseKernelMeta(text)
+  const KERNEL_TEMPLATE = KData.KERNEL_TEMPLATE
+  const KERNEL_DESIGN_SYSTEM = KData.KERNEL_DESIGN_SYSTEM
+  const KERNEL_DRAFT_KEY = '__draft__'
+  const kernelReleases = KData.releases
+  const kernelDesignChats = KData.designChats
+  const saveKernelReleases = () => KData.saveKernelReleases()
+  const kernelReleaseFor = (k, meta) => KData.kernelReleaseFor(k, meta)
+  const saveKernelDesignChats = () => KData.saveKernelDesignChats()
+  const kernelChatKey = () => KData.kernelChatKey()
+  const kernelChatMessages = () => KData.kernelChatMessages()
+  const setKernelChatMessages = (list) => KData.setKernelChatMessages(list)
+  async function loadKernel() {
+    const r = await KData.loadKernel()
+    kernel = r
+    return !!r
   }
 
   function setKernelDirty(dirty, label) {
@@ -3879,7 +3540,7 @@
     if (choiceMode) {
       if (near) {
         if (choicesAutoFolded) { choicesAutoFolded = false; applyChoicesFold() }
-      } else if (!choicesAutoFolded && !choicesFoldUser) {
+      } else if (!choicesAutoFolded && !choicesFoldUser && Date.now() >= choicesFoldGuard) {
         choicesAutoFolded = true
         applyChoicesFold()
       }
@@ -3891,6 +3552,7 @@
     const pill = $('choices-expand')
     if (!pill) return
     const folded = choiceMode && (choicesFoldUser || choicesAutoFolded)
+    if (choiceEl.classList.contains('collapsed') !== folded) choicesFoldGuard = Date.now() + 400 // 折叠态切换：smooth 滚动动画（~300ms）触发的中间态 scroll 事件不再反向自动折叠
     choiceEl.classList.toggle('collapsed', folded)
     pill.classList.toggle('hidden', !folded)
   }

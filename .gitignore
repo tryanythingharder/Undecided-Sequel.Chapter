@@ -20,3 +20,6 @@ output/
 
 # Playwright CLI 本地调试快照（生成物）
 .playwright-cli/
+
+# ZCode 会话产物（不入库）
+.zcode/

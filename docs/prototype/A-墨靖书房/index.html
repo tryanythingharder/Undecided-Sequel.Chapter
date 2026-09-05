@@ -1,0 +1,3425 @@
+<!DOCTYPE html>
+<html lang="zh-Hans">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>六面世界 · 原型 — 墨靖书房</title>
+<style>
+/* ============================================================
+   六面世界 · 交互原型 —— 方向 A「墨靖书房 · 线装书」
+   这本书正在被书写：世界线装在书脊上，正文长在书页里，
+   玩家留下朱批，引擎落下朱砂印。右翻书，右起批。
+   单文件自包含：无外部依赖、无网络请求，双击即用。
+   ============================================================ */
+
+/*==SKIN:TOKENS==*/
+/* —— 方向 A 命名色（昼 · 宣纸书房）—— */
+:root{
+  --paper:      #F2F1EB;   /* 案面 */
+  --page:       #FAF9F4;   /* 书页 */
+  --page-edge:  #E8E6DD;   /* 页缘 */
+  --ink:        #26292F;   /* 墨 */
+  --indigo:     #2F4C7E;   /* 群青 */
+  --cinnabar:   #B8402E;   /* 朱砂 */
+  --moss:       #4F7455;   /* 苔青 */
+  --wash:       #E6EBF4;   /* 洗青 */
+  --line:       #D8D6CB;
+  --line-strong:#BCBAAC;
+  --ink-dim:    rgba(38,41,47,.62);
+  --ink-faint:  rgba(38,41,47,.40);
+  --on-indigo:  #FAF9F4;
+  --danger:     #A83A28;
+  /* 纸纹（feTurbulence 宣纸纤维，内联 data-URI） */
+  --grain:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 .05 0'/%3E%3C/filter%3E%3Crect width='240' height='240' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+/* —— 方向 A 命名色（夜 · 靛夜书房）—— */
+[data-mode="night"]{
+  --paper:      #14161D;
+  --page:       #1A1E29;
+  --page-edge:  #10131C;
+  --ink:        #D9DEE8;
+  --indigo:     #8CA6D8;
+  --cinnabar:   #D65540;
+  --moss:       #82A687;
+  --wash:       #232B3C;
+  --line:       #2A3042;
+  --line-strong:#3C4459;
+  --ink-dim:    rgba(217,222,232,.60);
+  --ink-faint:  rgba(217,222,232,.38);
+  --on-indigo:  #12151F;
+  --danger:     #E06A52;
+  --grain:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 .045 0'/%3E%3C/filter%3E%3Crect width='240' height='240' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+/*==END-SKIN==*/
+
+/* —— 字体角色：楷叙事 / 黑界面；主流程不用等宽 —— */
+:root{
+  --font-ui:  "PingFang SC","Hiragino Sans GB","Microsoft YaHei","Noto Sans SC",system-ui,sans-serif;
+  --font-read:"Kaiti SC","KaiTi","STKaiti","DFKai-SB","BiauKai",serif;
+  --font-serif:"Georgia","Noto Serif SC","Source Han Serif SC","SimSun",serif;
+  --font-mono:"Cascadia Code","SF Mono",Consolas,"Microsoft YaHei",monospace; /* 仅检查器 JSON */
+}
+html[data-font="serif"]{ --font-read: var(--font-serif); }
+html[data-font="sans"] { --font-read: var(--font-ui); }
+
+/* —— 刻度与动效 —— */
+:root{
+  --fs-ui:13.5px; --fs-meta:11.5px; --fs-read:17.5px; --fs-title:30px;
+  --read:37em;
+  --gap:16px;
+  --dur-1:130ms; --dur-2:200ms; --dur-3:260ms; --dur-4:460ms;
+  --ease-std:  cubic-bezier(.2,0,0,1);
+  --ease-in:   cubic-bezier(.3,0,1,1);
+  --ease-out:  cubic-bezier(0,0,0,1);
+  --ease-seal: cubic-bezier(.34,1.35,.42,1);
+}
+html[data-width="narrow"]{ --read:33em; }
+html[data-width="wide"]  { --read:42em; }
+html[data-density="compact"]{ --gap:12px; --fs-read:16px; }
+html[data-density="relaxed"]{ --gap:20px; --fs-read:18.5px; }
+html[data-radius="none"] { --rl:0px; }
+html[data-radius="small"] { --rl:2px; }
+html[data-radius="std"]  ,
+:root                        { --rl:3px; }
+html[data-radius="round"] { --rl:7px; }
+
+/* ================= 基底 ================= */
+*{ box-sizing:border-box; margin:0; padding:0; }
+html,body{ height:100%; }
+body{
+  font-family:var(--font-ui); font-size:var(--fs-ui); color:var(--ink);
+  background:var(--paper);
+  background-image:var(--grain);
+  -webkit-font-smoothing:antialiased; text-rendering:optimizeLegibility;
+  overflow:hidden;
+}
+button{ font:inherit; color:inherit; background:none; border:none; cursor:pointer; }
+button:disabled{ cursor:default; }
+input,textarea,select{ font:inherit; color:inherit; }
+::selection{ background:var(--wash); color:var(--ink); }
+:focus{ outline:none; }
+:focus-visible{ outline:2px solid var(--indigo); outline-offset:2px; }
+[data-motion="off"] *{ animation-duration:.01ms !important; animation-iteration-count:1 !important; transition-duration:.01ms !important; scroll-behavior:auto !important; }
+@media (prefers-reduced-motion:reduce){
+  *{ animation-duration:.01ms !important; animation-iteration-count:1 !important; transition-duration:.01ms !important; }
+}
+::-webkit-scrollbar{ width:10px; height:10px; }
+::-webkit-scrollbar-thumb{ background:var(--line-strong); border:3px solid var(--page); border-radius:6px; }
+::-webkit-scrollbar-track{ background:transparent; }
+*{ scrollbar-width:thin; scrollbar-color:var(--line-strong) transparent; }
+.sr-only{ position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; }
+kbd{
+  font-family:var(--font-ui); font-size:10.5px; color:var(--ink-dim);
+  border:1px solid var(--line-strong); border-bottom-width:2px; border-radius:3px;
+  padding:1px 5px; background:var(--page);
+}
+kbd + kbd{ margin-left:4px; }
+
+/* ============================================================
+   书房骨架：案面 → 一册摊开的书（右装订）
+   ============================================================ */
+.room{ display:flex; height:100dvh; position:relative; }
+
+/* —— 书脊（右缘）：世界线的家 —— */
+.spine{
+  flex:none; width:64px; display:flex; flex-direction:column;
+  background:var(--page-edge); border-left:1px solid var(--line);
+  padding:14px 0 10px; position:relative; z-index:30;
+  transition:width var(--dur-3) var(--ease-std);
+}
+body[data-sb="collapsed"] .spine{ width:40px; }
+.spine-brand{
+  flex:none; display:flex; flex-direction:column; align-items:center; gap:10px;
+  padding-bottom:14px; border-bottom:1px solid var(--line); margin-bottom:10px;
+}
+.spine-brand .brand-seal{
+  width:30px; height:30px; display:grid; place-items:center;
+  background:var(--cinnabar); color:#FAF4E8; border-radius:var(--rl);
+  font-family:var(--font-read); font-size:16px; font-weight:700;
+  transform:rotate(-4deg);
+  box-shadow:inset 0 0 0 1.5px rgba(255,245,230,.3), 0 1px 4px rgba(38,41,47,.3);
+  transition:transform var(--dur-2) var(--ease-seal);
+}
+.spine-brand .brand-seal:hover{ transform:rotate(0deg) scale(1.05); }
+.spine-brand .brand-vert{
+  writing-mode:vertical-rl; font-family:var(--font-read); font-size:12px;
+  letter-spacing:.42em; color:var(--ink-dim); line-height:1;
+}
+body[data-sb="collapsed"] .spine-brand .brand-vert{ display:none; }
+
+/* 线装书眼（书脊上的装订针孔） */
+.spine::after{
+  content:""; position:absolute; left:7px; top:96px; bottom:56px; width:0;
+  border-left:1px dashed var(--line-strong);
+  pointer-events:none;
+}
+.spine::before{
+  content:""; position:absolute; left:4px; top:90px; bottom:56px; width:7px;
+  background:
+    radial-gradient(circle at 50% 0, var(--line-strong) 2.2px, transparent 2.6px) 0 0/100% 22% no-repeat,
+    radial-gradient(circle at 50% 100%, var(--line-strong) 2.2px, transparent 2.6px) 0 100%/100% 22% no-repeat;
+  pointer-events:none;
+  opacity:.75;
+}
+body[data-sb="collapsed"] .spine::before, body[data-sb="collapsed"] .spine::after{ display:none; }
+
+.spine-tabs{ flex:1; min-height:0; display:flex; flex-direction:column; gap:8px; padding:6px 8px; overflow:hidden auto; }
+.spine-tabs::-webkit-scrollbar{ width:0; }
+/* 一条世界线 = 一枚书签舌 */
+.wstab{
+  position:relative; flex:none; width:48px; min-height:96px;
+  border:1px solid var(--line-strong); border-left:none;
+  border-radius:0 6px 6px 0;
+  background:var(--page);
+  writing-mode:vertical-rl; text-orientation:mixed;
+  padding:12px 0 10px;
+  display:flex; align-items:center; justify-content:flex-start; gap:8px;
+  font-size:12.5px; color:var(--ink-dim);
+  transition:all var(--dur-2) var(--ease-std);
+  overflow:hidden;
+  box-shadow:1px 1px 0 rgba(24,27,35,.04);
+}
+.wstab:hover{ border-color:var(--indigo); color:var(--ink); width:54px; }
+.wstab[aria-current="true"]{
+  width:56px; background:var(--wash); border-color:var(--indigo);
+  color:var(--indigo); font-weight:700;
+  box-shadow:inset 2px 0 0 var(--indigo);
+}
+.wstab.if{ border-right:2px dotted var(--cinnabar); }
+.wstab.pending::after{
+  content:"未落账"; position:absolute; top:6px; right:4px;
+  writing-mode:vertical-rl; font-size:9.5px; letter-spacing:.2em;
+  color:var(--danger); border:1px solid var(--danger); padding:6px 2px; border-radius:2px;
+  background:var(--page);
+}
+.wstab .wt-round{
+  writing-mode:vertical-rl; font-size:10px; color:var(--ink-faint); letter-spacing:.14em;
+}
+body[data-sb="collapsed"] .wstab{ width:26px; min-height:64px; font-size:0; padding:8px 0; }
+body[data-sb="collapsed"] .wstab .wt-round,
+body[data-sb="collapsed"] .wstab.pending::after{ display:none; }
+.spine-new{
+  flex:none; margin:6px 8px 0; width:48px; padding:10px 0;
+  border:1px dashed var(--line-strong); border-left:none;
+  border-radius:0 6px 6px 0;
+  writing-mode:vertical-rl; font-size:12px; color:var(--indigo); letter-spacing:.24em;
+  transition:all var(--dur-2) var(--ease-std);
+}
+.spine-new:hover{ background:var(--wash); border-color:var(--indigo); }
+.spine-foot{
+  flex:none; display:flex; flex-direction:column; align-items:center; gap:6px;
+  padding-top:10px; margin-top:auto; border-top:1px solid var(--line);
+}
+.spine-icon{
+  width:30px; height:30px; display:grid; place-items:center; border-radius:var(--rl);
+  color:var(--ink-faint); font-size:15px; font-family:var(--font-read);
+  transition:all var(--dur-1) var(--ease-std);
+}
+.spine-icon:hover{ color:var(--ink); background:var(--wash); }
+
+/* —— 书页 —— */
+.leaf{
+  flex:1; min-width:0; display:flex; flex-direction:column;
+  background:var(--page); position:relative;
+  box-shadow:inset -18px 0 26px -22px rgba(24,27,35,.22);
+}
+[data-mode="night"] .leaf{ box-shadow:inset -18px 0 26px -22px rgba(0,0,0,.5); }
+.leaf::before{ /* 书页纸纹 */
+  content:""; position:absolute; inset:0; pointer-events:none; z-index:0;
+  background-image:var(--grain);
+}
+
+/* —— 页眉：卷标 + 印钮 —— */
+.leaf-head{
+  flex:none; position:relative; z-index:2;
+  display:flex; align-items:center; gap:16px;
+  padding:16px 44px 12px 40px;
+  border-bottom:1px solid var(--line);
+}
+.ws-line{
+  display:flex; align-items:center; gap:8px; padding:5px 12px;
+  font-family:var(--font-read); font-size:15px; color:var(--ink-dim);
+  border-bottom:2px solid transparent;
+  transition:color var(--dur-1) var(--ease-std);
+}
+.ws-line:hover{ color:var(--ink); }
+.ws-line b{ font-weight:700; color:var(--ink); letter-spacing:.06em; }
+.ws-line .wsl-caret{ font-size:10px; color:var(--ink-faint); }
+/* 卷标（模式切换）：题签式 */
+.fascia{
+  margin:0 auto; display:flex; gap:10px;
+}
+.fascia button{
+  position:relative; padding:7px 20px 9px;
+  font-family:var(--font-read); font-size:15px; letter-spacing:.18em; color:var(--ink-faint);
+  border:1px solid transparent; border-bottom:none;
+  border-radius:5px 5px 0 0;
+  transition:all var(--dur-2) var(--ease-std);
+}
+.fascia button::before{ /* 题签小折角 */
+  content:""; position:absolute; top:-1px; left:8px; right:8px; height:3px;
+  background:currentColor; opacity:0; border-radius:2px 2px 0 0;
+  transition:opacity var(--dur-2) var(--ease-std);
+}
+.fascia button:hover{ color:var(--ink); }
+.fascia button[aria-selected="true"]{
+  color:var(--ink); background:var(--page);
+  border-color:var(--line-strong);
+  box-shadow:0 -2px 6px rgba(24,27,35,.05);
+}
+.fascia button[aria-selected="true"]::before{ opacity:.9; color:var(--cinnabar); }
+/* 印钮（工具）：朱文小印 */
+.leaf-tools{ display:flex; gap:8px; }
+.sealbtn{
+  width:32px; height:32px; display:grid; place-items:center;
+  border:1.5px solid var(--line-strong); border-radius:var(--rl);
+  font-family:var(--font-read); font-size:14.5px; color:var(--ink-dim);
+  transform:rotate(-2deg);
+  transition:all var(--dur-2) var(--ease-seal);
+}
+.sealbtn:nth-child(2){ transform:rotate(1.5deg); }
+.sealbtn:nth-child(4){ transform:rotate(2deg); }
+.sealbtn:hover{ color:var(--cinnabar); border-color:var(--cinnabar); transform:rotate(0deg) scale(1.06); }
+.sealbtn[aria-pressed="true"]{ color:#FAF4E8; background:var(--cinnabar); border-color:var(--cinnabar); }
+
+/* —— 眉批（页眉下的一条小贴士行）—— */
+.marginal-tip{
+  flex:none; position:relative; z-index:2;
+  padding:7px 44px; border-bottom:1px solid var(--line);
+  font-family:var(--font-read); font-size:12.5px; color:var(--ink-faint);
+  display:flex; align-items:center; gap:10px;
+  background:color-mix(in srgb, var(--wash) 30%, var(--page));
+}
+.marginal-tip .mt-mark{ color:var(--cinnabar); font-size:11px; transform:translateY(-1px); }
+.marginal-tip .mt-text{ flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.marginal-tip .mt-round{
+  font-size:11px; color:var(--indigo); font-family:var(--font-ui); flex:none;
+}
+.marginal-tip .mt-busy{
+  display:none; align-items:center; gap:6px; color:var(--indigo); font-size:12px; flex:none;
+}
+.marginal-tip .mt-busy.on{ display:inline-flex; }
+.mt-busy i{ width:5px; height:5px; border-radius:50%; background:var(--indigo); animation:inkdot 1.1s var(--ease-std) infinite; }
+@keyframes inkdot{ 0%,100%{opacity:1; transform:scale(1);} 50%{opacity:.35; transform:scale(.6);} }
+/* 灵动岛（书镇） */
+.island{
+  position:fixed; top:12px; left:50%; transform:translateX(-50%) translateY(-6px);
+  z-index:220; display:flex; align-items:center; gap:9px;
+  max-width:min(60vw,480px); padding:7px 16px;
+  background:var(--page); border:1px solid var(--line-strong); border-radius:999px;
+  box-shadow:0 4px 18px rgba(24,27,35,.14); font-size:12.5px; color:var(--ink-dim);
+  opacity:0; pointer-events:none;
+  transition:opacity var(--dur-3) var(--ease-std), transform var(--dur-3) var(--ease-out);
+}
+.island.show{ opacity:1; transform:translateX(-50%) translateY(0); pointer-events:auto; }
+.island .dot{ width:7px; height:7px; border-radius:1px; transform:rotate(45deg); background:var(--moss); flex:none; }
+.island[kind="busy"] .dot{ background:var(--indigo); animation:inkdot 1.2s infinite; }
+.island[kind="err"] .dot{ background:var(--danger); }
+.island[kind="seal"] .dot{ background:var(--cinnabar); }
+
+/* ============================================================
+   正文页：从右到左的阅读秩序（右起批注）
+   ============================================================ */
+.leaf-body{
+  flex:1; min-height:0; position:relative; z-index:1;
+  display:flex;
+}
+/* —— 卷首题名区 —— */
+.scroll-col{
+  flex:1; min-width:0; overflow-y:auto; overflow-x:hidden;
+  padding:30px 44px 36px 40px;
+  scroll-behavior:smooth;
+}
+.scroll-inner{ max-width:var(--read); margin:0 auto; display:flex; flex-direction:column; gap:var(--gap); }
+
+/* 卷首（空态开卷） */
+.frontispiece{ padding:5vh 0 12px; }
+.fp-kicker{
+  display:flex; align-items:center; gap:12px;
+  font-family:var(--font-read); font-size:13px; color:var(--cinnabar); letter-spacing:.32em;
+  margin-bottom:20px;
+}
+.fp-kicker::after{ content:""; flex:1; height:1px; background:color-mix(in srgb, var(--cinnabar) 32%, var(--line)); }
+.fp-title{
+  font-family:var(--font-read); font-size:var(--fs-title); font-weight:700; line-height:1.35;
+  letter-spacing:.1em; max-width:22em;
+}
+.fp-sub{ margin:14px 0 30px; font-size:13.5px; color:var(--ink-dim); line-height:2; max-width:34em; }
+.fp-origins{ display:flex; flex-direction:column; gap:0; max-width:30em; }
+.fp-origins-head{
+  font-size:11.5px; color:var(--ink-faint); letter-spacing:.2em; padding-bottom:8px;
+}
+.origin{
+  display:flex; align-items:baseline; gap:14px; text-align:left;
+  padding:13px 6px 13px 2px; border-bottom:1px solid var(--line);
+  transition:all var(--dur-1) var(--ease-std);
+}
+.origin:first-of-type{ border-top:1px solid var(--line); }
+.origin:hover{ background:color-mix(in srgb, var(--wash) 45%, transparent); padding-left:10px; }
+.origin .o-zi{
+  flex:none; font-family:var(--font-read); font-size:16px; color:var(--cinnabar);
+  width:1.6em; text-align:center;
+}
+.origin .o-body{ flex:1; min-width:0; }
+.origin b{ display:block; font-family:var(--font-read); font-size:16.5px; font-weight:700; letter-spacing:.05em; }
+.origin span{ display:block; margin-top:3px; font-size:12.5px; color:var(--ink-dim); line-height:1.8; }
+.origin .o-arrow{ flex:none; color:var(--ink-faint); font-size:15px; opacity:0; transform:translateX(-4px); transition:all var(--dur-2) var(--ease-std); }
+.origin:hover .o-arrow{ opacity:1; transform:none; }
+.fp-custom{
+  margin-top:22px; display:flex; gap:0; max-width:30em;
+  border:1px solid var(--line-strong); border-radius:var(--rl); overflow:hidden;
+  transition:border-color var(--dur-1) var(--ease-std);
+}
+.fp-custom:focus-within{ border-color:var(--indigo); }
+.fp-custom .fp-mark{
+  flex:none; display:grid; place-items:center; width:34px;
+  background:var(--wash); color:var(--indigo); font-family:var(--font-read); font-size:14px;
+}
+.fp-custom input{ flex:1; border:none; background:none; padding:11px 12px; font-size:13.5px; }
+.fp-custom input:focus-visible{ outline:none; }
+.fp-custom input::placeholder{ color:var(--ink-faint); }
+.fp-custom .fp-go{
+  flex:none; padding:0 16px; font-family:var(--font-read); font-size:14px; color:var(--on-indigo);
+  background:var(--indigo); letter-spacing:.2em;
+}
+
+/* —— 卷册题头（会话头）—— */
+.fascicle-head{ padding-bottom:2px; }
+.fascicle-head .fh-meta{
+  display:flex; align-items:baseline; gap:12px; flex-wrap:wrap;
+}
+.fascicle-head h2{
+  font-family:var(--font-read); font-size:23px; font-weight:700; letter-spacing:.08em;
+  max-width:26em; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
+.fascicle-head .fh-round{ font-size:12px; color:var(--ink-faint); letter-spacing:.1em; }
+.fascicle-head .fh-crumb{
+  display:inline-flex; align-items:center; gap:4px; padding:2px 10px;
+  border:1px solid color-mix(in srgb, var(--cinnabar) 42%, var(--line)); border-radius:999px;
+  color:var(--cinnabar); font-size:11.5px; font-family:var(--font-read);
+  background:color-mix(in srgb, var(--cinnabar) 5%, transparent);
+}
+.fascicle-head .fh-crumb:hover{ background:color-mix(in srgb, var(--cinnabar) 11%, transparent); }
+
+/* —— 一幕（正文卷）—— */
+.beat{
+  position:relative;
+  padding:2px 0 2px 0;
+}
+/* 鱼尾场次头 */
+.beat-scene{
+  display:flex; align-items:center; gap:14px; margin-bottom:16px;
+  font-family:var(--font-read); font-size:13.5px; color:var(--indigo); letter-spacing:.14em;
+}
+.beat-scene .yuwei{
+  flex:none; position:relative; width:34px; height:15px;
+}
+.beat-scene .yuwei::before{
+  content:""; position:absolute; inset:0;
+  border:1.5px solid var(--indigo); border-bottom:none;
+  clip-path:polygon(0 0, 100% 0, 50% 100%, 0 0);
+}
+.beat-scene .yuwei::after{
+  content:""; position:absolute; left:3px; right:3px; top:2.5px; height:6px;
+  background:var(--indigo); clip-path:polygon(0 0, 100% 0, 50% 100%, 0 0); opacity:.85;
+}
+.beat-scene .scene-txt{ letter-spacing:.18em; }
+.beat-scene .scene-rule{ flex:1; height:1px; background:color-mix(in srgb, var(--indigo) 30%, var(--line)); }
+/* 正文 */
+.beat-narr{ display:flex; flex-direction:column; gap:12px; }
+.beat-narr p{
+  font-family:var(--font-read); font-size:calc(var(--fs-read) * var(--fs-scale,1));
+  line-height:2.05; color:var(--ink); text-align:justify;
+  text-justify:inter-ideograph;
+}
+.beat-narr p.indent{ text-indent:2.2em; }
+.beat-narr .ask{
+  font-family:var(--font-read); font-size:calc(var(--fs-read) * var(--fs-scale,1));
+  line-height:2; padding:2px 0 2px 14px;
+  border-left:2.5px solid var(--cinnabar); color:var(--ink);
+  text-align:left;
+}
+.beat-narr .status-panel{
+  margin-top:4px; padding:12px 18px 12px 16px;
+  border:1px solid var(--line); border-left:3px double var(--line-strong);
+  font-family:var(--font-read); font-size:14.5px; line-height:2; color:var(--ink-dim);
+  text-align:left; background:color-mix(in srgb, var(--wash) 26%, var(--page));
+  position:relative;
+}
+.beat-narr .status-panel::before{
+  content:"简要状态"; position:absolute; top:-9px; left:14px;
+  font-family:var(--font-ui); font-size:10px; color:var(--ink-faint); letter-spacing:.24em;
+  background:var(--page); padding:0 8px;
+}
+.beat-narr code{ font-family:var(--font-mono); font-size:.8em; background:var(--wash); color:var(--indigo); padding:1px 5px; border-radius:3px; }
+.beat-narr strong{ font-weight:700; }
+/* 朱砂落印 */
+.beat-seal{
+  display:inline-flex; align-items:center; gap:9px; margin-top:14px;
+  font-size:12px; color:var(--cinnabar); font-family:var(--font-read); letter-spacing:.1em;
+  opacity:0;
+}
+.beat-seal.stamped{ animation:seal-in var(--dur-4) var(--ease-seal) both; }
+@keyframes seal-in{
+  0%{ opacity:0; transform:scale(2) rotate(10deg); }
+  62%{ opacity:1; transform:scale(.94) rotate(-7deg); }
+  100%{ opacity:1; transform:scale(1) rotate(0); }
+}
+.beat-seal .seal-box{
+  width:23px; height:23px; flex:none; display:grid; place-items:center;
+  border:1.8px solid currentColor; border-radius:3px; transform:rotate(-5deg);
+  font-size:11.5px; font-weight:700; font-family:var(--font-read);
+  box-shadow:inset 0 0 5px color-mix(in srgb, currentColor 22%, transparent);
+}
+.beat-seal.loading{ color:var(--ink-faint); }
+.beat-seal.loading .seal-box{ border-style:dashed; animation:seal-spin 2.4s linear infinite; }
+@keyframes seal-spin{ to{ transform:rotate(-365deg); } }
+.beat-seal.pending{ color:var(--danger); }
+.beat-seal.pending .seal-box{ border-style:dashed; }
+.beat-seal button{ font-size:12px; color:var(--danger); text-decoration:underline dotted var(--danger); padding:0 2px; letter-spacing:0; }
+/* 插图：画中景 */
+.beat-illust{
+  margin:6px 0 4px; border:1px solid var(--line-strong); border-radius:var(--rl);
+  overflow:hidden; cursor:zoom-in; background:var(--page);
+  display:block; width:100%; max-width:520px; position:relative;
+}
+.beat-illust:hover{ border-color:var(--indigo); }
+.beat-illust svg{ display:block; width:100%; height:auto; }
+.beat-illust .ill-cap{
+  position:absolute; left:0; right:0; bottom:0; padding:18px 12px 8px;
+  font-size:11px; color:#F6F3EC; letter-spacing:.1em;
+  background:linear-gradient(transparent, rgba(10,12,18,.55));
+  pointer-events:none;
+}
+.ill-drawing{
+  margin-top:6px; padding:12px 14px; border:1px dashed var(--line-strong); border-radius:var(--rl);
+  display:flex; align-items:center; gap:10px; font-size:12.5px; color:var(--ink-dim);
+}
+.ill-drawing .dots{ display:inline-flex; gap:3px; }
+.ill-drawing .dots i{ width:4px; height:4px; border-radius:50%; background:var(--indigo); animation:inkdot 1.2s infinite; }
+.ill-drawing .dots i:nth-child(2){ animation-delay:.18s; } .ill-drawing .dots i:nth-child(3){ animation-delay:.36s; }
+
+/* —— 朱批（玩家行动）：右起批注，朱笔框注 —— */
+.beat-user{ position:relative; padding:18px 0; }
+.beat-user::before{ /* 行间细线（书行） */
+  content:""; position:absolute; left:-40px; right:-44px; top:50%; height:1px;
+  background:var(--line); opacity:.6;
+}
+.zhu-note{
+  position:relative; max-width:32em; margin-left:auto;   /* 右起 */
+  padding:12px 16px 11px 14px;
+  border:1.6px solid color-mix(in srgb, var(--cinnabar) 62%, transparent);
+  border-radius:calc(var(--rl) + 2px);
+  background:color-mix(in srgb, var(--cinnabar) 4%, var(--page));
+  transform:rotate(.4deg);
+  transition:transform var(--dur-2) var(--ease-seal), border-color var(--dur-2);
+}
+.zhu-note:hover{ transform:rotate(0deg); border-color:var(--cinnabar); }
+.zhu-note .zn-mark{
+  position:absolute; right:-13px; top:-12px;
+  width:26px; height:26px; display:grid; place-items:center;
+  background:var(--cinnabar); color:#FAF4E8; border-radius:50%;
+  font-family:var(--font-read); font-size:13px; font-weight:700;
+  box-shadow:0 1px 4px rgba(38,41,47,.3);
+}
+.zhu-note p{
+  font-family:var(--font-read); font-size:15.5px; line-height:1.95; color:var(--ink);
+}
+.zhu-note .zn-meta{
+  display:flex; align-items:center; gap:9px; margin-top:7px;
+  font-size:11px; color:var(--ink-faint); font-family:var(--font-ui);
+}
+.zhu-note .zn-meta .zn-round{ color:var(--cinnabar); }
+.zhu-note .zn-ops{
+  position:absolute; left:10px; bottom:-13px; display:flex; gap:3px;
+  background:var(--page); border:1px solid var(--line-strong); border-radius:6px;
+  padding:2px; box-shadow:0 2px 6px rgba(24,27,35,.08);
+  opacity:0; transform:translateY(3px); transition:all var(--dur-2) var(--ease-std);
+  pointer-events:none;
+}
+.beat-user:hover .zn-ops, .zhu-note:focus-within .zn-ops{ opacity:1; transform:none; pointer-events:auto; }
+.zn-op{
+  display:inline-flex; align-items:center; gap:4px;
+  padding:3px 9px; border-radius:4px;
+  font-family:var(--font-read); font-size:11.5px; color:var(--ink-dim);
+  transition:all var(--dur-1) var(--ease-std);
+}
+.zn-op:hover{ background:var(--wash); color:var(--indigo); }
+.zn-op:hover.danger{ background:color-mix(in srgb, var(--cinnabar) 10%, transparent); color:var(--cinnabar); }
+
+/* —— 便笺选项（贴在正文后的纸条）—— */
+.notes{ margin-top:6px; }
+.notes-head{
+  display:flex; align-items:center; gap:12px; margin-bottom:13px;
+  font-size:12px; color:var(--ink-faint); letter-spacing:.08em;
+}
+.notes-head .nh-rule{ flex:1; height:1px; background:var(--line); }
+.notes-head .nh-multi{
+  padding:3px 11px; border:1px solid var(--line-strong); border-radius:999px;
+  font-size:11.5px; color:var(--ink-faint); transition:all var(--dur-1) var(--ease-std);
+}
+.notes-head .nh-multi:hover{ border-color:var(--indigo); color:var(--indigo); }
+.notes-head .nh-multi.on{ background:var(--wash); border-color:var(--indigo); color:var(--indigo); }
+.notes-grid{ display:flex; flex-direction:column; gap:11px; }
+.slip{
+  position:relative; display:flex; gap:14px; text-align:left;
+  max-width:34em;
+  padding:13px 17px 13px 15px;
+  background:var(--page);
+  border:1px solid var(--line-strong); border-left:none;
+  border-radius:2px var(--rl) var(--rl) 2px;
+  box-shadow:1px 2px 5px rgba(24,27,35,.06);
+  transform:rotate(var(--tilt, 0deg));
+  transition:transform var(--dur-2) var(--ease-seal), border-color var(--dur-2), box-shadow var(--dur-2), background var(--dur-2);
+}
+.slip:nth-child(3n+1){ --tilt:-.5deg; }
+.slip:nth-child(3n+2){ --tilt:.4deg; }
+.slip:nth-child(3n+3){ --tilt:-.3deg; }
+.slip:hover{ transform:rotate(0deg) translateY(-2px); border-color:var(--indigo); box-shadow:2px 5px 12px rgba(24,27,35,.1); }
+.slip .sl-key{
+  flex:none; width:27px; height:27px; display:grid; place-items:center;
+  border:1.5px solid color-mix(in srgb, var(--indigo) 45%, transparent); border-radius:calc(var(--rl) + 1px);
+  font-family:var(--font-read); font-size:13.5px; font-weight:700; color:var(--indigo);
+}
+.slip .sl-txt{
+  flex:1; font-family:var(--font-read); font-size:15px; line-height:1.9; color:var(--ink);
+}
+.slip.fallback .sl-key{ color:var(--ink-faint); border-color:var(--line-strong); }
+.slip.sel{ background:var(--wash); border-color:var(--indigo); }
+.slip.sel::after{
+  content:"✓"; position:absolute; right:12px; top:10px;
+  color:var(--indigo); font-weight:700;
+}
+.slip .agent-pick{
+  position:absolute; top:-10px; right:14px;
+  font-size:10px; color:var(--cinnabar); background:var(--page);
+  border:1px solid color-mix(in srgb, var(--cinnabar) 45%, transparent);
+  padding:1px 8px; border-radius:999px; font-family:var(--font-read); letter-spacing:.1em;
+}
+.slip-anim{ animation:slip-in var(--dur-3) var(--ease-out) both; }
+.slip-anim:nth-child(2){ animation-delay:50ms; }
+.slip-anim:nth-child(3){ animation-delay:100ms; }
+@keyframes slip-in{ from{ opacity:0; transform:translateY(10px) rotate(var(--tilt)); } to{ opacity:1; transform:translateY(0) rotate(var(--tilt)); } }
+.combo-bar{
+  display:none; align-items:center; gap:12px; margin-top:12px;
+  padding:10px 15px; background:var(--wash); border:1px dashed var(--indigo); border-radius:var(--rl);
+  font-size:12.5px;
+}
+.combo-bar.show{ display:flex; }
+.combo-bar b{ color:var(--indigo); font-family:var(--font-read); letter-spacing:.08em; }
+.combo-bar .cb-send{ margin-left:auto; padding:5px 15px; background:var(--indigo); color:var(--on-indigo); border-radius:var(--rl); font-family:var(--font-read); letter-spacing:.14em; }
+.combo-bar .cb-send:hover{ filter:brightness(1.1); }
+.combo-bar .cb-clear{ color:var(--ink-faint); padding:5px 8px; font-size:11.5px; }
+.combo-bar .cb-clear:hover{ text-decoration:underline; }
+/* 滚动离底时收起便笺 → 露出「展开」笺 */
+.notes-expand{
+  display:none; position:sticky; bottom:14px; z-index:5;
+  margin:0 auto; width:fit-content;
+  padding:7px 20px; font-family:var(--font-read); font-size:13px; letter-spacing:.14em;
+  color:var(--indigo); background:var(--page);
+  border:1px solid var(--indigo); border-radius:999px;
+  box-shadow:0 3px 12px rgba(24,27,35,.14);
+}
+.notes-expand.show{ display:block; }
+
+/* —— 待补录笺 —— */
+.pending-banner{
+  display:none; align-items:center; gap:12px;
+  max-width:var(--read); margin:0 auto; padding:11px 16px;
+  border:1.6px solid color-mix(in srgb, var(--danger) 55%, transparent);
+  border-radius:var(--rl); background:color-mix(in srgb, var(--danger) 5%, var(--page));
+  font-size:12.5px; color:var(--danger);
+}
+.pending-banner.show{ display:flex; }
+.pending-banner .pb-act{ margin-left:auto; padding:5px 14px; border:1px solid var(--danger); border-radius:var(--rl); font-size:11.5px; }
+.pending-banner .pb-act:hover{ background:color-mix(in srgb, var(--danger) 10%, transparent); }
+.pending-banner .pb-ign{ color:var(--ink-faint); font-size:11px; padding:5px 6px; }
+.pending-banner .pb-ign:hover{ text-decoration:underline; }
+
+/* —— 砚台（输入台）：一方砚，磨墨而书 —— */
+.inkstone{
+  flex:none; position:relative; z-index:2;
+  padding:18px 44px 20px 40px;
+  border-top:1px solid var(--line);
+  background:linear-gradient(var(--page), color-mix(in srgb, var(--wash) 24%, var(--page)));
+}
+.inkstone-inner{ max-width:var(--read); margin:0 auto; }
+.inkstone-box{
+  display:flex; align-items:flex-end; gap:12px;
+  padding:12px 4px 12px 16px;
+  border:1px solid var(--line-strong); border-radius:calc(var(--rl) + 2px);
+  background:var(--page);
+  transition:border-color var(--dur-1) var(--ease-std), box-shadow var(--dur-1);
+}
+.inkstone-box:focus-within{ border-color:var(--indigo); box-shadow:0 2px 10px rgba(24,27,35,.06); }
+.inkstone-box .ib-mu{
+  flex:none; width:26px; height:26px; margin-bottom:1px; border-radius:50%;
+  background:radial-gradient(circle at 34% 30%, #3A4453, #1E232E 70%);
+  box-shadow:inset 0 1px 2px rgba(255,255,255,.14), 0 1px 3px rgba(24,27,35,.3);
+  position:relative;
+}
+.inkstone-box .ib-mu::after{
+  content:""; position:absolute; top:4px; left:5px; width:9px; height:5px; border-radius:50%;
+  background:rgba(255,255,255,.16);
+}
+.inkstone textarea{
+  flex:1; border:none; background:none; resize:none;
+  font-family:var(--font-read); font-size:15px; line-height:1.9;
+  max-height:120px; color:var(--ink);
+}
+.inkstone textarea:focus-visible{ outline:none; }
+.inkstone textarea::placeholder{ color:var(--ink-faint); font-family:var(--font-ui); font-size:13.5px; }
+.inkstone .ib-send{
+  flex:none; display:inline-flex; align-items:center; gap:8px;
+  padding:9px 20px;
+  font-family:var(--font-read); font-size:14.5px; letter-spacing:.2em;
+  background:var(--indigo); color:var(--on-indigo); border-radius:var(--rl);
+  transition:filter var(--dur-1), background var(--dur-1);
+}
+.inkstone .ib-send:hover{ filter:brightness(1.1); }
+.inkstone .ib-send:disabled{ opacity:.5; }
+.inkstone .ib-send.stop{ background:var(--danger); letter-spacing:.1em; }
+.inkstone-foot{
+  display:flex; align-items:center; gap:12px; margin-top:9px;
+  font-size:11.5px; color:var(--ink-faint);
+}
+.inkstone-foot .if-inspire{
+  display:inline-flex; align-items:center; gap:6px;
+  padding:3px 12px; border:1px solid var(--line-strong); border-radius:999px;
+  font-family:var(--font-read); font-size:12px; color:var(--ink-dim);
+  transition:all var(--dur-1) var(--ease-std);
+}
+.inkstone-foot .if-inspire:hover{ border-color:var(--indigo); color:var(--indigo); }
+.inkstone-foot .if-hint{ margin-left:auto; }
+
+/* ============================================================
+   册页（夹进书里的活页）：检查器 / 内核库 / 画廊 / 主题 / 帮助
+   ============================================================ */
+.scrim{
+  position:fixed; inset:0; z-index:200; background:rgba(20,22,28,.38);
+  opacity:0; pointer-events:none; transition:opacity var(--dur-2) var(--ease-std);
+}
+[data-mode="night"] .scrim{ background:rgba(4,6,12,.5); }
+.scrim.show{ opacity:1; pointer-events:auto; }
+/* 册页：从右侧翻开（像从书里抽出一张活页） */
+.booklet{
+  position:fixed; top:18px; bottom:18px; right:-8px; z-index:210;
+  width:min(440px, 94vw); display:flex; flex-direction:column;
+  background:var(--page); background-image:var(--grain);
+  border:1px solid var(--line-strong); border-radius:var(--rl) 0 0 var(--rl);
+  box-shadow:-10px 0 34px rgba(24,27,35,.2);
+  transform:translateX(104%); visibility:hidden;
+  transition:transform var(--dur-3) var(--ease-out), visibility 0s linear var(--dur-3);
+}
+.booklet.show{ transform:none; visibility:visible; transition:transform var(--dur-3) var(--ease-out), visibility 0s; }
+.booklet::before{ /* 装订孔列 */
+  content:""; position:absolute; left:10px; top:64px; bottom:60px; width:0;
+  border-left:1px dashed var(--line-strong);
+}
+.booklet-head{
+  flex:none; display:flex; align-items:center; gap:12px;
+  padding:16px 18px 12px 30px; border-bottom:1px solid var(--line);
+}
+.booklet-head h3{ font-family:var(--font-read); font-size:18px; font-weight:700; letter-spacing:.12em; }
+.booklet-head .bh-sub{ font-size:11px; color:var(--ink-faint); margin-top:2px; letter-spacing:.08em; }
+.booklet-head .bh-x{
+  margin-left:auto; width:28px; height:28px; display:grid; place-items:center;
+  border-radius:var(--rl); color:var(--ink-faint); font-size:15px;
+}
+.booklet-head .bh-x:hover{ background:var(--wash); color:var(--ink); }
+.booklet-body{ flex:1; overflow-y:auto; padding:16px 18px 26px 30px; }
+
+/* 通用小节 */
+.set-sec{ margin-bottom:24px; }
+.set-sec > h4{
+  font-family:var(--font-read); font-size:13.5px; font-weight:700; letter-spacing:.22em;
+  color:var(--ink-dim); margin-bottom:12px; padding-bottom:6px;
+  border-bottom:1px solid var(--line);
+}
+.seg{ display:flex; gap:6px; flex-wrap:wrap; }
+.seg button{
+  padding:6px 14px; font-size:12.5px; color:var(--ink-dim); font-family:var(--font-read);
+  border:1px solid var(--line); border-radius:var(--rl);
+  transition:all var(--dur-1) var(--ease-std);
+}
+.seg button:hover{ border-color:var(--line-strong); color:var(--ink); }
+.seg button[aria-pressed="true"]{ background:var(--wash); color:var(--indigo); border-color:var(--indigo); }
+.mode-tiles{ display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+.mode-tile{
+  text-align:left; padding:12px 14px; border:1px solid var(--line-strong); border-radius:var(--rl);
+  display:flex; align-items:center; gap:11px; transition:all var(--dur-1) var(--ease-std);
+}
+.mode-tile:hover{ border-color:var(--indigo); }
+.mode-tile[aria-pressed="true"]{ border-color:var(--indigo); background:var(--wash); }
+.mode-tile .mt-dot{ width:15px; height:15px; border-radius:50%; border:2.5px solid currentColor; flex:none; }
+.mode-tile .mt-sun{ color:#C9992E; } .mode-tile .mt-moon{ color:var(--indigo); }
+.mode-tile b{ display:block; font-family:var(--font-read); font-size:14.5px; }
+.mode-tile span{ display:block; font-size:10.5px; color:var(--ink-faint); margin-top:2px; }
+.set-kv{ display:flex; align-items:center; gap:10px; padding:9px 0; font-size:13px; }
+.set-kv .sk-label{ flex:1; color:var(--ink-dim); font-family:var(--font-read); }
+.toggle{ position:relative; width:38px; height:21px; flex:none; }
+.toggle input{ position:absolute; inset:0; opacity:0; cursor:pointer; }
+.toggle .tk{
+  position:absolute; inset:0; border-radius:999px; background:var(--line-strong);
+  transition:background var(--dur-1) var(--ease-std);
+}
+.toggle .tk::before{
+  content:""; position:absolute; top:2.5px; left:2.5px; width:16px; height:16px; border-radius:50%;
+  background:var(--page); box-shadow:0 1px 2px rgba(24,27,35,.25);
+  transition:transform var(--dur-2) var(--ease-seal);
+}
+.toggle input:checked + .tk{ background:var(--indigo); }
+.toggle input:checked + .tk::before{ transform:translateX(17px); }
+.toggle input:focus-visible + .tk{ outline:2px solid var(--indigo); outline-offset:2px; }
+.set-note{ font-size:11.5px; color:var(--ink-faint); line-height:1.8; margin-top:8px; }
+
+/* 检查器（旁注页） */
+.insp-tabs{ display:flex; gap:2px; border-bottom:1px solid var(--line); margin-bottom:14px; }
+.insp-tab{
+  padding:8px 4px; margin-right:16px; font-family:var(--font-read); font-size:14px; letter-spacing:.1em;
+  color:var(--ink-faint); border-bottom:2px solid transparent; margin-bottom:-1px;
+}
+.insp-tab[aria-selected="true"]{ color:var(--indigo); border-bottom-color:var(--indigo); font-weight:700; }
+.ledger-grid{
+  display:grid; grid-template-columns:repeat(3, 1fr); gap:8px; margin-bottom:18px;
+}
+.lcell{
+  padding:10px 12px; border:1px solid var(--line); border-radius:var(--rl);
+  background:color-mix(in srgb, var(--wash) 20%, var(--page));
+  text-align:center;
+}
+.lcell b{
+  display:block; font-family:var(--font-read); font-size:20px; font-weight:700; color:var(--indigo);
+}
+.lcell span{ display:block; font-size:10.5px; color:var(--ink-faint); margin-top:3px; letter-spacing:.14em; }
+.insp-sec{ margin-bottom:18px; }
+.insp-sec h5{
+  font-family:var(--font-read); font-size:13px; letter-spacing:.16em; color:var(--ink-dim);
+  margin-bottom:8px; padding-bottom:4px; border-bottom:1px dotted var(--line-strong);
+}
+.insp-kv{ display:flex; gap:12px; font-size:12.5px; padding:5px 0; }
+.insp-kv .k{ flex:none; width:72px; color:var(--ink-faint); letter-spacing:.08em; font-family:var(--font-read); }
+.insp-kv .v{ flex:1; color:var(--ink); line-height:1.75; }
+.snap-row{
+  display:flex; align-items:center; gap:11px; padding:11px 13px;
+  border:1px solid var(--line); border-radius:var(--rl); margin-bottom:9px;
+  background:var(--page);
+}
+.snap-row .sn-meta{ flex:1; min-width:0; }
+.snap-row b{ font-family:var(--font-read); font-size:13.5px; display:block; }
+.snap-row span{ font-size:10.5px; color:var(--ink-faint); letter-spacing:.06em; }
+.snap-row .sn-act{
+  padding:5px 13px; font-size:11.5px; border:1px solid var(--line-strong); border-radius:var(--rl);
+  color:var(--ink-dim); font-family:var(--font-read); letter-spacing:.1em;
+  transition:all var(--dur-1);
+}
+.snap-row .sn-act:hover{ border-color:var(--indigo); color:var(--indigo); }
+.snap-row .sn-act.confirm{ border-color:var(--danger); color:var(--danger); background:color-mix(in srgb, var(--danger) 7%, transparent); }
+.turnlog-item{ border:1px solid var(--line); border-radius:var(--rl); margin-bottom:9px; background:var(--page); }
+.turnlog-item summary{
+  cursor:pointer; list-style:none; display:flex; align-items:center; gap:10px; padding:10px 12px;
+  font-size:11.5px; color:var(--ink-dim); letter-spacing:.1em;
+}
+.turnlog-item summary::-webkit-details-marker{ display:none; }
+.turnlog-item summary .tl-status{ margin-left:auto; font-size:10px; padding:1px 9px; border-radius:999px; border:1px solid currentColor; letter-spacing:.14em; }
+.tl-status.ok{ color:var(--moss); } .tl-status.err{ color:var(--danger); }
+.turnlog-item pre{
+  margin:0 12px 12px; padding:11px; font-family:var(--font-mono); font-size:10.5px; line-height:1.65;
+  background:color-mix(in srgb, var(--indigo) 6%, var(--page)); border-radius:var(--rl);
+  overflow-x:auto; color:var(--ink-dim); white-space:pre-wrap;
+}
+
+/* 内核库（册页列表） */
+.lib-tools{ display:flex; gap:8px; margin-bottom:12px; }
+.lib-tools .lt-btn{
+  padding:7px 13px; font-size:12px; font-family:var(--font-read); letter-spacing:.08em;
+  border:1px solid var(--line-strong); border-radius:var(--rl); color:var(--ink-dim);
+}
+.lib-tools .lt-btn:hover{ border-color:var(--indigo); color:var(--indigo); }
+.lib-search input{
+  width:100%; padding:8px 12px; font-size:12.5px; background:var(--page);
+  border:1px solid var(--line); border-radius:var(--rl); color:var(--ink);
+}
+.lib-search input:focus-visible{ outline:none; border-color:var(--indigo); }
+.lib-tabs{ display:flex; gap:4px; margin-bottom:14px; border-bottom:1px solid var(--line); }
+.lib-tab{
+  padding:7px 13px; font-family:var(--font-read); font-size:12.5px; letter-spacing:.1em;
+  color:var(--ink-faint); border-bottom:2px solid transparent; margin-bottom:-1px;
+}
+.lib-tab[aria-selected="true"]{ color:var(--indigo); border-bottom-color:var(--indigo); }
+.kernel-row + .kernel-row{ margin-top:12px; }
+.kernel-card{
+  padding:14px 16px; background:var(--page); border:1px solid var(--line-strong);
+  border-left:3px solid var(--line-strong);
+  border-radius:0 var(--rl) var(--rl) 0;
+  transition:all var(--dur-1) var(--ease-std);
+}
+.kernel-card:hover{ border-left-color:var(--indigo); }
+.kernel-card .kc-top{ display:flex; align-items:baseline; gap:9px; }
+.kernel-card b{ font-family:var(--font-read); font-size:15px; font-weight:700; flex:1; }
+.kc-badge{
+  font-size:10px; padding:2px 9px; border-radius:999px; border:1px solid currentColor; letter-spacing:.1em;
+}
+.kc-badge.builtin{ color:var(--indigo); } .kc-badge.published{ color:var(--moss); }
+.kc-badge.draft{ color:var(--ink-faint); } .kc-badge.archived{ color:var(--ink-faint); } .kc-badge.custom{ color:var(--cinnabar); }
+.kernel-card .kc-sub{ font-size:12px; color:var(--ink-dim); line-height:1.75; margin:7px 0 9px; }
+.kernel-card .kc-meta{ display:flex; gap:12px; flex-wrap:wrap; font-size:10.5px; color:var(--ink-faint); letter-spacing:.06em; }
+.kernel-card .kc-meta .used{ color:var(--indigo); border:1px dashed color-mix(in srgb, var(--indigo) 45%, transparent); padding:1px 8px; border-radius:999px; }
+.kernel-card .kc-ops{ display:flex; gap:7px; margin-top:11px; }
+.kc-op{
+  padding:5px 13px; font-size:11.5px; font-family:var(--font-read); letter-spacing:.08em;
+  border:1px solid var(--line-strong); border-radius:var(--rl); color:var(--ink-dim);
+}
+.kc-op:hover{ border-color:var(--indigo); color:var(--indigo); }
+.kc-op.primary{ background:var(--indigo); color:var(--on-indigo); border-color:var(--indigo); }
+.kc-op.primary:hover{ filter:brightness(1.1); }
+.kc-op:disabled{ opacity:.4; }
+
+/* 画廊（画册页） */
+.gallery-toolbar{ display:flex; gap:8px; margin-bottom:14px; flex-wrap:wrap; }
+.gt-btn{
+  padding:7px 13px; font-size:11.5px; font-family:var(--font-read); letter-spacing:.08em;
+  color:var(--ink-dim); border:1px solid var(--line-strong); border-radius:var(--rl);
+}
+.gt-btn:hover{ border-color:var(--indigo); color:var(--indigo); }
+.gallery-grid{ display:grid; grid-template-columns:repeat(2, 1fr); gap:12px; }
+.gcard{
+  position:relative; border:1px solid var(--line-strong); border-radius:var(--rl);
+  overflow:hidden; background:var(--page);
+  padding:8px;                       /* 画框留白 */
+  box-shadow:0 2px 8px rgba(24,27,35,.06);
+}
+.gcard .gc-frame{ border:1px solid var(--line); overflow:hidden; }
+.gcard svg{ display:block; width:100%; height:auto; }
+.gcard .gc-cap{
+  padding:8px 4px 2px; font-size:11px; color:var(--ink-dim); font-family:var(--font-read);
+  letter-spacing:.06em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+}
+.gcard .gc-ops{ position:absolute; top:12px; right:12px; display:flex; gap:4px; opacity:0; transition:opacity var(--dur-1); }
+.gcard:hover .gc-ops{ opacity:1; }
+.gcard .gc-op{
+  width:25px; height:25px; display:grid; place-items:center; border-radius:5px;
+  background:rgba(10,12,18,.66); color:#F2EFE8; font-size:11px;
+}
+.gcard .gc-op:hover{ background:rgba(10,12,18,.9); }
+.gallery-empty{ grid-column:1/-1; padding:44px 0; text-align:center; font-size:12.5px; color:var(--ink-faint); }
+
+/* 帮助 */
+.help-tabs{ display:flex; gap:4px; margin-bottom:16px; border-bottom:1px solid var(--line); }
+.help-tab{
+  padding:8px 14px; font-family:var(--font-read); font-size:13.5px; letter-spacing:.12em;
+  color:var(--ink-faint); border-bottom:2px solid transparent; margin-bottom:-1px;
+}
+.help-tab[aria-selected="true"]{ color:var(--indigo); border-bottom-color:var(--indigo); font-weight:700; }
+.help-pane{ display:none; } .help-pane.active{ display:block; }
+.guide-row{ display:flex; gap:14px; padding:13px 0; border-bottom:1px dotted var(--line); }
+.guide-row:last-child{ border-bottom:none; }
+.guide-row .g-zi{
+  flex:none; font-family:var(--font-read); font-size:15px; color:var(--cinnabar);
+  width:26px; height:26px; display:grid; place-items:center;
+  border:1px solid color-mix(in srgb, var(--cinnabar) 40%, transparent); border-radius:50%;
+}
+.guide-row b{ display:block; font-family:var(--font-read); font-size:14.5px; margin-bottom:4px; letter-spacing:.06em; }
+.guide-row p{ font-size:12.5px; color:var(--ink-dim); line-height:1.85; }
+.kbd-grid{ display:grid; grid-template-columns:auto 1fr; gap:10px 18px; font-size:12.5px; align-items:center; }
+.kbd-grid .k-act{ color:var(--ink-dim); font-family:var(--font-read); }
+
+/* ============================================================
+   命令面板（笺条检索）
+   ============================================================ */
+.cmdk-mask{ position:fixed; inset:0; z-index:260; display:none; background:rgba(20,22,28,.36); }
+[data-mode="night"] .cmdk-mask{ background:rgba(4,6,12,.5); }
+.cmdk-mask.show{ display:block; }
+.cmdk{
+  position:absolute; top:11vh; left:50%; transform:translateX(-50%);
+  width:min(540px, 92vw);
+  background:var(--page); background-image:var(--grain);
+  border:1px solid var(--line-strong); border-radius:var(--rl);
+  box-shadow:0 18px 54px rgba(24,27,35,.24);
+  overflow:hidden;
+  animation:booklet-in var(--dur-3) var(--ease-out) both;
+}
+@keyframes booklet-in{ from{ opacity:0; transform:translateX(-50%) translateY(12px) rotate(-.4deg);} to{ opacity:1; transform:translateX(-50%) translateY(0) rotate(0);} }
+.cmdk .cmdk-in{ display:flex; align-items:center; gap:11px; padding:14px 16px; border-bottom:1px solid var(--line); }
+.cmdk .cmdk-in .ci-seal{
+  flex:none; width:22px; height:22px; display:grid; place-items:center;
+  border:1.5px solid var(--cinnabar); color:var(--cinnabar); border-radius:3px;
+  font-family:var(--font-read); font-size:11px; transform:rotate(-4deg);
+}
+.cmdk input{ flex:1; border:none; background:none; font-family:var(--font-read); font-size:15px; color:var(--ink); letter-spacing:.04em; }
+.cmdk input:focus-visible{ outline:none; }
+.cmdk input::placeholder{ color:var(--ink-faint); font-family:var(--font-ui); font-size:13px; }
+.cmdk-list{ max-height:48vh; overflow-y:auto; padding:8px; }
+.cmdk-group{
+  font-family:var(--font-read); font-size:11px; color:var(--cinnabar); letter-spacing:.28em;
+  padding:9px 12px 5px;
+}
+.cmdk-item{
+  display:flex; align-items:center; gap:12px; width:100%; text-align:left;
+  padding:9px 12px; border-radius:var(--rl);
+  font-family:var(--font-read); font-size:14px; color:var(--ink); letter-spacing:.04em;
+}
+.cmdk-item .ci-key{ flex:none; width:22px; height:22px; display:grid; place-items:center; border:1px solid var(--line-strong); border-radius:3px; font-size:11px; color:var(--ink-faint); }
+.cmdk-item kbd{ margin-left:auto; }
+.cmdk-item[aria-selected="true"]{ background:var(--wash); }
+.cmdk-item[aria-selected="true"] .ci-key{ border-color:var(--indigo); color:var(--indigo); }
+.cmdk-empty{ padding:26px; text-align:center; font-size:12.5px; color:var(--ink-faint); font-family:var(--font-read); }
+
+/* ============================================================
+   对话框（小笺）/ 灯箱 / 工作区菜单 / toast
+   ============================================================ */
+.dialog-mask{ position:fixed; inset:0; z-index:280; display:none; place-items:center; background:rgba(20,22,28,.42); }
+[data-mode="night"] .dialog-mask{ background:rgba(4,6,12,.55); }
+.dialog-mask.show{ display:grid; }
+.dialog{
+  width:min(430px, 92vw); padding:22px 24px;
+  background:var(--page); background-image:var(--grain);
+  border:1px solid var(--line-strong); border-radius:var(--rl);
+  box-shadow:0 18px 50px rgba(24,27,35,.26);
+  animation:dialog-in var(--dur-3) var(--ease-out) both;
+}
+@keyframes dialog-in{ from{ opacity:0; transform:translateY(10px) rotate(.4deg) scale(.98);} to{ opacity:1; transform:none;} }
+.dialog h4{ font-family:var(--font-read); font-size:17px; font-weight:700; letter-spacing:.1em; margin-bottom:10px; }
+.dialog .dlg-body{ font-size:13px; color:var(--ink-dim); line-height:1.95; }
+.dialog .dlg-body.ink{ font-family:var(--font-read); color:var(--ink); }
+.dialog .dlg-input{
+  width:100%; margin-top:14px; padding:10px 13px; font-size:13.5px;
+  background:var(--paper); border:1px solid var(--line-strong); border-radius:var(--rl);
+  font-family:var(--font-read);
+}
+.dialog .dlg-input:focus-visible{ outline:none; border-color:var(--indigo); }
+.dialog .dlg-ops{ display:flex; align-items:center; gap:9px; margin-top:20px; }
+.dialog .dlg-ops .dlg-note{ margin-right:auto; font-size:10.5px; color:var(--ink-faint); }
+.dlg-btn{
+  padding:8px 18px; font-family:var(--font-read); font-size:13.5px; letter-spacing:.12em;
+  border:1px solid var(--line-strong); border-radius:var(--rl); color:var(--ink-dim);
+}
+.dlg-btn:hover{ border-color:var(--ink); color:var(--ink); }
+.dlg-btn.primary{ background:var(--indigo); border-color:var(--indigo); color:var(--on-indigo); }
+.dlg-btn.primary:hover{ filter:brightness(1.1); }
+.dlg-btn.danger{ background:var(--danger); border-color:var(--danger); color:#FAF4E8; }
+.dlg-btn.danger:hover{ filter:brightness(1.1); }
+
+.lightbox{ position:fixed; inset:0; z-index:300; display:none; place-items:center; background:rgba(8,9,14,.92); }
+.lightbox.show{ display:grid; animation:lb-in var(--dur-3) var(--ease-out); }
+@keyframes lb-in{ from{opacity:0;} to{opacity:1;} }
+.lightbox .lb-img{ max-width:min(86vw, 900px); max-height:78vh; border:10px solid #F5F1E6; box-shadow:0 30px 90px rgba(0,0,0,.55); }
+.lightbox .lb-img svg{ display:block; width:100%; height:auto; }
+.lightbox .lb-bar{ position:absolute; bottom:26px; left:50%; transform:translateX(-50%); color:#E8E5DE; font-size:12px; letter-spacing:.2em; font-family:var(--font-read); }
+.lightbox .lb-x{ position:absolute; top:20px; right:26px; width:36px; height:36px; display:grid; place-items:center; border-radius:50%; color:#E8E5DE; border:1px solid rgba(232,229,222,.32); font-size:16px; }
+.lightbox .lb-x:hover{ background:rgba(232,229,222,.12); }
+.lightbox .lb-nav{ position:absolute; top:50%; transform:translateY(-50%); width:42px; height:42px; display:grid; place-items:center; border-radius:50%; color:#E8E5DE; border:1px solid rgba(232,229,222,.28); font-size:17px; }
+.lightbox .lb-nav:hover{ background:rgba(232,229,222,.12); }
+.lightbox .lb-prev{ left:20px; } .lightbox .lb-next{ right:20px; }
+
+.ws-menu{
+  position:fixed; z-index:250; min-width:200px; padding:6px;
+  background:var(--page); background-image:var(--grain);
+  border:1px solid var(--line-strong); border-radius:var(--rl);
+  box-shadow:0 12px 36px rgba(24,27,35,.2);
+}
+.ws-menu button{
+  display:flex; align-items:center; gap:11px; width:100%; text-align:left;
+  padding:8px 12px; font-family:var(--font-read); font-size:13.5px; letter-spacing:.06em;
+  color:var(--ink-dim); border-radius:var(--rl);
+}
+.ws-menu button:hover{ background:var(--wash); color:var(--ink); }
+.ws-menu button.danger{ color:var(--danger); }
+.ws-menu button.danger:hover{ background:color-mix(in srgb, var(--danger) 9%, transparent); }
+.ws-menu .sep{ height:1px; background:var(--line); margin:5px 8px; }
+
+.toast-wrap{ position:fixed; bottom:22px; left:50%; transform:translateX(-50%); z-index:320; display:flex; flex-direction:column; gap:8px; align-items:center; }
+.toast{
+  display:flex; align-items:center; gap:9px; padding:10px 18px;
+  background:var(--page); border:1px solid var(--line-strong); border-radius:999px;
+  box-shadow:0 6px 20px rgba(24,27,35,.16);
+  font-family:var(--font-read); font-size:13px; letter-spacing:.08em; color:var(--ink);
+  animation:toast-in var(--dur-3) var(--ease-out) both;
+}
+.toast.hide{ animation:toast-out var(--dur-2) var(--ease-in) both; }
+@keyframes toast-in{ from{ opacity:0; transform:translateY(10px) scale(.96);} to{ opacity:1; transform:none;} }
+@keyframes toast-out{ to{ opacity:0; transform:translateY(6px) scale(.97);} }
+.toast .t-dot{ width:6px; height:6px; border-radius:1px; transform:rotate(45deg); background:var(--moss); }
+.toast.err .t-dot{ background:var(--danger); }
+.toast.info .t-dot{ background:var(--indigo); }
+
+/* ============================================================
+   内核设计册（内页替换正文，不叠层）
+   ============================================================ */
+.kernel-hub{
+  position:absolute; inset:0; z-index:10; display:none; flex-direction:column;
+  background:var(--page); background-image:var(--grain);
+}
+.kernel-hub.show{ display:flex; }
+.kh-head{
+  flex:none; display:flex; align-items:center; gap:16px;
+  padding:18px 44px 16px 40px; border-bottom:1px solid var(--line);
+}
+.kh-title b{ font-family:var(--font-read); font-size:20px; font-weight:700; letter-spacing:.14em; display:block; }
+.kh-title span{ font-size:11.5px; color:var(--ink-faint); letter-spacing:.1em; }
+.kh-pills{ display:flex; gap:8px; margin-left:6px; }
+.kh-pill{
+  font-family:var(--font-read); font-size:11px; padding:4px 11px; border-radius:999px;
+  border:1px solid var(--line-strong); color:var(--ink-dim); letter-spacing:.14em;
+}
+.kh-pill.save-ok{ color:var(--moss); border-color:color-mix(in srgb, var(--moss) 45%, transparent); }
+.kh-pill.save-dirty{ color:var(--cinnabar); border-color:color-mix(in srgb, var(--cinnabar) 45%, transparent); }
+.kh-acts{ margin-left:auto; display:flex; gap:9px; }
+.kh-act{
+  padding:8px 15px; font-family:var(--font-read); font-size:13px; letter-spacing:.1em;
+  border:1px solid var(--line-strong); border-radius:var(--rl); color:var(--ink-dim);
+  transition:all var(--dur-1) var(--ease-std);
+}
+.kh-act:hover{ border-color:var(--indigo); color:var(--indigo); }
+.kh-act.primary{ background:var(--indigo); border-color:var(--indigo); color:var(--on-indigo); }
+.kh-act.primary:hover{ filter:brightness(1.1); }
+.kh-body{ flex:1; min-height:0; display:flex; }
+.kh-canvas{ flex:1; min-width:0; display:flex; flex-direction:column; }
+.kh-chat{ flex:1; min-height:0; overflow-y:auto; padding:24px 44px 8px 40px; }
+.kh-msgs{ max-width:44em; margin:0 auto; display:flex; flex-direction:column; gap:18px; }
+.kmsg{ display:flex; gap:14px; }
+.kmsg .k-who{
+  flex:none; width:32px; height:32px; display:grid; place-items:center;
+  font-family:var(--font-read); font-size:14px; font-weight:700;
+  border:1.5px solid var(--line-strong); color:var(--indigo); border-radius:var(--rl);
+  transform:rotate(-2deg);
+}
+.kmsg.me .k-who{ color:var(--cinnabar); border-color:color-mix(in srgb, var(--cinnabar) 50%, transparent); transform:rotate(1.5deg); }
+.kmsg .k-body{ flex:1; min-width:0; padding-top:3px; }
+.kmsg .k-body p{ font-family:var(--font-read); font-size:14.5px; line-height:2; color:var(--ink); margin-bottom:8px; }
+.kmsg.me .k-body p{ color:var(--ink-dim); }
+/* 契约检查点（一纸议单） */
+.kcheckpoint{
+  margin:8px 0; padding:16px 18px;
+  border:1px solid color-mix(in srgb, var(--indigo) 38%, var(--line));
+  border-radius:var(--rl); background:color-mix(in srgb, var(--wash) 24%, var(--page));
+  position:relative;
+}
+.kcheckpoint::before{
+  content:"契约 · 规则草稿"; position:absolute; top:-10px; left:16px;
+  font-family:var(--font-read); font-size:11px; color:var(--indigo); letter-spacing:.3em;
+  background:var(--page); padding:0 10px;
+}
+.kcp-rules{ display:flex; flex-direction:column; gap:9px; margin-bottom:13px; }
+.kcp-rule{
+  display:flex; gap:11px; padding:9px 12px;
+  border:1px solid var(--line); border-radius:var(--rl); background:var(--page);
+  font-family:var(--font-read); font-size:13px; line-height:1.8;
+}
+.kcp-rule .kr-st{
+  flex:none; font-size:10px; padding:2px 9px; border-radius:999px; border:1px solid currentColor;
+  letter-spacing:.16em; margin-top:4px;
+}
+.kr-st.ok{ color:var(--moss); } .kr-st.warn{ color:var(--cinnabar); } .kr-st.todo{ color:var(--ink-faint); }
+.kcp-ops{ display:flex; gap:8px; }
+.kcp-op{
+  padding:6px 15px; font-family:var(--font-read); font-size:12.5px; letter-spacing:.1em;
+  border:1px solid var(--line-strong); border-radius:var(--rl); color:var(--ink-dim);
+}
+.kcp-op:hover{ border-color:var(--indigo); color:var(--indigo); }
+.kcp-op.primary{ background:var(--indigo); color:var(--on-indigo); border-color:var(--indigo); }
+.kh-quick{ display:flex; gap:9px; flex-wrap:wrap; padding:10px 44px 8px 40px; }
+.kh-quick button{
+  padding:6px 14px; font-family:var(--font-read); font-size:12.5px; letter-spacing:.08em;
+  color:var(--indigo); border:1px dashed color-mix(in srgb, var(--indigo) 42%, transparent); border-radius:999px;
+}
+.kh-quick button:hover{ background:var(--wash); }
+.kh-composer{ flex:none; padding:8px 44px 22px 40px; }
+.kh-composer .kh-box{
+  max-width:44em; margin:0 auto; display:flex; gap:10px;
+  padding:11px 12px 11px 16px;
+  background:var(--page); border:1px solid var(--line-strong); border-radius:var(--rl);
+}
+.kh-composer .kh-box:focus-within{ border-color:var(--indigo); }
+.kh-composer input{
+  flex:1; border:none; background:none; font-family:var(--font-read); font-size:14.5px; color:var(--ink);
+}
+.kh-composer input:focus-visible{ outline:none; }
+.kh-composer .kh-send{
+  padding:8px 18px; font-family:var(--font-read); font-size:13px; letter-spacing:.16em;
+  background:var(--indigo); color:var(--on-indigo); border-radius:var(--rl);
+}
+/* 源码笺（右抽册页） */
+.kh-editor{
+  flex:none; width:0; overflow:hidden;
+  border-left:1px solid var(--line); background:var(--page);
+  transition:width var(--dur-3) var(--ease-std);
+  display:flex; flex-direction:column;
+}
+.kh-editor.show{ width:min(44vw, 560px); }
+.kh-ed-bar{ display:flex; align-items:center; gap:9px; padding:12px 16px; border-bottom:1px solid var(--line); flex:none; }
+.kh-ed-bar b{ font-size:12px; color:var(--ink-dim); font-family:var(--font-read); letter-spacing:.1em; }
+.kh-ed-tabs{ display:flex; gap:4px; margin-left:auto; }
+.kh-ed-tab{ padding:5px 13px; font-family:var(--font-read); font-size:12px; letter-spacing:.12em; color:var(--ink-faint); border-radius:var(--rl); }
+.kh-ed-tab[aria-selected="true"]{ color:var(--indigo); background:var(--wash); }
+.kh-op{
+  padding:5px 13px; font-family:var(--font-read); font-size:12px; letter-spacing:.1em;
+  border:1px solid var(--line-strong); border-radius:var(--rl); color:var(--ink-dim);
+}
+.kh-op:hover{ border-color:var(--indigo); color:var(--indigo); }
+.kh-op.primary{ background:var(--indigo); color:var(--on-indigo); border-color:var(--indigo); }
+.kh-ed-name{ padding:10px 16px 8px; flex:none; }
+.kh-ed-name input{
+  width:100%; padding:8px 12px; font-family:var(--font-read); font-size:14px;
+  background:var(--paper); border:1px solid var(--line); border-radius:var(--rl); color:var(--ink);
+}
+.kh-ed-name input:focus-visible{ outline:none; border-color:var(--indigo); }
+.kh-ed-area{ flex:1; min-height:0; padding:0 16px 16px; display:flex; }
+.kh-ed-area textarea{
+  width:100%; height:100%; resize:none;
+  font-family:var(--font-mono); font-size:11.5px; line-height:1.85;
+  background:var(--paper); border:1px solid var(--line); border-radius:var(--rl);
+  padding:12px 14px; color:var(--ink); white-space:pre; tab-size:2;
+}
+.kh-ed-area textarea:focus-visible{ outline:none; border-color:var(--indigo); }
+.kh-audit{ flex:1; min-height:0; overflow-y:auto; padding:14px 16px; }
+.audit-item{ display:flex; gap:11px; padding:10px 0; border-bottom:1px dotted var(--line); }
+.audit-item:last-child{ border-bottom:none; }
+.audit-item .a-dot{ flex:none; width:7px; height:7px; transform:rotate(45deg); margin-top:6px; }
+.a-dot.ok{ background:var(--moss); } .a-dot.warn{ background:var(--cinnabar); } .a-dot.err{ background:var(--danger); }
+.audit-item .a-txt{ flex:1; font-size:12px; line-height:1.75; color:var(--ink-dim); font-family:var(--font-read); }
+.audit-item .a-loc{ font-size:11px; color:var(--indigo); text-decoration:underline dotted; }
+
+/* ============================================================
+   桌宠 · 墨滴（砚上一滴活墨）
+   ============================================================ */
+.pet{
+  position:fixed; z-index:180; width:72px; height:84px;
+  right:max(16px, calc(50vw + var(--read)/2 + 28px)); bottom:120px;
+  display:flex; flex-direction:column; align-items:center; gap:3px;
+  user-select:none; -webkit-user-select:none; touch-action:none;
+}
+body[data-pet="off"] .pet{ display:none; }
+.pet.dragging{ cursor:grabbing; }
+.pet-body{ width:54px; height:58px; position:relative; cursor:grab; }
+.pet-ink{
+  position:absolute; inset:0;
+  filter:drop-shadow(0 3px 8px rgba(20,24,32,.35));
+  animation:ink-breathe 3.6s var(--ease-std) infinite;
+}
+.pet-ink svg{ width:100%; height:100%; display:block; }
+@keyframes ink-breathe{ 0%,100%{ transform:scale(1) rotate(-3deg);} 50%{ transform:scale(1.05) rotate(-1deg);} }
+.pet[data-state="thinking"] .pet-ink{ animation:ink-think 1.2s var(--ease-std) infinite; }
+@keyframes ink-think{ 0%,100%{ transform:translateY(0) rotate(-3deg);} 50%{ transform:translateY(-4px) rotate(3deg);} }
+.pet[data-state="sleep"] .pet-ink{ animation:ink-sleep 4.8s var(--ease-std) infinite; opacity:.55; }
+@keyframes ink-sleep{ 0%,100%{ transform:scale(1,.96);} 50%{ transform:scale(.94,.88);} }
+.pet[data-state="happy"] .pet-ink{ animation:ink-pulse .65s var(--ease-seal) 2; }
+@keyframes ink-pulse{ 0%,100%{ transform:scale(1);} 42%{ transform:scale(1.22) rotate(-8deg);} }
+.pet[data-state="error"] .pet-ink{ animation:ink-shake .55s var(--ease-std) 1; }
+@keyframes ink-shake{ 0%,100%{transform:translateX(0) rotate(-3deg);} 25%{transform:translateX(-4px) rotate(-7deg);} 75%{transform:translateX(4px) rotate(1deg);} }
+.pet-bounce{ animation:pet-bounce .55s var(--ease-seal); }
+@keyframes pet-bounce{ 0%{transform:scale(1);} 35%{transform:scale(.88,.78) translateY(6px);} 70%{transform:scale(1.07,1.14) translateY(-8px);} 100%{transform:scale(1);} }
+.pet-badge{
+  position:absolute; top:-3px; right:-1px; width:17px; height:17px; border-radius:50%;
+  background:var(--indigo); color:var(--on-indigo); font-size:9.5px; font-weight:700;
+  display:none; place-items:center; box-shadow:0 1px 4px rgba(24,27,35,.3);
+}
+.pet-badge.on{ display:grid; }
+.pet-name{
+  font-family:var(--font-read); font-size:10px; color:var(--ink-faint);
+  letter-spacing:.42em; pointer-events:none; writing-mode:horizontal-tb;
+}
+/* 气泡（笺问） */
+.pet-bubble{
+  position:absolute; bottom:calc(100% + 10px); right:0; width:302px;
+  background:var(--page); background-image:var(--grain);
+  border:1px solid var(--line-strong); border-radius:var(--rl);
+  box-shadow:0 14px 40px rgba(24,27,35,.22);
+  display:none; flex-direction:column; overflow:hidden;
+}
+.pet-bubble.show{ display:flex; animation:bubble-in var(--dur-3) var(--ease-out); }
+@keyframes bubble-in{ from{ opacity:0; transform:translateY(8px) rotate(.5deg);} to{ opacity:1; transform:none;} }
+.pet-bubble.below{ bottom:auto; top:calc(100% + 10px); }
+.pb-head{ display:flex; align-items:center; gap:9px; padding:11px 13px; border-bottom:1px solid var(--line); }
+.pb-head b{ font-family:var(--font-read); font-size:13.5px; letter-spacing:.14em; }
+.pb-head .pb-x{ margin-left:auto; width:22px; height:22px; display:grid; place-items:center; border-radius:4px; color:var(--ink-faint); }
+.pb-head .pb-x:hover{ background:var(--wash); color:var(--ink); }
+.pb-tip{
+  margin:10px 11px; padding:9px 12px;
+  font-family:var(--font-read); font-size:12px; line-height:1.9; color:var(--ink-dim);
+  background:color-mix(in srgb, var(--indigo) 6%, var(--page));
+  border-left:2px solid var(--indigo); border-radius:0 var(--rl) var(--rl) 0;
+}
+.pb-feed{ max-height:190px; overflow-y:auto; padding:2px 11px 6px; }
+.pb-line{ display:flex; gap:8px; padding:5px 0; font-size:12px; line-height:1.8; }
+.pb-line .q{ color:var(--cinnabar); font-family:var(--font-read); flex:none; }
+.pb-line .a{ color:var(--moss); font-family:var(--font-read); flex:none; }
+.pb-line p{ color:var(--ink-dim); font-family:var(--font-read); }
+.pb-line p b{ color:var(--ink); }
+.pb-input{ display:flex; gap:7px; padding:9px 11px 11px; }
+.pb-input input{
+  flex:1; padding:7px 11px; font-family:var(--font-read); font-size:12.5px;
+  background:var(--paper); border:1px solid var(--line); border-radius:var(--rl); color:var(--ink);
+}
+.pb-input input:focus-visible{ outline:none; border-color:var(--indigo); }
+.pb-input button{ padding:0 14px; font-family:var(--font-read); font-size:12.5px; background:var(--indigo); color:var(--on-indigo); border-radius:var(--rl); }
+.pb-agent, .pb-model{ border-top:1px solid var(--line); padding:9px 11px; }
+.pb-agent .pa-label, .pb-model .pm-cap{
+  font-family:var(--font-read); font-size:10px; color:var(--cinnabar); letter-spacing:.34em; margin-bottom:7px;
+}
+.pa-chip{
+  display:inline-flex; align-items:center; margin:2px 3px 2px 0;
+  padding:4px 12px; font-family:var(--font-read); font-size:11.5px; letter-spacing:.06em; color:var(--indigo);
+  border:1px dashed color-mix(in srgb, var(--indigo) 42%, transparent); border-radius:999px;
+}
+.pa-chip:hover{ background:var(--wash); }
+.pb-model .pm-status{ font-size:11.5px; color:var(--ink-faint); margin-bottom:7px; font-family:var(--font-read); }
+.pm-progress{ display:flex; align-items:center; gap:9px; }
+.pm-bar{ flex:1; height:4px; border-radius:99px; background:var(--line); overflow:hidden; }
+.pm-bar i{ display:block; height:100%; background:var(--moss); border-radius:99px; transition:width var(--dur-3) linear; }
+.pm-cta{
+  padding:4px 12px; font-family:var(--font-read); font-size:11.5px;
+  border:1px solid var(--line-strong); border-radius:var(--rl); color:var(--ink-dim);
+}
+.pm-cta:hover{ border-color:var(--moss); color:var(--moss); }
+.pm-cta.dl{ border-color:var(--moss); color:var(--moss); }
+.pet-menu{
+  position:fixed; z-index:255; min-width:160px; padding:6px;
+  background:var(--page); background-image:var(--grain);
+  border:1px solid var(--line-strong); border-radius:var(--rl);
+  box-shadow:0 12px 36px rgba(24,27,35,.22);
+}
+.pet-menu button{
+  display:flex; align-items:center; gap:10px; width:100%; text-align:left;
+  padding:7px 11px; font-family:var(--font-read); font-size:12.5px; color:var(--ink-dim); border-radius:var(--rl);
+}
+.pet-menu button:hover{ background:var(--wash); color:var(--ink); }
+
+/* ============================================================
+   启动页 · 墨落成印
+   ============================================================
+   标志性一瞬：一方素卷铺开（卷轴展），一滴朱墨自空而落，
+   落纸晕开成「六」字朱印，研墨线扫过，卷面定版。 */
+.splash{
+  position:fixed; inset:0; z-index:400; display:flex; flex-direction:column;
+  align-items:center; justify-content:center;
+  background:var(--paper); background-image:var(--grain);
+  transition:opacity var(--dur-4) var(--ease-std), visibility 0s linear var(--dur-4);
+}
+.splash.done{ opacity:0; visibility:hidden; pointer-events:none; }
+/* 卷轴展（素卷自两侧展开） */
+.splash-scroll{
+  position:relative; width:min(560px, 88vw); height:300px;
+  display:grid; place-items:center;
+  overflow:hidden;
+}
+.splash-canvas{
+  position:relative; width:min(430px, 74vw); height:252px;
+  background:var(--page);
+  border:1px solid var(--line);
+  box-shadow:0 10px 40px rgba(24,27,35,.12);
+  clip-path:inset(0 50% 0 50%);
+  animation:scroll-unfurl 900ms 260ms var(--ease-out) forwards;
+  display:grid; place-items:center;
+}
+@keyframes scroll-unfurl{
+  from{ clip-path:inset(0 50% 0 50%); }
+  to{ clip-path:inset(0 0 0 0); }
+}
+.splash-canvas::before, .splash-canvas::after{ /* 卷轴轴头 */
+  content:""; position:absolute; top:-14px; bottom:-14px; width:10px;
+  background:linear-gradient(180deg, var(--line-strong), var(--ink-faint), var(--line-strong));
+  border-radius:5px;
+  opacity:0; animation:tip-in var(--dur-3) 700ms var(--ease-out) forwards;
+}
+.splash-canvas::before{ left:-7px; }
+.splash-canvas::after{ right:-7px; }
+@keyframes tip-in{ to{ opacity:1; } }
+/* 墨滴 */
+.splash-drop{
+  position:absolute; left:50%; top:8%;
+  width:13px; height:15px; border-radius:52% 48% 55% 45%/58% 56% 44% 42%;
+  background:var(--cinnabar);
+  filter:drop-shadow(0 2px 4px rgba(120,30,15,.4));
+  opacity:0;
+  animation:drop-fall 620ms 1150ms var(--ease-in) forwards;
+  z-index:2;
+}
+@keyframes drop-fall{
+  0%{ opacity:0; transform:translateY(-46px) scale(.4); }
+  18%{ opacity:1; }
+  100%{ opacity:1; transform:translateY(88px) scale(1); }
+}
+/* 朱印（「六」） */
+.splash-seal{
+  position:absolute; left:50%; top:50%;
+  width:104px; height:104px;
+  transform:translate(-50%,-50%) scale(.24); opacity:0;
+  background:var(--cinnabar); color:#FAF4E8;
+  display:grid; place-items:center;
+  border-radius:7px;
+  box-shadow:inset 0 0 0 2.5px rgba(255,245,230,.32), inset 0 0 20px rgba(90,14,6,.35), 0 4px 14px rgba(120,30,15,.3);
+  animation:seal-stamp 520ms 1790ms var(--ease-seal) forwards;
+  z-index:3;
+}
+.splash-seal .s-glyph{ font-family:var(--font-read); font-size:56px; font-weight:700; text-shadow:0 1px 0 rgba(90,14,6,.4); }
+@keyframes seal-stamp{
+  0%{ opacity:0; transform:translate(-50%,-50%) scale(2.4) rotate(7deg); }
+  58%{ opacity:1; transform:translate(-50%,-50%) scale(.92) rotate(-6deg); }
+  100%{ opacity:1; transform:translate(-50%,-50%) scale(1) rotate(-4deg); }
+}
+/* 研墨扫描线 */
+.splash-scan{
+  position:absolute; left:6%; right:6%; top:46%; height:1.5px;
+  background:linear-gradient(90deg, transparent, var(--indigo), transparent);
+  opacity:0; z-index:4;
+  animation:scan-sweep 820ms 2440ms var(--ease-std) forwards;
+}
+@keyframes scan-sweep{
+  0%{ opacity:0; top:12%; } 18%{ opacity:.8; } 82%{ opacity:.8; }
+  100%{ opacity:0; top:88%; }
+}
+/* 卷面题名 */
+.splash-title{
+  position:absolute; left:50%; bottom:7%;
+  transform:translateX(-50%);
+  text-align:center; opacity:0; white-space:nowrap;
+  animation:fade-up 700ms 2680ms var(--ease-out) forwards;
+}
+.splash-title .st-zh{
+  font-family:var(--font-read); font-size:24px; font-weight:700; letter-spacing:.52em; text-indent:.52em; color:var(--ink);
+}
+.splash-title .st-sub{
+  margin-top:7px; font-size:10px; color:var(--ink-faint); letter-spacing:.46em; text-indent:.46em;
+}
+@keyframes fade-up{ from{ opacity:0; transform:translate(-50%, 10px);} to{ opacity:1; transform:translate(-50%, 0);} }
+.splash-enter{
+  margin-top:40px; padding:10px 34px;
+  font-family:var(--font-read); font-size:13.5px; letter-spacing:.42em; text-indent:.42em;
+  color:var(--ink-dim); border:1px solid var(--line-strong); border-radius:999px;
+  opacity:0; transform:translateY(6px);
+  animation:enter-in 650ms 3300ms var(--ease-out) forwards;
+  transition:color var(--dur-1), border-color var(--dur-1), background var(--dur-1);
+}
+@keyframes enter-in{ to{ opacity:1; transform:none; } }
+.splash-enter:hover{ color:var(--indigo); border-color:var(--indigo); background:var(--wash); }
+body.skip-splash .splash{ display:none; }
+
+/* ============================================================
+   响应（窄窗收册）
+   ============================================================ */
+@media (max-width: 1080px){ .pet{ right:14px; } }
+@media (max-width: 880px){
+  .spine{
+    position:fixed; right:0; top:0; bottom:0; z-index:240;
+    transform:translateX(110%); visibility:hidden;
+    transition:transform var(--dur-3) var(--ease-out), visibility 0s linear var(--dur-3);
+    box-shadow:-12px 0 34px rgba(24,27,35,.22);
+    width:64px !important;
+  }
+  body[data-sb="open"] .spine{ transform:none; visibility:visible; transition:transform var(--dur-3) var(--ease-out); }
+  .leaf-head, .marginal-tip{ padding-left:18px; padding-right:18px; }
+  .scroll-col{ padding:20px 18px 24px; }
+  .inkstone{ padding:12px 18px calc(16px + env(safe-area-inset-bottom, 0px)); }
+  .kh-head{ padding:14px 18px; } .kh-chat{ padding:18px 18px 6px; }
+  .kh-quick{ padding:8px 18px 4px; } .kh-composer{ padding:6px 18px 16px; }
+  .kh-body{ flex-direction:column; }
+  .kh-editor{ width:100% !important; flex:1; border-left:none; border-top:1px solid var(--line); }
+  .kh-editor:not(.show){ display:none; }
+  .gallery-grid{ grid-template-columns:1fr; }
+  .booklet{ top:0; bottom:0; right:0; width:min(100vw, 440px); border-radius:var(--rl) 0 0 var(--rl); }
+  .zhu-note{ max-width:100%; }
+  .beat-user::before{ left:-18px; right:-18px; }
+}
+@media (max-width: 560px){
+  :root{ --fs-title:24px; }
+  .fascia button{ padding:6px 13px 8px; font-size:13.5px; letter-spacing:.1em; }
+  .ws-line{ font-size:13px; }
+  .fp-origins, .fp-custom{ max-width:100%; }
+  .slip{ max-width:100%; }
+  .pet{ right:8px; bottom:104px; width:62px; height:74px; }
+  .pet-body{ width:46px; height:50px; }
+  .pet-bubble{ width:min(302px, calc(100vw - 18px)); }
+  .splash-canvas{ height:210px; }
+  .kh-acts .kh-act{ padding:8px 11px; letter-spacing:0; }
+  .kh-acts .kh-act.primary{ padding:8px 13px; }
+  .ledger-grid{ grid-template-columns:repeat(3, 1fr); }
+}
+@media print{ .pet, .spine, .inkstone, .marginal-tip{ display:none !important; } }
+
+/*==CSS-APPEND-POINT==*/
+</style>
+</head>
+<body>
+<!-- ================= 启动页 · 墨落成印 ================= -->
+<div class="splash" id="splash" role="img" aria-label="六面世界 · 墨落成印">
+  <div class="splash-scroll">
+    <div class="splash-canvas">
+      <div class="splash-drop"></div>
+      <div class="splash-seal"><span class="s-glyph">六</span></div>
+      <div class="splash-scan"></div>
+      <div class="splash-title">
+        <div class="st-zh">六面世界</div>
+        <div class="st-sub">SIX WORLDS · 私人故事引擎 · 原型卷</div>
+      </div>
+    </div>
+  </div>
+  <button class="splash-enter" id="splash-enter">展卷</button>
+</div>
+
+<div class="island" id="island" role="status" aria-live="polite"><span class="dot"></span><span id="island-text">就绪</span></div>
+
+<div class="room">
+  <!-- ============ 书脊（右缘）：世界线的家 ============ -->
+  <nav class="spine" id="spine" aria-label="世界线书脊">
+    <div class="spine-brand">
+      <div class="brand-seal" id="brand-seal" title="六面世界">六</div>
+      <div class="brand-vert">六面世界</div>
+    </div>
+    <div class="spine-tabs" id="spine-tabs" role="list"></div>
+    <button class="spine-new" id="btn-new" title="新世界线（Ctrl+N）">新世界线</button>
+    <div class="spine-foot">
+      <button class="spine-icon" id="btn-settings" title="设置" aria-label="设置">匣</button>
+      <button class="spine-icon" id="btn-search" title="搜索世界线" aria-label="搜索世界线">索</button>
+    </div>
+  </nav>
+
+  <!-- ============ 书页 ============ -->
+  <main class="leaf">
+    <!-- 页眉 -->
+    <header class="leaf-head">
+      <button class="ws-line" id="btn-ws" aria-haspopup="menu">
+        <b id="ws-name">默认世界</b><span class="wsl-caret">▾</span>
+      </button>
+      <div class="fascia" role="tablist" aria-label="卷册">
+        <button role="tab" id="tab-content" aria-selected="true">正文</button>
+        <button role="tab" id="tab-kernel" aria-selected="false">内核设计</button>
+      </div>
+      <div class="leaf-tools">
+        <button class="sealbtn" id="btn-gallery" title="画廊" aria-label="画廊">画</button>
+        <button class="sealbtn" id="btn-palette" title="命令面板（Ctrl+P）" aria-label="命令面板">检</button>
+        <button class="sealbtn" id="btn-help" title="帮助" aria-label="帮助">问</button>
+        <button class="sealbtn" id="btn-theme" title="主题与外观" aria-label="主题">装</button>
+      </div>
+    </header>
+    <!-- 眉批行 -->
+    <div class="marginal-tip">
+      <span class="mt-mark">批</span>
+      <span class="mt-text" id="mt-text">世界之灵：砚已磨好，随时可以落笔。</span>
+      <span class="mt-round" id="mt-round">卷 · 回合 0</span>
+      <span class="mt-busy" id="mt-busy"><i></i>世界正在书写这一幕…</span>
+    </div>
+
+    <!-- 正文卷 -->
+    <div class="leaf-body">
+      <section class="scroll-col" id="scroll-col" aria-label="故事正文">
+        <div class="scroll-inner" id="scroll-inner"></div>
+      </section>
+
+      <!-- 内核设计册（替换正文） -->
+      <section class="kernel-hub" id="area-kernel" aria-label="内核设计">
+        <div class="kh-head">
+          <div class="kh-title"><b>内核设计</b><span>与设计助手共修一册规则书</span></div>
+          <div class="kh-pills">
+            <span class="kh-pill" id="kernel-release-state">草稿</span>
+            <span class="kh-pill save-ok" id="kernel-save-state">已选择内核</span>
+          </div>
+          <div class="kh-acts">
+            <button class="kh-act" id="kh-lib">内核库</button>
+            <button class="kh-act" id="kh-source">源码笺</button>
+            <button class="kh-act" id="kh-audit-btn">审计</button>
+            <button class="kh-act primary" id="kh-save">保存</button>
+          </div>
+        </div>
+        <div class="kh-body">
+          <div class="kh-canvas">
+            <div class="kh-chat" id="kh-chat"><div class="kh-msgs" id="kh-msgs"></div></div>
+            <div class="kh-quick" id="kh-quick">
+              <button data-q="梳理核心体验">梳理核心体验</button>
+              <button data-q="检查规则漏洞">检查规则漏洞</button>
+              <button data-q="设计开局出身">设计开局出身</button>
+            </div>
+            <div class="kh-composer">
+              <div class="kh-box">
+                <input id="kh-input" placeholder="告诉设计助手你想造一个怎样的世界…" aria-label="设计助手输入">
+                <button class="kh-send" id="kh-send">递简</button>
+              </div>
+            </div>
+          </div>
+          <div class="kh-editor" id="kh-editor">
+            <div class="kh-ed-bar">
+              <b id="kh-file-name">未选择内核</b>
+              <div class="kh-ed-tabs" role="tablist">
+                <button class="kh-ed-tab" id="kh-tab-src" aria-selected="true" role="tab">源码</button>
+                <button class="kh-ed-tab" id="kh-tab-audit" aria-selected="false" role="tab">审计</button>
+              </div>
+              <button class="kh-op primary" id="kh-ed-save">保存</button>
+              <button class="kh-op" id="kh-ed-done">收笺</button>
+            </div>
+            <div class="kh-ed-name"><input id="kh-ed-name-input" placeholder="内核名称" aria-label="内核名称"></div>
+            <div class="kh-ed-area"><textarea id="kh-ed-src" spellcheck="false" aria-label="内核源码 Markdown"></textarea></div>
+            <div class="kh-audit" id="kh-audit" style="display:none"></div>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <!-- 砚台（输入） -->
+    <footer class="inkstone" id="inkstone">
+      <div class="inkstone-inner">
+        <div class="inkstone-box" id="inkstone-box">
+          <span class="ib-mu" aria-hidden="true"></span>
+          <textarea id="input" rows="2" placeholder="自由书写你的行动…（Enter 落笔 · Shift+Enter 换行）" aria-label="行动输入"></textarea>
+          <button class="ib-send" id="btn-send"><span id="btn-send-label">落笔</span></button>
+        </div>
+        <div class="inkstone-foot">
+          <button class="if-inspire" id="chip-inspire" title="换一条灵感">✧ 灵感</button>
+          <span id="cf-mode">楷体 · 群青 · 宣纸</span>
+          <span class="if-hint">Enter 落笔 · Shift+Enter 换行 · ↑ 召回</span>
+        </div>
+      </div>
+    </footer>
+  </main>
+</div>
+
+<!-- ============ 墨滴桌宠 ============ -->
+<div class="pet" id="pet" data-state="idle" aria-label="桌宠 · 世界之灵的墨滴">
+  <div class="pet-bubble" id="pet-bubble" role="dialog" aria-label="世界之灵">
+    <div class="pb-head"><b>世界之灵</b><button class="pb-x" id="pet-bubble-close" aria-label="关闭">×</button></div>
+    <div class="pb-tip" id="pb-tip">砚已磨好。</div>
+    <div class="pb-feed" id="pb-feed"></div>
+    <div class="pb-agent" id="pb-agent">
+      <div class="pa-label">灵使</div>
+      <button class="pa-chip" id="pa-choice">这一幕选哪个</button>
+      <button class="pa-chip" id="pa-auto">托管三幕</button>
+      <button class="pa-chip" id="pa-illust">哪幕值得配图</button>
+      <button class="pa-chip" id="pa-prompt">润色生图题语</button>
+    </div>
+    <div class="pb-model" id="pb-model">
+      <div class="pm-cap">砚池</div>
+      <div class="pm-status" id="pm-status">本地小模型 · 未接入</div>
+      <div class="pm-progress" id="pm-progress" style="display:none">
+        <div class="pm-bar"><i id="pm-bar-i" style="width:0%"></i></div>
+        <span id="pm-pct" style="font-size:10.5px;color:var(--ink-faint)">0%</span>
+        <button class="pm-cta" id="pm-cancel">取消</button>
+      </div>
+      <button class="pm-cta dl" id="pm-download" style="margin-top:7px">接入本地小模型 · 约 400MB</button>
+    </div>
+    <div class="pb-input">
+      <input id="pet-ask-input" placeholder="问世界之灵…" aria-label="问世界之灵">
+      <button id="pet-ask-send">问</button>
+    </div>
+  </div>
+  <div class="pet-body" id="pet-body" title="世界之灵">
+    <div class="pet-ink" id="pet-ink">
+      <svg viewBox="0 0 54 58" aria-hidden="true">
+        <defs>
+          <radialGradient id="inkg" cx="38%" cy="30%" r="75%">
+            <stop offset="0%" stop-color="var(--page)"/>
+            <stop offset="34%" stop-color="var(--ink)" stop-opacity=".92"/>
+            <stop offset="100%" stop-color="var(--ink)"/>
+          </radialGradient>
+        </defs>
+        <path fill="url(#inkg)" d="M27 4 C38 10 47 22 47 36 C47 47 38 54 27 54 C16 54 7 47 7 36 C7 22 16 10 27 4 Z"/>
+        <path fill="var(--page)" opacity=".9" d="M20 30 c2.5-3 6.5-3 9 0 c2.5 3 6.5 3 9 0 c-1.2 6.5-5 10-9.5 10 c-4.5 0-8.3-3.5-9.5-10 Z"/>
+        <circle cx="21.5" cy="24" r="2.1" fill="var(--page)"/>
+        <circle cx="32.5" cy="24" r="2.1" fill="var(--page)"/>
+        <path d="M27 3 q1.5-2.6 3.4-2 q-1.6 1.8-1.9 3.4 Z" fill="var(--ink)"/>
+      </svg>
+    </div>
+    <span class="pet-badge" id="pet-badge">!</span>
+  </div>
+  <div class="pet-name">墨灵</div>
+</div>
+
+<!-- ============ 命令面板（笺条检索） ============ -->
+<div class="cmdk-mask" id="cmdk-mask">
+  <div class="cmdk" role="dialog" aria-label="命令面板">
+    <div class="cmdk-in">
+      <span class="ci-seal">检</span>
+      <input id="cmdk-input" placeholder="检索命令或跳转…" aria-label="命令检索">
+    </div>
+    <div class="cmdk-list" id="cmdk-list" role="listbox"></div>
+  </div>
+</div>
+
+<!-- ============ 册页们 ============ -->
+<div class="scrim" id="scrim-lib"></div>
+<aside class="booklet" id="sheet-lib" aria-label="内核库">
+  <div class="booklet-head">
+    <div><h3>内核库</h3><div class="bh-sub" id="lib-count">N 册内核</div></div>
+    <button class="bh-x" id="lib-close" aria-label="关闭">×</button>
+  </div>
+  <div class="booklet-body">
+    <div class="lib-tools">
+      <button class="lt-btn" id="lib-new">＋ 新修一册</button>
+      <button class="lt-btn" id="lib-import">导入 .md</button>
+    </div>
+    <div class="lib-search"><input id="lib-search" type="search" placeholder="检索名称、简介或标签" aria-label="搜索内核"></div>
+    <div class="lib-tabs" role="tablist" id="lib-tabs">
+      <button class="lib-tab" data-libtab="all" aria-selected="true">全部</button>
+      <button class="lib-tab" data-libtab="published" aria-selected="false">已发布</button>
+      <button class="lib-tab" data-libtab="draft" aria-selected="false">草稿</button>
+      <button class="lib-tab" data-libtab="archived" aria-selected="false">归档</button>
+    </div>
+    <div id="lib-list"></div>
+  </div>
+</aside>
+
+<div class="scrim" id="scrim-gallery"></div>
+<aside class="booklet" id="sheet-gallery" aria-label="画廊">
+  <div class="booklet-head">
+    <div><h3>画廊</h3><div class="bh-sub" id="gallery-sub">本世界线 · N 图</div></div>
+    <button class="bh-x" id="gallery-close" aria-label="关闭">×</button>
+  </div>
+  <div class="booklet-body">
+    <div class="gallery-toolbar">
+      <select id="gallery-worldline" class="gt-btn" style="appearance:none" aria-label="世界线筛选"></select>
+      <button class="gt-btn" id="gallery-save-all">保存全部</button>
+      <button class="gt-btn" id="gallery-export">导出故事存档</button>
+    </div>
+    <div class="gallery-grid" id="gallery-grid"></div>
+  </div>
+</aside>
+
+<div class="scrim" id="scrim-theme"></div>
+<aside class="booklet" id="sheet-theme" aria-label="装帧（主题外观）">
+  <div class="booklet-head">
+    <div><h3>装帧</h3><div class="bh-sub">纸、墨与卷册的呼吸</div></div>
+    <button class="bh-x" id="theme-close" aria-label="关闭">×</button>
+  </div>
+  <div class="booklet-body">
+    <div class="set-sec">
+      <h4>昼夜</h4>
+      <div class="mode-tiles">
+        <button class="mode-tile" id="mt-day" aria-pressed="true"><span class="mt-dot mt-sun"></span><span><b>宣纸昼</b><span>纸白 · 墨青</span></span></button>
+        <button class="mode-tile" id="mt-night" aria-pressed="false"><span class="mt-dot mt-moon"></span><span><b>靛夜</b><span>靛纸 · 月墨</span></span></button>
+      </div>
+    </div>
+    <div class="set-sec">
+      <h4>阅读字</h4>
+      <div class="seg" id="seg-font">
+        <button data-font="kai" aria-pressed="true">楷</button>
+        <button data-font="serif" aria-pressed="false">宋</button>
+        <button data-font="sans" aria-pressed="false">黑</button>
+      </div>
+    </div>
+    <div class="set-sec">
+      <h4>字幅</h4>
+      <div class="seg" data-seg="width">
+        <button data-v="narrow" aria-pressed="false">窄</button>
+        <button data-v="std" aria-pressed="true">中</button>
+        <button data-v="wide" aria-pressed="false">宽</button>
+      </div>
+    </div>
+    <div class="set-sec">
+      <h4>行密</h4>
+      <div class="seg" data-seg="density">
+        <button data-v="compact" aria-pressed="false">密</button>
+        <button data-v="std" aria-pressed="true">常</button>
+        <button data-v="relaxed" aria-pressed="false">疏</button>
+      </div>
+    </div>
+    <div class="set-sec">
+      <h4>册角</h4>
+      <div class="seg" data-seg="radius">
+        <button data-v="none" aria-pressed="false">方</button>
+        <button data-v="small" aria-pressed="false">小</button>
+        <button data-v="std" aria-pressed="true">中</button>
+        <button data-v="round" aria-pressed="false">圆</button>
+      </div>
+    </div>
+    <div class="set-sec">
+      <h4>墨灵与卷</h4>
+      <div class="set-kv"><span class="sk-label">显示桌宠「墨灵」</span>
+        <label class="toggle"><input type="checkbox" id="set-pet" checked><span class="tk"></span></label></div>
+      <div class="set-kv"><span class="sk-label">开场墨落成印动画</span>
+        <label class="toggle"><input type="checkbox" id="set-splash" checked><span class="tk"></span></label></div>
+      <div class="set-kv"><span class="sk-label">减弱动效</span>
+        <label class="toggle"><input type="checkbox" id="set-motion"><span class="tk"></span></label></div>
+    </div>
+    <div class="set-sec">
+      <h4>恢复</h4>
+      <button class="kh-act" id="set-reset" style="width:100%;justify-content:center">还原装帧</button>
+    </div>
+  </div>
+</aside>
+
+<div class="scrim" id="scrim-settings"></div>
+<aside class="booklet" id="sheet-settings" aria-label="设置">
+  <div class="booklet-head">
+    <div><h3>匣</h3><div class="bh-sub">对话模型 · 插图模型 · 数据</div></div>
+    <button class="bh-x" id="settings-close" aria-label="关闭">×</button>
+  </div>
+  <div class="booklet-body" id="settings-body"></div>
+</aside>
+
+<div class="scrim" id="scrim-help"></div>
+<aside class="booklet" id="sheet-help" aria-label="帮助">
+  <div class="booklet-head">
+    <div><h3>问</h3><div class="bh-sub">怎么玩 · 快捷键</div></div>
+    <button class="bh-x" id="help-close" aria-label="关闭">×</button>
+  </div>
+  <div class="booklet-body">
+    <div class="help-tabs" role="tablist">
+      <button class="help-tab" id="ht-play" aria-selected="true">怎么玩</button>
+      <button class="help-tab" id="ht-keys" aria-selected="false">快捷键</button>
+    </div>
+    <div class="help-pane active" id="hp-play">
+      <div class="guide-row"><span class="g-zi">起</span><div><b>开卷转生</b><p>择一条出身，或在砚台直书开场。世界自此开始记你的一切。</p></div></div>
+      <div class="guide-row"><span class="g-zi">承</span><div><b>推进故事</b><p>点便笺选项，或自由书写行动。每幕抉择皆入九大账。</p></div></div>
+      <div class="guide-row"><span class="g-zi">转</span><div><b>朱批与分歧</b><p>悬停你的朱批，点「另开一线」，即从那幕分出新世界线；母线全留，可循面包屑归卷。</p></div></div>
+      <div class="guide-row"><span class="g-zi">合</span><div><b>检册与快照</b><p>Ctrl+Alt+I 开检查册；落账偶败会挂起待补；墨灵在砚畔陪你记这一切。</p></div></div>
+    </div>
+    <div class="help-pane" id="hp-keys">
+      <div class="kbd-grid">
+        <span><kbd>Ctrl</kbd><kbd>N</kbd></span><span class="k-act">新世界线</span>
+        <span><kbd>Ctrl</kbd><kbd>B</kbd></span><span class="k-act">收/展书脊</span>
+        <span><kbd>Ctrl</kbd><kbd>F</kbd></span><span class="k-act">卷内检索</span>
+        <span><kbd>Ctrl</kbd><kbd>G</kbd></span><span class="k-act">画廊</span>
+        <span><kbd>Ctrl</kbd><kbd>K</kbd></span><span class="k-act">内核设计</span>
+        <span><kbd>Ctrl</kbd><kbd>Shift</kbd><kbd>L</kbd></span><span class="k-act">内核库</span>
+        <span><kbd>Ctrl</kbd><kbd>Alt</kbd><kbd>I</kbd></span><span class="k-act">检查册</span>
+        <span><kbd>Ctrl</kbd><kbd>P</kbd></span><span class="k-act">命令面板</span>
+        <span><kbd>Ctrl</kbd><kbd>= / − / 0</kbd></span><span class="k-act">字幅 大/小/复</span>
+        <span><kbd>Esc</kbd></span><span class="k-act">逐层合册</span>
+        <span><kbd>↑</kbd></span><span class="k-act">（砚空时）召回上一笔</span>
+      </div>
+    </div>
+  </div>
+</aside>
+
+<!-- 检查册（旁注页，右侧独立层） -->
+<div class="scrim" id="scrim-insp"></div>
+<aside class="booklet" id="inspector" aria-label="检查册（状态账本）">
+  <div class="booklet-head">
+    <div><h3>检查册</h3><div class="bh-sub">九大账 · 快照 · 回合日志</div></div>
+    <button class="bh-x" id="insp-close" aria-label="关闭">×</button>
+  </div>
+  <div class="booklet-body">
+    <div class="insp-tabs" role="tablist">
+      <button class="insp-tab" data-itab="overview" aria-selected="true">总览</button>
+      <button class="insp-tab" data-itab="snapshot" aria-selected="false">快照</button>
+      <button class="insp-tab" data-itab="logs" aria-selected="false">回合日志</button>
+    </div>
+    <div data-ipane="overview">
+      <div class="ledger-grid" id="ledger-grid"></div>
+      <div class="insp-sec"><h5>当前场景</h5><div id="insp-scene"></div></div>
+      <div class="insp-sec"><h5>玩家状态</h5><div id="insp-player"></div></div>
+      <button class="kh-act" id="insp-snap-create" style="width:100%;justify-content:center">在此拓印快照</button>
+    </div>
+    <div data-ipane="snapshot" style="display:none">
+      <button class="kh-act" id="insp-snap-create2" style="width:100%;justify-content:center;margin-bottom:12px">在此拓印快照</button>
+      <div id="insp-snapshots"></div>
+    </div>
+    <div data-ipane="logs" style="display:none"><div id="insp-logs"></div></div>
+  </div>
+</aside>
+
+<!-- 灯箱 -->
+<div class="lightbox" id="lightbox" role="dialog" aria-label="插图观览">
+  <button class="lb-x" id="lb-close" aria-label="关闭">×</button>
+  <button class="lb-nav lb-prev" id="lb-prev" aria-label="上一图">‹</button>
+  <div class="lb-img" id="lb-img"></div>
+  <button class="lb-nav lb-next" id="lb-next" aria-label="下一图">›</button>
+  <div class="lb-bar"><span id="lb-count">1 / 1</span></div>
+</div>
+
+<!-- 对话框 / 菜单 / toast -->
+<div class="dialog-mask" id="dlg-mask">
+  <div class="dialog" id="dlg" role="alertdialog" aria-modal="true">
+    <h4 id="dlg-title">确认</h4>
+    <div class="dlg-body" id="dlg-body"></div>
+    <div class="dlg-ops">
+      <span class="dlg-note" id="dlg-note">Esc 可合</span>
+      <button class="dlg-btn" id="dlg-cancel">且慢</button>
+      <button class="dlg-btn primary" id="dlg-ok">确定</button>
+    </div>
+  </div>
+</div>
+<div class="ws-menu" id="ws-menu" role="menu" style="display:none"></div>
+<div class="pet-menu" id="pet-menu" role="menu" style="display:none"></div>
+<div class="toast-wrap" id="toast-wrap" aria-live="polite"></div>
+<!--==HTML-APPEND-POINT==-->
+<script>
+/* ============================================================
+   核心逻辑层（数据 / 引擎模拟 / 会话）—— 已验证版本移植
+   ============================================================ */
+'use strict';
+const $  = (s, r) => (r || document).querySelector(s);
+const $$ = (s, r) => Array.from((r || document).querySelectorAll(s));
+const el = (tag, cls, html) => { const n = document.createElement(tag); if (cls) n.className = cls; if (html != null) n.innerHTML = html; return n; };
+const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const rid = () => Math.random().toString(36).slice(2, 9);
+const now = () => Date.now();
+
+const KERNELS = [
+  { id:'k-six', title:'六面世界：人生模拟器', type:'builtin', status:'published', version:'v1.5.0',
+    sub:'基于《无职转生》世界观的同人异世界人生模拟。六面神注视着你的每一次抉择。',
+    tags:['人生','异世界','转生'], usedBy:['默认世界'] },
+  { id:'k-xianxia', title:'玄寰界：修真人生模拟器', type:'builtin', status:'published', version:'v1.2.0',
+    sub:'原创修真内核。灵根、境界、道心三线并进，抉择即修行。',
+    tags:['修真','原创'], usedBy:[] },
+  { id:'k-draft-1', title:'星轨航行：舰长日志', type:'custom', status:'draft', version:'草稿',
+    sub:'太空歌剧内核草稿。舰船、船员、补给的三重约束循环。',
+    tags:['科幻','草稿'], usedBy:[] },
+  { id:'k-draft-2', title:'雾都夜行：侦探手记', type:'custom', status:'draft', version:'草稿',
+    sub:'维多利亚雾都内核草稿。线索网络与委托人关系账本。',
+    tags:['推理','蒸汽'], usedBy:[] },
+  { id:'k-arc', title:'旧日领主：领地经营', type:'custom', status:'archived', version:'v0.3.1',
+    sub:'已归档。中世纪领地经营内核，仅可查看。',
+    tags:['经营','中世纪'], usedBy:[] },
+];
+const WORKSPACES = [
+  { id:'ws-default', name:'默认世界', kernelId:'k-six' },
+  { id:'ws-2', name:'修行之地', kernelId:'k-xianxia' },
+];
+const ORIGINS = [
+  { id:'o1', zi:'生', label:'保留记忆的转生者', desc:'三十四岁无业家中离世，携全部记忆降生——你比谁都清楚「重来一次」意味着什么。' },
+  { id:'o2', zi:'师', label:'洛琪希的魔法学生', desc:'自幼师从洛琪希·米格路迪亚，水王级魔术已是掌中物，而你对这个世界的了解还远远不够。' },
+  { id:'o3', zi:'隐', label:'布耶纳村的孩子', desc:'平凡村落的平凡童年。父母健在，家道小康，魔力量未知——一切尚未开始。' },
+  { id:'o4', zi:'贵', label:'贵族的私生子', desc:'出身布埃纳伯爵家，锦衣玉食却无地位。母亲是一位女仆，你的一生都要为「名分」而战。' },
+];
+
+const STORY_OPEN = (originLabel) => ({
+  raw:
+`【甲龙历407.03.01｜清晨｜布耶纳村】
+雨停了。屋顶的滴水声稀稀落落，你躺在摇篮里，盯着天花板上一道裂缝看了很久。前世的记忆像退潮的水，留下一地贝壳——${originLabel}，这是你此刻唯一的身份。
+
+你试着抬起手。婴儿的手臂软弱无力，但你的意志可以支配它。三十年麻木生活的终点，居然是一具崭新的躯体。窗外有马车轮碾过石板的声音，远处传来女人的呼喊，还有一个孩子的笑。
+
+「鲁迪乌斯！吃饭了——」有人在楼下喊。
+
+【你需要决定】
+【A】放声大哭，吸引家人全部的注意
+【B】安静观察四周，先摸清这具身体
+【C】尝试说出一句完整的话
+
+【简要状态】
+姓名：鲁迪乌斯·格雷拉特　年龄：0 岁
+位置：布耶纳村 · 自宅
+状态：重生初醒　体力：微小
+魔力：？？　技能：？？
+
+<<<STATE_PATCH>>>
+{
+  "scene": { "game_time": "甲龙历407.03.01 清晨", "location": "布耶纳村·自宅", "summary": "转生初醒，世界从一声呼唤开始" },
+  "facts": [
+    { "key": "player_reborn", "content": "玩家转生为鲁迪乌斯·格雷拉特", "importance": 95 },
+    { "key": "family_call", "content": "有人呼唤「鲁迪乌斯」吃饭", "importance": 40 }
+  ],
+  "entities": [
+    { "name": "鲁迪乌斯·格雷拉特", "type": "PERSON", "short_names": ["鲁迪", "鲁迪乌斯"] },
+    { "name": "布耶纳村", "type": "LOCATION", "short_names": [] }
+  ],
+  "events": [
+    { "event_type": "WORLD", "content": "转生之夜，甲龙历 407 年 3 月 1 日清晨", "importance": 90 }
+  ]
+}
+<<<END_PATCH>>>`,
+  choices: [
+    { key:'A', label:'放声大哭，吸引家人全部的注意' },
+    { key:'B', label:'安静观察四周，先摸清这具身体' },
+    { key:'C', label:'尝试说出一句完整的话' },
+  ],
+});
+
+const TURN_POOL = [
+  {
+    raw:
+`【甲龙历407.03.02｜午后｜布耶纳村】
+你的行动激起了小小的涟漪。母亲泽妮丝抱着你转了两圈，父亲保罗在门框边抱着手臂笑，那笑里有一点「我儿子不简单」的得意。阳光从窗棂切进来，把你小小的影子拉得很长。
+
+村里的事沿着自己的轨道走：磨坊家的狗生了崽，教堂的钟修好了第三根发条，货郎带来南方的香料和一则传闻——阿斯拉王国的魔法大学在招收天才儿童。
+
+没有人知道摇篮里的你在想什么。你在心里给自己定下第一条纪律：这一次，不逃避。
+
+【你需要决定】
+【A】向父母展示「天才」的迹象，换取重视
+【B】藏拙，安静地积累力量
+【C】缠着父亲保罗教剑术
+
+【简要状态】
+姓名：鲁迪乌斯·格雷拉特　年龄：0~1 岁
+位置：布耶纳村 · 自宅
+体力：婴孩　魔力：感应中
+技能：前世记忆（常驻）
+
+<<<STATE_PATCH>>>
+{
+  "scene": { "game_time": "甲龙历407.03.02 午后", "location": "布耶纳村·自宅", "summary": "家庭的温度与纪律的萌芽" },
+  "facts": [
+    { "key": "family_warm", "content": "格雷拉特家充满温度", "importance": 60 },
+    { "key": "rumor_magic_univ", "content": "魔法大学招收天才儿童的传闻", "importance": 45 }
+  ],
+  "commitments": [ { "content": "这一次不逃避", "status": "ACTIVE", "importance": 85 } ],
+  "threads": [ { "title": "魔法大学的传闻", "status": "OPEN", "importance": 45 } ]
+}
+<<<END_PATCH>>>`,
+    choices: [
+      { key:'A', label:'向父母展示「天才」的迹象，换取重视' },
+      { key:'B', label:'藏拙，安静地积累力量' },
+      { key:'C', label:'缠着父亲保罗教剑术' },
+    ],
+  },
+  {
+    raw:
+`【甲龙历407.03.03｜黄昏｜布耶纳村 · 河滩】
+你被抱到了河滩上。晚霞把水面烧成橙红色，芦苇丛里有白鹭单脚站着。你第一次用这具身体触碰「世界」——风的凉意、草叶划过掌心的痒、泥土的腥甜。
+
+远处一个蓝色头发的娇小人影抱着一摞书走过田埂。那是命运的伏笔，此刻你当然还不知道。
+
+黄昏收尽，母亲把你裹进毛毯。世界的第一课结束了。
+
+【你需要决定】
+【A】记住那个蓝发人影，来日寻访
+【B】先专注眼前的家庭生活
+【C】夜晚偷偷尝试引导体内暖流
+
+【简要状态】
+姓名：鲁迪乌斯·格雷拉特　年龄：0~1 岁
+位置：布耶纳村 · 河滩→自宅
+体力：微倦　魔力：暖流涌动
+技能：前世记忆（常驻）
+
+<<<STATE_PATCH>>>
+{
+  "scene": { "game_time": "甲龙历407.03.03 黄昏", "location": "布耶纳村·河滩", "summary": "第一次触碰世界，蓝发人影的伏笔" },
+  "facts": [ { "key": "river_first_touch", "content": "第一次用新身体感受世界", "importance": 55 } ],
+  "entities": [ { "name": "蓝发魔族女性", "type": "PERSON", "short_names": ["蓝发人影"] } ],
+  "threads": [ { "title": "蓝发人影的真实身份", "status": "OPEN", "importance": 70 } ],
+  "events": [ { "event_type": "DISCOVERY", "content": "体内魔力如暖流涌动", "importance": 65 } ]
+}
+<<<END_PATCH>>>`,
+    choices: [
+      { key:'A', label:'记住那个蓝发人影，来日寻访' },
+      { key:'B', label:'先专注眼前的家庭生活' },
+      { key:'C', label:'夜晚偷偷尝试引导体内暖流' },
+    ],
+  },
+  {
+    raw:
+`【甲龙历407.03.04｜深夜｜布耶纳村 · 自宅】
+夜半。整栋屋子只剩呼吸声。你没有睡——你在被褥里盘起小小的身体，按前世读过的冥想法调整呼吸。魔力像一条被驯服的小鱼，沿着脊柱缓缓上游。
+
+这是你第一次主动握住这个世界的「力量」。它回应了你。
+
+窗外，六面世界的某一面，似乎轻轻动了一下。
+
+【你需要决定】
+【A】乘胜追击，练到魔力枯竭为止
+【B】见好就收，保护幼小的身体
+【C】明日把发现告诉母亲
+
+【简要状态】
+姓名：鲁迪乌斯·格雷拉特　年龄：0~1 岁
+位置：布耶纳村 · 自宅
+体力：倦　魔力：初醒
+技能：前世记忆 · 初级冥想
+
+<<<STATE_PATCH>>>
+{
+  "scene": { "game_time": "甲龙历407.03.04 深夜", "location": "布耶纳村·自宅", "summary": "冥想初成，魔力初醒" },
+  "facts": [ { "key": "mana_awaken", "content": "魔力初次觉醒", "importance": 88 } ],
+  "knowledge": [ { "content": "冥想法可以有效引导魔力", "source": "SELF", "importance": 60 } ],
+  "events": [ { "event_type": "DISCOVERY", "content": "魔力觉醒之夜", "importance": 88 } ],
+  "causal": [ { "cause": "坚持前世记忆中的冥想法", "effect": "魔力初醒", "status": "RESOLVED" } ]
+}
+<<<END_PATCH>>>`,
+    choices: [
+      { key:'A', label:'乘胜追击，练到魔力枯竭为止' },
+      { key:'B', label:'见好就收，保护幼小的身体' },
+      { key:'C', label:'明日把发现告诉母亲' },
+    ],
+  },
+];
+
+const INSPIRES = [
+  '仔细观察父母的表情，判断这个家庭的真实经济状况',
+  '用婴儿的方式测试自己的魔力总量',
+  '尝试回忆前世读过的所有剑术教材',
+  '数一数村里今天路过家门口的人数',
+  '对着空气练习前世学会的社交微笑',
+  '把今天听到的所有新词默默记在心里',
+  '盯着窗外的云，放空一个下午',
+  '尝试翻身，并且成功了',
+  '留意父亲佩剑的磨损位置，推断他的剑术流派',
+  '闻一闻厨房的方向，记住「家」的味道',
+  '练习用左手抓东西，开发右脑',
+  '在婴儿哭声里练习气息控制',
+];
+const PET_RULES = [
+  { re:/(怎么|如何).*(开始|玩|开局)/, a:'择一条出身开卷；或直接在砚台写下开场行动。' },
+  { re:/快捷键/, a:'Ctrl+P 检面板、Ctrl+G 画廊、Ctrl+Alt+I 检查册——「问」册里有全表。' },
+  { re:/主题|皮肤|昼夜|装帧/, a:'页眉的「装」印可换昼夜书房与阅读字体。' },
+  { re:/(未落账|补录|待补)/, a:'世界记账偶有失败。卷首会出笺提醒，一键补录即可，阅读不受影响。' },
+  { re:/IF|分歧|回溯|另开/, a:'悬停你的朱批，点「另开一线」，即从那幕分出新世界线。' },
+  { re:/内核/, a:'页眉切「内核设计」，可与设计助手共修规则书；内核库里有现成的。' },
+  { re:/密钥|安全/, a:'密钥只存本机安全匣里，导出配置也不会带出。' },
+  { re:/搜索|检索/, a:'书脊底的「索」检世界线；Ctrl+F 检本卷。' },
+  { re:/你是谁|世界之灵/, a:'我是世界之灵，砚上一滴活墨。这一卷的因果都从我这里过。' },
+  { re:/报错|错误/, a:'若世界引擎报错，可在那一幕点「重试此幕」。' },
+  { re:/帮助/, a:'页眉「问」印里有两册：怎么玩与快捷键。' },
+];
+const PET_TIPS = [
+  '账本第九页写着：抉择即因果。',
+  '另开一线不毁母线——母线永远完整。',
+  '快照是你的后悔药，一世界至多三十份。',
+  '多选可一次递出 A 加 B 的连锁行动。',
+  '灵感一笺，不耗一字 token。',
+  '朱砂落印之时，即为落账之刻。',
+];
+
+/* —— SVG 插图（宣纸水墨色系） —— */
+const ILLUSTR = {
+  seed(str){ let h = 2166136261; for (let i = 0; i < str.length; i++){ h ^= str.charCodeAt(i); h = Math.imul(h, 16777619); } return Math.abs(h); },
+  rng(seed){ let s = seed; return () => { s = (s * 1103515245 + 12345) & 0x7fffffff; return s / 0x7fffffff; }; },
+  scene(caption, kind){
+    const seed = ILLUSTR.seed(caption + kind);
+    const r = ILLUSTR.rng(seed);
+    const W = 800, H = 450;
+    const ink = '#26292F', paper = '#FAF9F4', wash = '#2F4C7E', cinn = '#B8402E';
+    const hills = Array.from({length:3}, (_,i) => {
+      const base = 215 + i*48; const amp = 34 + r()*42; const pts = [`0,${H}`, `0,${base}`];
+      for (let x = 0; x <= W; x += 50){ pts.push(`${x},${(base - amp * Math.sin(x / (105 + i*32) + seed % 7)).toFixed(1)}`); }
+      pts.push(`${W},${base}`, `${W},${H}`);
+      return `<path d="M${pts.join(' L')} Z" fill="${wash}" opacity="${(0.16 + i*0.10).toFixed(2)}"/>`;
+    }).join('');
+    const sunX = 90 + r()*620, sunY = 54 + r()*80, sunR = 13 + r()*20;
+    const strokes = Array.from({length:9}, () => {
+      const x = r()*W, y = 230 + r()*150, l = 34 + r()*84;
+      return `<path d="M${x.toFixed(0)},${y.toFixed(0)} q${(l/2).toFixed(0)},${(-12 - r()*16).toFixed(0)} ${l.toFixed(0)},${(r()*10).toFixed(0)}" fill="none" stroke="${ink}" stroke-width="1" opacity=".12"/>`;
+    }).join('');
+    const birds = kind !== 'night' ? Array.from({length:3}, () => {
+      const bx = 70 + r()*660, by = 60 + r()*90, s2 = 5 + r()*6;
+      return `<path d="M${bx.toFixed(0)},${by.toFixed(0)} q${s2.toFixed(0)},${(-s2*0.8).toFixed(0)} ${(s2*2).toFixed(0)},0 q${s2.toFixed(0)},${(-s2*0.8).toFixed(0)} ${(s2*2).toFixed(0)},0" fill="none" stroke="${ink}" stroke-width="1.3" opacity=".5"/>`;
+    }).join('') : '';
+    const moon = kind === 'night'
+      ? `<circle cx="${sunX.toFixed(0)}" cy="${sunY.toFixed(0)}" r="${sunR.toFixed(0)}" fill="none" stroke="${ink}" stroke-width="1.5" opacity=".8"/><circle cx="${(sunX - sunR*0.35).toFixed(0)}" cy="${(sunY - sunR*0.22).toFixed(0)}" r="${(sunR*0.92).toFixed(0)}" fill="${paper}"/>`
+      : `<circle cx="${sunX.toFixed(0)}" cy="${sunY.toFixed(0)}" r="${sunR.toFixed(0)}" fill="${cinn}" opacity=".82"/>`;
+    const frame = `<rect x="10" y="10" width="${W-20}" height="${H-20}" fill="none" stroke="${ink}" stroke-width="1.1" opacity=".3"/><rect x="16" y="16" width="${W-32}" height="${H-32}" fill="none" stroke="${ink}" stroke-width="0.7" opacity=".2"/>`;
+    const verseY = 40 + r()*40;
+    const verse = `<text x="${(W-34).toFixed(0)}" y="${verseY.toFixed(0)}" text-anchor="end" font-size="13" fill="${cinn}" opacity=".55" font-family="KaiTi, serif">${esc(caption.slice(0, 12))}</text>`;
+    return `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="${esc(caption)}">
+      <rect width="${W}" height="${H}" fill="${paper}"/>${moon}${birds}${hills}${strokes}${verse}${frame}
+    </svg>`;
+  },
+};
+
+/* ============================================================
+   状态
+   ============================================================ */
+const store = {
+  wsId: WORKSPACES[0].id,
+  sessions: [], curId: null,
+  mode: 'day', font: 'kai',
+  width: 'std', density: 'std', radius: 'std',
+  pet: true, splash: true, motion: true,
+  autoIllust: false, fsScale: 1,
+};
+let snaps = [], turnLogs = [], illustGallery = [];
+let stateLedger = { decisions:0, commitments:0, facts:0, knowledge:0, events:0, causal:0, relationships:0, threads:0, entities:0 };
+let busy = false, currentChoices = [], pickSet = [], multiMode = false, dirty = false;
+
+const LS_KEY = 'sixworlds.proto.A.book.v1';
+function saveLS(){ try { localStorage.setItem(LS_KEY, JSON.stringify({ mode:store.mode, font:store.font, width:store.width, density:store.density, radius:store.radius, pet:store.pet, splash:store.splash, motion:store.motion })); } catch(e){} }
+function loadLS(){ try { const d = JSON.parse(localStorage.getItem(LS_KEY) || 'null'); if (d) Object.assign(store, d); } catch(e){} }
+loadLS();
+
+/* ============================================================
+   引擎模拟（协议剥离 / 选项解析 / 落账状态机）
+   ============================================================ */
+function splitPatch(raw){
+  const m = raw.match(/<<<STATE_PATCH>>>[\s\S]*?<<<END_PATCH>>>/);
+  let patch = null;
+  if (m){ try { patch = JSON.parse(m[0].replace(/<<<STATE_PATCH>>>|<<<END_PATCH>>>/g, '').trim()); } catch(e){} }
+  return { narrative: raw.replace(/<<<STATE_PATCH>>>[\s\S]*?<<<END_PATCH>>>/, '').trim(), patch };
+}
+function simulateCommit(session, msg){
+  const roll = Math.random();
+  if (roll < 0.86){ msg.commit = 'ok'; applyLedger(msg.patch); pushTurnLog('ok', msg.patch); }
+  else if (roll < 0.94){
+    msg.commit = 'retry'; pushTurnLog('retry', null);
+    setTimeout(() => {
+      msg.commit = 'ok'; applyLedger(msg.patch); pushTurnLog('ok', msg.patch);
+      renderScroll(); refreshPending(); renderSpine(); toast('状态已补录');
+    }, 2600);
+  } else { msg.commit = 'pending'; pushTurnLog('pending', null); }
+}
+function applyLedger(patch){
+  if (!patch) return;
+  ['facts','entities','decisions','events','knowledge','causal','commitments','relationships','threads']
+    .forEach(k => { if (patch[k]) stateLedger[k] += patch[k].length; });
+}
+function pushTurnLog(status, patch){
+  turnLogs.unshift({ turn: turnLogs.length + 1, status, patch, at: now() });
+  if (turnLogs.length > 40) turnLogs.pop();
+}
+function ledgerCount(patch){
+  if (!patch) return 0;
+  return ['facts','entities','decisions','events','knowledge','causal','commitments','relationships','threads']
+    .reduce((n, k) => n + (patch[k] ? patch[k].length : 0), 0);
+}
+function parseChoices(narrative){
+  const out = [], seen = new Set();
+  const push = (key, label) => {
+    label = (label || '').trim().replace(/^[「『"']|[」』"']$/g, '');
+    if (!label || seen.has(key + label)) return;
+    seen.add(key + label); out.push({ key, label });
+  };
+  let m;
+  for (const line of narrative.split('\n')){
+    if ((m = line.match(/^【([A-H])】\s*(.+)/))) push(m[1], m[2]);
+    else if ((m = line.match(/^([A-H])[.、:：)]\s*(.+)/))) push(m[1], m[2]);
+    else if ((m = line.match(/^([①②③④⑤⑥⑦⑧])\s*(.+)/))){ const i = '①②③④⑤⑥⑦⑧'.indexOf(m[1]); if (i >= 0) push('ABCDEFGH'[i], m[2]); }
+  }
+  out.sort((a,b) => a.key.localeCompare(b.key));
+  return out;
+}
+function extractQuoteChoices(narrative){
+  const quotes = [];
+  for (const line of narrative.split('\n')){
+    const re = /「([^」]{2,24})」/g; let m;
+    while ((m = re.exec(line))) quotes.push(m[1]);
+  }
+  if (quotes.length < 2) return null;
+  return quotes.slice(0, 4).map((q, i) => ({ key:'ABCDEF'[i], label:q, fallback:true }));
+}
+/* 行级叙事排版（书页版：场景头带鱼尾，正文两字缩进） */
+function renderNarrative(narrative){
+  const frag = [];
+  let statusLines = null;
+  const flushStatus = () => {
+    if (statusLines && statusLines.length) frag.push(`<div class="status-panel">${statusLines.map(esc).join('<br>')}</div>`);
+    statusLines = null;
+  };
+  for (const raw of narrative.split('\n')){
+    const line = raw.trimEnd();
+    if (statusLines !== null){
+      if (line.trim()){ statusLines.push(line); continue; }
+      flushStatus(); continue;
+    }
+    if (!line.trim()) continue;
+    if (/^【简要状态】/.test(line)){ statusLines = [line.replace(/^【简要状态】\s*/, '')]; continue; }
+    if (/^【.*】$/.test(line) && /｜/.test(line)){ frag.push(`<div class="beat-scene"><span class="yuwei" aria-hidden="true"></span><span class="scene-txt">${esc(line.replace(/[【】]/g,''))}</span><span class="scene-rule"></span></div>`); continue; }
+    if (/^【你需要决定】/.test(line)){ frag.push(`<p class="ask">${esc(line)}</p>`); continue; }
+    if (/^【[A-H]】/.test(line)) continue;
+    if (/^【.*】$/.test(line)){ frag.push(`<p><strong>${esc(line.replace(/[【】]/g,''))}</strong></p>`); continue; }
+    frag.push(`<p class="indent">${esc(line)}</p>`);
+  }
+  flushStatus();
+  return frag.join('');
+}
+/* 打字机（rAF 流式） */
+function typewrite(node, fullText, { cps = 88, onDone } = {}){
+  return new Promise(resolve => {
+    const start = performance.now(), total = fullText.length;
+    node.innerHTML = '';
+    const tick = () => {
+      const n = clamp(Math.floor((performance.now() - start) / 1000 * cps), 0, total);
+      node.innerHTML = renderNarrative(fullText.slice(0, n)) + (n < total ? '<span class="stream-caret"></span>' : '');
+      if (n >= total){ if (onDone) onDone(); resolve(); return; }
+      requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  });
+}
+/* 会话操作 */
+function newSession(title, msgs = []){
+  const s = { id: rid(), wsId: store.wsId, title: title || '新世界线', createdAt: now(), ifFrom: null, msgs: [], pending: false };
+  store.sessions.unshift(s);
+  return s;
+}
+function curSession(){ return store.sessions.find(s => s.id === store.curId) || null; }
+function forkSession(fromId, cutIdx){
+  const src = store.sessions.find(s => s.id === fromId);
+  if (!src) return null;
+  const fork = { id: rid(), wsId: src.wsId, title: '另开一线 · ' + (src.title.length > 10 ? src.title.slice(0, 10) : src.title),
+    createdAt: now(), ifFrom: src.id, msgs: src.msgs.slice(0, cutIdx).map(m => ({ ...m })), pending: false };
+  return fork;
+}
+function sessionRounds(s){ return s ? s.msgs.filter(m => m.role === 'assistant').length : 0; }
+function reparseChoices(s){
+  const last = s ? [...s.msgs].reverse().find(m => m.role === 'assistant' && !m.error) : null;
+  return last ? parseChoices(last.content) : [];
+}
+
+/* ============================================================
+   书页视图层
+   ============================================================ */
+(function(){
+  const st = document.createElement('style');
+  st.textContent = `.stream-caret{ display:inline-block; width:1.5px; height:1em; margin-left:3px; background:var(--cinnabar); vertical-align:-2px; animation:caret-blink .9s steps(1) infinite; }
+  @keyframes caret-blink{ 0%,49%{opacity:1;} 50%,100%{opacity:0;} }`;
+  document.head.appendChild(st);
+})();
+
+/* —— 书脊（世界线书签舌） —— */
+function renderSpine(){
+  const tabs = $('#spine-tabs');
+  tabs.innerHTML = '';
+  const list = store.sessions.filter(s => s.wsId === store.wsId);
+  if (!list.length){
+    tabs.appendChild(el('div', '', '<div style="writing-mode:vertical-rl; padding:16px 0; font-size:12px; color:var(--ink-faint); letter-spacing:.2em; margin:0 auto;">尚无世界线 · 右下「新世界线」开卷</div>'));
+    return;
+  }
+  list.forEach(s => {
+    const b = el('button', 'wstab' + (s.ifFrom ? ' if' : '') + (s.pending ? ' pending' : ''));
+    b.dataset.sid = s.id;
+    b.setAttribute('aria-current', s.id === store.curId ? 'true' : 'false');
+    b.title = s.title + (s.ifFrom ? '（另开一线）' : '');
+    b.innerHTML = `<span>${esc(s.title.length > 14 ? s.title.slice(0, 14) + '…' : s.title)}</span><span class="wt-round">R${sessionRounds(s)}</span>`;
+    b.onclick = () => switchSession(s.id);
+    /* 右键：重命名/删除 */
+    b.oncontextmenu = e => { e.preventDefault(); spineTabMenu(e, s); };
+    tabs.appendChild(b);
+  });
+}
+function spineTabMenu(e, s){
+  const menu = $('#ws-menu');
+  menu.innerHTML = '';
+  const rn = el('button', '', '✎ 重命名');
+  rn.onclick = async () => {
+    menu.style.display = 'none';
+    const name = await confirmDialog({ title:'重命名世界线', body:'为新世界线题名：', withInput:true, placeholder:s.title });
+    if (name){ s.title = name; renderSpine(); renderHead(); toast('已题名'); }
+  };
+  const dl = el('button', 'danger', '✕ 删除');
+  dl.onclick = () => {
+    menu.style.display = 'none';
+    confirmDialog({ title:'删除世界线', body:`「${s.title}」及其 ${sessionRounds(s)} 幕将一并散佚。`, okText:'删除', danger:true })
+      .then(ok => { if (ok) deleteSession(s); });
+  };
+  menu.append(rn, dl);
+  menu.style.display = 'block';
+  menu.style.left = clamp(e.clientX - 180, 8, innerWidth - 220) + 'px';
+  menu.style.top = clamp(e.clientY, 8, innerHeight - 140) + 'px';
+}
+
+/* —— 正文卷 —— */
+function renderScroll(){
+  const box = $('#scroll-inner');
+  box.innerHTML = '';
+  const s = curSession();
+  if (!s || !s.msgs.length){ renderFrontispiece(); refreshHead(); return; }
+  /* 卷首题头 */
+  const head = el('div', 'fascicle-head');
+  head.innerHTML = `<div class="fh-meta"><h2>${esc(s.title)}</h2><span class="fh-round">共 ${sessionRounds(s)} 幕</span></div>`;
+  box.appendChild(head);
+  const crumbHost = head.querySelector('.fh-meta');
+  if (s.ifFrom){
+    const parent = store.sessions.find(x => x.id === s.ifFrom);
+    const crumb = el('button', 'fh-crumb', `⟲ 母线：${esc(parent ? parent.title : '已散佚')}`);
+    crumb.onclick = () => parent && switchSession(parent.id);
+    crumbHost.appendChild(crumb);
+  }
+  s.msgs.forEach((m, i) => box.appendChild(buildBeat(m, i === s.msgs.length - 1)));
+  /* 便笺选项 + 待补录笺 */
+  box.appendChild(buildNotes());
+  box.appendChild(buildPending());
+  refreshHead();
+}
+function buildBeat(m, isLast){
+  if (m.role === 'user'){
+    const wrap = el('div', 'beat-user');
+    const note = el('div', 'zhu-note');
+    note.innerHTML = `<span class="zn-mark" aria-hidden="true">批</span>
+      <p>${esc(m.content)}</p>
+      <div class="zn-meta"><span class="zn-round">朱批 · 第${m.rn}幕</span><span>${fmtTime(m.at)}</span></div>
+      <div class="zn-ops">
+        <button class="zn-op" data-op="copy">抄录</button>
+        <button class="zn-op" data-op="if">另开一线</button>
+        <button class="zn-op" data-op="illust">配图</button>
+      </div>`;
+    note.querySelector('[data-op="copy"]').onclick = () => { copyText(m.content); toast('已抄录'); };
+    note.querySelector('[data-op="if"]').onclick = () => confirmIF(m);
+    note.querySelector('[data-op="illust"]').onclick = () => {
+      const s = curSession();
+      const idx = s.msgs.indexOf(m);
+      const before = [...s.msgs.slice(0, idx)].reverse().find(x => x.role === 'assistant' && !x.error && !x.illust);
+      const after = [...s.msgs.slice(idx + 1)].find(x => x.role === 'assistant' && !x.error && !x.illust);
+      const target = before || after;
+      if (!target) return toast('附近的幕都已有图', 'info');
+      drawIllustFor(s, target);
+    };
+    wrap.appendChild(note);
+    return wrap;
+  }
+  const beat = el('div', 'beat');
+  const narr = el('div', 'beat-narr');
+  narr.innerHTML = renderNarrative(m.content);
+  beat.appendChild(narr);
+  if (m.error){
+    narr.insertAdjacentHTML('beforeend', `<div style="border:1px solid var(--danger); border-radius:var(--rl); padding:12px 14px; margin-top:8px; color:var(--danger); font-size:13px; line-height:1.8;">⚠️ 世界引擎报错：模拟的模型响应中断。<button style="margin-left:10px; text-decoration:underline; cursor:pointer;">重试此幕</button></div>`);
+    narr.querySelector('button').onclick = () => retryLastTurn();
+  } else {
+    const seal = el('div', 'beat-seal');
+    if (m.commit === 'ok'){ seal.className = 'beat-seal stamped'; seal.innerHTML = `<span class="seal-box">印</span><span>已入账 · ${ledgerCount(m.patch)} 笔</span>`; }
+    else if (m.commit === 'retry'){ seal.className = 'beat-seal loading'; seal.innerHTML = `<span class="seal-box">◌</span><span>记忆记账中…</span>`; }
+    else if (m.commit === 'pending'){
+      seal.className = 'beat-seal pending';
+      seal.innerHTML = `<span class="seal-box">！</span><span>此幕未落账</span><button>点击补录</button>`;
+      seal.querySelector('button').onclick = () => resolvePendingMsg(m);
+    }
+    narr.appendChild(seal);
+  }
+  if (m.illust){
+    const fig = el('button', 'beat-illust');
+    fig.innerHTML = m.illust + `<span class="ill-cap">${esc(m.illustCaption || '')}</span>`;
+    fig.onclick = () => openLightbox(m);
+    narr.appendChild(fig);
+  }
+  return beat;
+}
+function buildNotes(){
+  const wrap = el('div', 'notes');
+  wrap.id = 'notes-wrap';
+  if (!currentChoices.length || busy){ wrap.style.display = 'none'; return wrap; }
+  const head = el('div', 'notes-head');
+  head.innerHTML = `<span>这一幕有 ${currentChoices.length} 笺可选</span><span class="nh-rule"></span><button class="nh-multi">多选合递</button>`;
+  wrap.appendChild(head);
+  const grid = el('div', 'notes-grid');
+  currentChoices.forEach(c => {
+    const slip = el('button', 'slip' + (c.fallback ? ' fallback' : '') + ' slip-anim');
+    slip.innerHTML = `<span class="sl-key">${c.key}</span><span class="sl-txt">${esc(c.label)}</span>`;
+    slip.onclick = () => pickChoice(c);
+    grid.appendChild(slip);
+  });
+  wrap.appendChild(grid);
+  const combo = el('div', 'combo-bar');
+  combo.id = 'combo-bar';
+  wrap.appendChild(combo);
+  wrap.querySelector('.nh-multi').onclick = () => { multiMode = !multiMode; wrap.querySelector('.nh-multi').classList.toggle('on', multiMode); updateCombo(); };
+  return wrap;
+}
+function pickChoice(c){
+  if (multiMode){ pickSet = pickSet.includes(c.key) ? pickSet.filter(k => k !== c.key) : [...pickSet, c.key]; updateCombo(); }
+  else sendTurn(`【${c.key}】${c.label}`);
+}
+function updateCombo(){
+  const bar = $('#combo-bar');
+  if (!bar) return;
+  $$('#notes-wrap .slip').forEach(b => b.classList.toggle('sel', pickSet.includes(b.querySelector('.sl-key').textContent)));
+  if (multiMode && pickSet.length){
+    bar.className = 'combo-bar show';
+    bar.innerHTML = `已择 ${pickSet.length} 笺：<b>${pickSet.sort().join(' + ')}</b><button class="cb-send">合递</button><button class="cb-clear">清空</button>`;
+    bar.querySelector('.cb-send').onclick = () => {
+      const text = pickSet.sort().map(k => { const c = currentChoices.find(x => x.key === k); return `【${k}】${c ? c.label : ''}`; }).join('；');
+      pickSet = []; multiMode = false; sendTurn(text);
+    };
+    bar.querySelector('.cb-clear').onclick = () => { pickSet = []; updateCombo(); };
+  } else { bar.className = 'combo-bar'; bar.innerHTML = ''; }
+}
+function buildPending(){
+  const s = curSession();
+  const n = s ? s.msgs.filter(m => m.commit === 'pending').length : 0;
+  const wrap = el('div', 'pending-banner');
+  wrap.id = 'pending-banner';
+  if (!n){ wrap.style.display = 'none'; return wrap; }
+  wrap.classList.add('show');
+  wrap.innerHTML = `<span style="font-family:var(--font-read)">⚠ ${n} 幕状态未落账，不影响阅读</span><button class="pb-act">补录</button><button class="pb-ign">忽略</button>`;
+  wrap.querySelector('.pb-act').onclick = () => { s.msgs.filter(m => m.commit === 'pending').forEach(resolvePendingMsg); };
+  wrap.querySelector('.pb-ign').onclick = () => { s.msgs.filter(m => m.commit === 'pending').forEach(m => m.commit = 'ignored'); renderScroll(); refreshPending(); toast('已忽略'); };
+  return wrap;
+}
+function refreshPending(){ const b = $('#pending-banner'); if (b) b.remove(); $('#scroll-inner').appendChild(buildPending()); }
+
+/* —— 卷首（空态） —— */
+function renderFrontispiece(){
+  const box = $('#scroll-inner');
+  const ws = curWs();
+  const k = wsKernel(store.wsId);
+  const fp = el('div', 'frontispiece');
+  fp.innerHTML = `
+    <div class="fp-kicker">开卷 · 内核已装 ${esc(k.title)}</div>
+    <h1 class="fp-title">开始你的转生</h1>
+    <p class="fp-sub">择一条身世开卷，或在砚台直书开场。世界引擎会记下你的每一次落笔——抉择即因果。</p>
+    <div class="fp-origins">
+      <div class="fp-origins-head">身世笺</div>
+      ${ORIGINS.map(o => `<button class="origin" data-oid="${o.id}">
+        <span class="o-zi">${o.zi}</span>
+        <span class="o-body"><b>${esc(o.label)}</b><span>${esc(o.desc)}</span></span>
+        <span class="o-arrow">→</span>
+      </button>`).join('')}
+    </div>
+    <div class="fp-custom">
+      <span class="fp-mark">自</span>
+      <input id="fp-input" placeholder="自书开场，例：我在暴雨之夜睁开了眼…" aria-label="自定义开场">
+      <button class="fp-go" id="fp-go">开卷</button>
+    </div>`;
+  box.appendChild(fp);
+  $$('.origin', fp).forEach(b => b.onclick = () => {
+    const o = ORIGINS.find(x => x.id === b.dataset.oid);
+    curSession().title = '转生 · ' + o.label;
+    sendTurn(`【${o.label}】${o.desc}`);
+  });
+  const go = () => { const v = $('#fp-input').value.trim(); if (v) sendTurn(v); };
+  $('#fp-go', fp).onclick = go;
+  $('#fp-input', fp).onkeydown = e => { if (e.key === 'Enter') go(); };
+}
+
+/* —— 头部 / 眉批 —— */
+function refreshHead(){
+  const s = curSession();
+  $('#mt-round').textContent = `卷 · 回合 ${sessionRounds(s)}`;
+  $('#ws-name').textContent = curWs().name;
+  const font = { kai:'楷', serif:'宋', sans:'黑' }[store.font];
+  $('#cf-mode').textContent = `${font}体 · 群青 · ${store.mode === 'day' ? '宣纸' : '靛夜'}`;
+}
+function fmtTime(ts){ const d = new Date(ts); return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`; }
+
+/* —— 灵动岛 / toast —— */
+let islandTimer = null;
+function announceIsland(text, kind = 'ok', persistent = false){
+  const is = $('#island');
+  $('#island-text').textContent = text;
+  is.setAttribute('kind', kind);
+  is.classList.add('show');
+  clearTimeout(islandTimer);
+  if (!persistent) islandTimer = setTimeout(() => is.classList.remove('show'), 2600);
+}
+function hideIsland(){ const is = $('#island'); is.classList.remove('show'); clearTimeout(islandTimer); }
+function toast(text, kind = 'ok'){
+  const t = el('div', 'toast' + (kind === 'err' ? ' err' : kind === 'info' ? ' info' : ''));
+  t.innerHTML = `<span class="t-dot"></span>${esc(text)}`;
+  $('#toast-wrap').appendChild(t);
+  setTimeout(() => { t.classList.add('hide'); setTimeout(() => t.remove(), 300); }, 2400);
+}
+function copyText(text){
+  if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).catch(() => fallbackCopy(text));
+  else fallbackCopy(text);
+}
+function fallbackCopy(text){
+  const ta = document.createElement('textarea');
+  ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+  document.body.appendChild(ta); ta.select();
+  try { document.execCommand('copy'); } catch(_){}
+  ta.remove();
+}
+
+/* ============================================================
+   回合流转
+   ============================================================ */
+async function sendTurn(text){
+  const s = curSession();
+  if (!s || busy || !text.trim()) return;
+  busy = true;
+  setBusyUI(true);
+  s.msgs.push({ id: rid(), role:'user', content:text, at: now(), rn: s.msgs.filter(m => m.role === 'assistant').length + 1 });
+  renderScroll();
+  scrollCol(true);
+  await sleep(380 + Math.random() * 420);
+  const resp = s.msgs.filter(m => m.role === 'assistant').length === 0 && s.msgs.filter(m => m.role === 'user').length === 1
+    ? STORY_OPEN(ORIGINS[0].label) : TURN_POOL[Math.floor(Math.random() * TURN_POOL.length)];
+  const { narrative, patch } = splitPatch(resp.raw);
+  const aiMsg = { id: rid(), role:'assistant', content:narrative, raw:resp.raw, patch, at: now(), illust:null };
+  s.msgs.push(aiMsg);
+  /* 便笺先撤，正文幕流式落下 */
+  currentChoices = [];
+  renderScroll();
+  const beats = $$('#scroll-inner .beat');
+  const lastBeat = beats[beats.length - 1];
+  const narrNode = lastBeat ? lastBeat.querySelector('.beat-narr') : null;
+  if (narrNode) await typewrite(narrNode, narrative, { cps: 105 });
+  currentChoices = parseChoices(narrative);
+  if (!currentChoices.length){
+    const quoted = extractQuoteChoices(narrative);
+    currentChoices = quoted || [
+      { key:'A', label:'继续推进剧情', fallback:true },
+      { key:'B', label:'调查周围的环境和人物', fallback:true },
+      { key:'C', label:'等待事态进一步发展', fallback:true },
+    ];
+  }
+  await sleep(300 + Math.random() * 300);
+  simulateCommit(s, aiMsg);
+  if (store.autoIllust && narrative.length >= 80){ await sleep(520); await drawIllustFor(s, aiMsg); }
+  busy = false;
+  setBusyUI(false);
+  renderScroll();
+  scrollCol(true);
+  refreshPending();
+  renderSpine();
+}
+function setBusyUI(on){
+  $('#btn-send').classList.toggle('stop', on);
+  $('#btn-send-label').textContent = on ? '停笔' : '落笔';
+  $('#mt-busy').classList.toggle('on', on);
+  if (on) announceIsland('世界正在书写这一幕…', 'busy', true);
+  if (on) petEvent('busy'); else petEvent('done');
+}
+function scrollCol(force){
+  const sc = $('#scroll-col');
+  if (force || sc.scrollHeight - sc.scrollTop - sc.clientHeight < 90) sc.scrollTop = sc.scrollHeight;
+}
+function retryLastTurn(){
+  const s = curSession();
+  const lastAi = [...s.msgs].reverse().find(m => m.role === 'assistant');
+  if (lastAi && lastAi.error) s.msgs.splice(s.msgs.indexOf(lastAi), 1);
+  sendTurn('（重试上一幕）');
+}
+function switchSession(id){
+  if (busy) return toast('世界书写中，请稍候', 'err');
+  store.curId = id;
+  currentChoices = reparseChoices(curSession());
+  renderScroll(); renderSpine();
+  document.body.dataset.sb = '';
+}
+function confirmIF(userMsg){
+  const s = curSession();
+  const idx = s.msgs.indexOf(userMsg);
+  if (idx < 0) return;
+  confirmDialog({ title:'另开一线', body:`将复刻至这一朱批为止的历史，并从其后开出新的世界线。母线「${s.title}」完整保留。`, okText:'开出' })
+    .then(ok => {
+      if (!ok) return;
+      const fork = forkSession(s.id, idx);
+      store.sessions.unshift(fork);
+      store.curId = fork.id;
+      currentChoices = reparseChoices(fork);
+      renderScroll(); renderSpine();
+      announceIsland('已另开一线 · 母线完整保留');
+    });
+}
+function deleteSession(s){
+  store.sessions = store.sessions.filter(x => x.id !== s.id);
+  if (store.curId === s.id){ store.curId = (store.sessions[0] || {}).id || null; currentChoices = []; }
+  renderScroll(); renderSpine();
+  toast('世界线已删除');
+}
+function resolvePendingMsg(m){
+  const s = curSession();
+  m.commit = 'ok';
+  applyLedger(m.patch);
+  pushTurnLog('ok', m.patch);
+  renderScroll(); renderSpine();
+  announceIsland('状态已补录');
+}
+
+/* ============================================================
+   插图 / 灯箱 / 画廊
+   ============================================================ */
+function sceneCaption(m){
+  const sceneLine = (m.content || '').split('\n').find(l => /^【.*｜.*】/.test(l.trim())) || '';
+  return sceneLine.replace(/[【】]/g, '') || '布耶纳村 · 一幕';
+}
+async function drawIllustFor(s, m){
+  if (!m || m.illust) return;
+  const cap = sceneCaption(m);
+  const ph = el('div', 'ill-drawing');
+  ph.innerHTML = `<span class="dots"><i></i><i></i><i></i></span> 正在绘这一幕的插图…`;
+  m.renderHook = ph;
+  const narr = [...$$('#scroll-inner .beat')].find(b => b.contains(ph)) ? null : null;
+  $('#scroll-inner').appendChild(ph);
+  scrollCol(true);
+  await sleep(1400 + Math.random() * 900);
+  const svg = ILLUSTR.scene(cap, /深夜|夜/.test(m.content || '') ? 'night' : 'day');
+  m.illust = svg; m.illustCaption = cap;
+  illustGallery.unshift({ sessionId: s.id, svg, caption: cap, at: now() });
+  ph.remove();
+  renderScroll();
+  announceIsland('插图已入画廊');
+}
+let lbIndex = 0;
+function openLightbox(m){
+  const items = illustGallery.filter(x => x.sessionId === (curSession() || {}).id);
+  const all = items.length ? items : illustGallery;
+  if (!all.length) return;
+  lbIndex = Math.max(0, all.findIndex(x => x.svg === (m && m.illust)));
+  renderLightbox(all);
+  $('#lightbox').classList.add('show');
+}
+function renderLightbox(all){
+  all = all || illustGallery;
+  const it = all[lbIndex] || all[0];
+  $('#lb-img').innerHTML = it.svg;
+  $('#lb-count').textContent = `${lbIndex + 1} / ${all.length} · ${it.caption}`;
+}
+function lbNav(d){
+  const items = illustGallery.filter(x => x.sessionId === (curSession() || {}).id);
+  const all = items.length ? items : illustGallery;
+  if (!all.length) return;
+  lbIndex = (lbIndex + d + all.length) % all.length;
+  renderLightbox(all);
+}
+function renderGallery(){
+  const grid = $('#gallery-grid');
+  const s = curSession();
+  const sel = $('#gallery-worldline');
+  const selVal = sel.value || 'cur';
+  sel.innerHTML = `<option value="cur">本世界线</option>` + store.sessions.filter(x => x.id !== (s && s.id)).map(x => `<option value="${x.id}">${esc(x.title)}</option>`).join('');
+  sel.value = selVal;
+  const filtered = selVal !== 'cur' ? illustGallery.filter(x => x.sessionId === selVal) : illustGallery.filter(x => !s || x.sessionId === s.id);
+  $('#gallery-sub').textContent = `共 ${illustGallery.length} 图 · 现 ${filtered.length} 图`;
+  grid.innerHTML = '';
+  if (!filtered.length){ grid.innerHTML = '<div class="gallery-empty">还没有插图。悬停朱批点「配图」试试。</div>'; return; }
+  filtered.forEach(it => {
+    const card = el('div', 'gcard');
+    card.innerHTML = `<div class="gc-frame">${it.svg}</div><div class="gc-cap">${esc(it.caption)}</div>
+      <div class="gc-ops"><button class="gc-op" data-op="redraw" title="重绘">↻</button><button class="gc-op" data-op="save" title="保存">↓</button><button class="gc-op" data-op="del" title="删除">×</button></div>`;
+    card.querySelector('[data-op="redraw"]').onclick = async e => { e.stopPropagation(); card.style.opacity = '.4'; await sleep(900); it.svg = ILLUSTR.scene(it.caption, Math.random() < .5 ? 'day' : 'night'); renderGallery(); renderScroll(); toast('已重绘'); };
+    card.querySelector('[data-op="save"]').onclick = e => { e.stopPropagation(); toast('已保存（模拟）'); };
+    card.querySelector('[data-op="del"]').onclick = e => { e.stopPropagation(); illustGallery = illustGallery.filter(x => x !== it); renderGallery(); renderScroll(); };
+    card.onclick = () => { lbIndex = illustGallery.indexOf(it); openLightbox({ illust: it.svg }); };
+    grid.appendChild(card);
+  });
+}
+
+/* ============================================================
+   内核库 / 内核设计册
+   ============================================================ */
+let libFilter = 'all', libQuery = '', khCurKernel = null;
+function wsKernel(wsId){ const ws = WORKSPACES.find(w => w.id === wsId); return KERNELS.find(k => k.id === (ws && ws.kernelId)) || KERNELS[0]; }
+function curWs(){ return WORKSPACES.find(w => w.id === store.wsId) || WORKSPACES[0]; }
+function renderLib(){
+  const list = $('#lib-list');
+  const q = libQuery.trim().toLowerCase();
+  const filtered = KERNELS.filter(k => (libFilter === 'all' || k.status === libFilter) && (!q || (k.title + k.sub + k.tags.join()).toLowerCase().includes(q)));
+  $$('#lib-tabs .lib-tab').forEach(t => t.setAttribute('aria-selected', t.dataset.libtab === libFilter ? 'true' : 'false'));
+  $('#lib-count').textContent = `${KERNELS.length} 册内核`;
+  list.innerHTML = '';
+  if (!filtered.length){ list.innerHTML = '<div class="lib-empty" style="padding:36px 0; text-align:center; font-size:12.5px; color:var(--ink-faint); font-family:var(--font-read)">无匹配内核。</div>'; return; }
+  filtered.forEach(k => {
+    const row = el('div', 'kernel-row');
+    const usedHere = wsKernel(store.wsId).id === k.id;
+    const badge = { builtin:'内置', custom:'自修', published:'已发布', draft:'草稿', archived:'已归档' };
+    const archived = k.status === 'archived';
+    row.innerHTML = `<div class="kernel-card">
+      <div class="kc-top"><b>${esc(k.title)}</b>
+        <span class="kc-badge ${k.type}">${badge[k.type] || '自修'}</span>
+        <span class="kc-badge ${k.status}">${badge[k.status]}${k.version && k.status === 'published' ? ' · ' + k.version : ''}</span></div>
+      <div class="kc-sub">${esc(k.sub)}</div>
+      <div class="kc-meta"><span>${k.tags.map(esc).join(' · ')}</span>${usedHere ? '<span class="used">本世界在用</span>' : ''}</div>
+      <div class="kc-ops">
+        ${archived ? '<button class="kc-op" disabled>归档 · 仅可览</button>' : `<button class="kc-op primary" data-op="apply">装帧入「${esc(curWs().name)}」</button>`}
+        <button class="kc-op" data-op="edit">展笺修书</button>
+        ${k.type === 'custom' ? '<button class="kc-op" data-op="del">焚</button>' : ''}
+      </div></div>`;
+    const applyBtn = row.querySelector('[data-op="apply"]');
+    if (applyBtn) applyBtn.onclick = () => {
+      curWs().kernelId = k.id;
+      announceIsland(`已装帧内核「${k.title}」`);
+      renderLib(); renderScroll();
+    };
+    row.querySelector('[data-op="edit"]').onclick = () => { closeAllBooklets(); openKernelEditor(k); };
+    const delBtn = row.querySelector('[data-op="del"]');
+    if (delBtn) delBtn.onclick = () => confirmDialog({ title:'焚毁内核', body:`「${k.title}」将不可再得。`, okText:'焚毁', danger:true })
+      .then(ok => { if (ok){ KERNELS.splice(KERNELS.indexOf(k), 1); renderLib(); toast('内核已焚'); } });
+    list.appendChild(row);
+  });
+}
+function openKernelEditor(k){
+  khCurKernel = k;
+  $('#kh-file-name').textContent = (k ? k.title : '未选择') + ' / source.md';
+  $('#kh-ed-name-input').value = k ? k.title : '';
+  $('#kh-ed-src').value = k ? kernelSrc(k) : '';
+  $('#kernel-save-state').textContent = '已载入'; $('#kernel-save-state').className = 'kh-pill save-ok';
+  $('#kh-editor').classList.add('show');
+  switchEdTab('src');
+  switchMode('kernel');
+}
+function kernelSrc(k){
+  return `# ${k.title}\n\n> ${k.sub}\n\n## 世界观\n\n- 六面神注视每一次抉择\n- 抉择入九大账，因果不可逆\n- 世界沿自己的轨道运行，等待玩家落子\n\n## 身世笺\n\n- 保留记忆的转生者\n- 洛琪希的魔法学生\n- 布耶纳村的孩子\n- 贵族的私生子\n\n## 选项契约\n\n每幕必出【你需要决定】与至少两笺。\n\n## 状态记录协议\n\n<<<STATE_PATCH>>> … <<<END_PATCH>>>，不合法不提交。\n`;
+}
+function renderAudit(){
+  const box = $('#kh-audit');
+  const items = [
+    { st:'ok', txt:'世界观章完整（四条不变量）' },
+    { st:'ok', txt:'身世笺四条，含自书开场' },
+    { st:'warn', txt:'「战力一致」未定量上限' },
+    { st:'ok', txt:'选项契约：每幕 ≥ 两笺' },
+    { st:'err', txt:'缺「禁 PLAYER 泄密」条款', loc:'状态记录协议' },
+  ];
+  box.innerHTML = items.map(it => `<div class="audit-item"><span class="a-dot ${it.st}"></span><span class="a-txt">${esc(it.txt)} ${it.loc ? `<span class="a-loc" data-loc="${esc(it.loc)}">定位规则正文</span>` : ''}</span></div>`).join('');
+  $$('.a-loc', box).forEach(l => l.onclick = () => {
+    switchEdTab('src');
+    const ta = $('#kh-ed-src');
+    ta.focus();
+    const idx = ta.value.indexOf(l.dataset.loc);
+    if (idx >= 0) ta.setSelectionRange(idx, ta.value.length);
+    announceIsland('已定位规则正文');
+  });
+}
+function switchEdTab(which){
+  $('#kh-tab-src').setAttribute('aria-selected', which === 'src' ? 'true' : 'false');
+  $('#kh-tab-audit').setAttribute('aria-selected', which === 'audit' ? 'true' : 'false');
+  $('#kh-ed-src').style.display = which === 'src' ? '' : 'none';
+  $('#kh-audit').style.display = which === 'audit' ? '' : 'none';
+}
+/* 内核设计对话 */
+function buildKhMsg(m){
+  const wrap = el('div', 'kmsg ' + (m.who === 'me' ? 'me' : 'ai'));
+  wrap.innerHTML = `<span class="k-who">${m.who === 'me' ? '你' : '设'}</span><div class="k-body"><p>${esc(m.text)}</p></div>`;
+  return wrap;
+}
+function buildCheckpoint(){
+  const cp = el('div', 'kcheckpoint');
+  cp.innerHTML = `
+    <div class="kcp-rules">
+      <div class="kcp-rule"><span class="kr-st ok">已识别</span><span>核心体验：在陌生世界里第二次成长</span></div>
+      <div class="kcp-rule"><span class="kr-st ok">可检查</span><span>规则骨架：六面神注视 · 抉择入账 · 因果不可逆</span></div>
+      <div class="kcp-rule"><span class="kr-st warn">需补全</span><span>战力一致性的量化上限</span></div>
+      <div class="kcp-rule"><span class="kr-st todo">待决定</span><span>开局身世的数量与自由度</span></div>
+    </div>
+    <div class="kcp-ops">
+      <button class="kcp-op primary" data-op="accept">接受此契</button>
+      <button class="kcp-op" data-op="revise">请再修</button>
+      <button class="kcp-op" data-op="src">验源码</button>
+    </div>`;
+  cp.querySelector('[data-op="accept"]').onclick = () => announceIsland('契已接受 · 可继续推进');
+  cp.querySelector('[data-op="revise"]').onclick = () => khSend('请修订上一条：战力上限改为分档制。');
+  cp.querySelector('[data-op="src"]').onclick = () => openKernelEditor(khCurKernel || wsKernel(store.wsId));
+  return cp;
+}
+function renderKhChat(){
+  const box = $('#kh-msgs');
+  if (box.dataset.seeded === '1') return;
+  box.dataset.seeded = '1';
+  box.appendChild(buildKhMsg({ who:'ai', text:'见过。我是这册规则书的设计助手。可以从一段想法起步，也可以从库里挑一册改。你想给玩家什么样的体验？' }));
+  box.appendChild(buildCheckpoint());
+  $('#kh-chat').scrollTop = $('#kh-chat').scrollHeight;
+}
+function khSend(text){
+  if (!text.trim()) return;
+  const box = $('#kh-msgs');
+  box.appendChild(buildKhMsg({ who:'me', text }));
+  $('#kh-chat').scrollTop = $('#kh-chat').scrollHeight;
+  setTimeout(() => {
+    const pool = [
+      '收。拆成两件事：世界观的硬约束，与玩家可触碰的自由度。先出草稿一版。',
+      '记入「需补全」。稍后带分档方案：凡人 / 见习 / 熟练 / 大师 / 传说。',
+      '好想法。身世给四笺预设加一笺自书，自书以「一句话设定」入账，世界补完。',
+      '审计见一洞：不约束秘密事实，PLAYER 会读到不该读的。加 fail-closed 条款。',
+    ];
+    box.appendChild(buildKhMsg({ who:'ai', text: pool[Math.floor(Math.random() * pool.length)] }));
+    const cp = buildCheckpoint();
+    box.appendChild(cp);
+    $('#kh-chat').scrollTop = $('#kh-chat').scrollHeight;
+    announceIsland('规则草稿已更新');
+  }, 900);
+}
+
+/* ============================================================
+   检查册 / 设置 / 对话框 / 工作区 / 命令面板
+   ============================================================ */
+let inspTab = 'overview';
+function renderInspector(){
+  const chips = [
+    ['决定', stateLedger.decisions], ['承诺', stateLedger.commitments], ['事实', stateLedger.facts],
+    ['已知', stateLedger.knowledge], ['事件', stateLedger.events], ['因果', stateLedger.causal],
+    ['关系', stateLedger.relationships], ['伏笔', stateLedger.threads], ['实体', stateLedger.entities],
+  ];
+  $('#ledger-grid').innerHTML = chips.map(([n, v]) => `<div class="lcell"><b>${v}</b><span>${n}</span></div>`).join('');
+  const s = curSession();
+  const lastAi = s ? [...s.msgs].reverse().find(m => m.role === 'assistant' && m.patch) : null;
+  const sc = lastAi && lastAi.patch && lastAi.patch.scene ? lastAi.patch.scene : {};
+  $('#insp-scene').innerHTML = ['game_time','location','summary'].filter(k => sc[k]).map(k =>
+    `<div class="insp-kv"><span class="k">${ {game_time:'时间', location:'地点', summary:'概要'}[k] }</span><span class="v">${esc(sc[k])}</span></div>`).join('') ||
+    '<div class="insp-kv"><span class="k">—</span><span class="v" style="color:var(--ink-faint)">还没有已落账的幕</span></div>';
+  $('#insp-player').innerHTML = `
+    <div class="insp-kv"><span class="k">姓名</span><span class="v">鲁迪乌斯·格雷拉特</span></div>
+    <div class="insp-kv"><span class="k">位置</span><span class="v">${esc(sc.location || '布耶纳村')}</span></div>
+    <div class="insp-kv"><span class="k">状态</span><span class="v">重生初醒 · 魔力初醒</span></div>
+    <div class="insp-kv"><span class="k">资源</span><span class="v">体力 · 微小　魔力 · 感应中</span></div>`;
+  $$('.insp-tab').forEach(t => t.setAttribute('aria-selected', t.dataset.itab === inspTab ? 'true' : 'false'));
+  $$('[data-ipane]').forEach(p => p.style.display = p.dataset.ipane === inspTab ? '' : 'none');
+  const snapBox = $('#insp-snapshots');
+  snapBox.innerHTML = snaps.length ? '' : '<div style="padding:30px 0; text-align:center; font-size:12px; color:var(--ink-faint); font-family:var(--font-read)">尚无拓片。每一份快照都是一粒后悔药。</div>';
+  snaps.forEach(sn => {
+    const row = el('div', 'snap-row');
+    row.innerHTML = `<div class="sn-meta"><b>${esc(sn.label)}</b><span>${sn.id} · 第${sn.turn}幕 · ${fmtTime(sn.at)}</span></div><button class="sn-act">复原</button>`;
+    const btn = row.querySelector('.sn-act');
+    btn.onclick = () => {
+      if (!btn.classList.contains('confirm')){ btn.classList.add('confirm'); btn.textContent = '确认复原？'; setTimeout(() => { btn.classList.remove('confirm'); btn.textContent = '复原'; }, 4000); }
+      else restoreSnapshot(sn);
+    };
+    snapBox.appendChild(row);
+  });
+  const logBox = $('#insp-logs');
+  logBox.innerHTML = turnLogs.length ? '' : '<div style="padding:30px 0; text-align:center; font-size:12px; color:var(--ink-faint); font-family:var(--font-read)">尚无回合日志。走一幕试试。</div>';
+  turnLogs.slice(0, 20).forEach(t => {
+    const d = el('details', 'turnlog-item');
+    d.innerHTML = `<summary>第 ${t.turn} 幕<span class="tl-status ${t.status === 'ok' ? 'ok' : 'err'}">${ {ok:'已落账', retry:'重试中', pending:'待补录'}[t.status] }</span></summary>
+      <pre>${esc(JSON.stringify(t.patch || { note:'patch 缺失或挂起' }, null, 2))}</pre>`;
+    logBox.appendChild(d);
+  });
+}
+function createSnapshot(){
+  const s = curSession();
+  if (!s) return toast('先开一条世界线', 'err');
+  const turn = sessionRounds(s);
+  snaps.unshift({ id: rid().slice(0, 6), label: `拓片 · ${s.title.slice(0, 8)}`, turn, at: now(), snapshotOf: s.id, msgs: s.msgs.map(m => ({ ...m })) });
+  if (snaps.length > 30) snaps.pop();
+  renderInspector();
+  announceIsland(`已拓印（第 ${turn} 幕）`);
+}
+function restoreSnapshot(sn){
+  const s = store.sessions.find(x => x.id === sn.snapshotOf);
+  if (!s) return toast('源世界线已散佚', 'err');
+  s.msgs = sn.msgs.map(m => ({ ...m }));
+  store.curId = s.id;
+  currentChoices = reparseChoices(s);
+  renderScroll(); renderSpine();
+  announceIsland(`已复原至「${sn.label}」`);
+}
+function renderSettings(){
+  $('#settings-body').innerHTML = `
+    <div class="set-sec"><h4>对话模型</h4>
+      <div class="lib-search"><input value="DeepSeek · deepseek-chat" readonly aria-label="服务商与模型"></div>
+      <div class="set-note">原型中模型配置为只读模拟——正式产品此处有供应商 / 密钥 / 模型三段式与连通测试。</div>
+    </div>
+    <div class="set-sec"><h4>插图模型</h4>
+      <div class="set-kv"><span class="sk-label">自动配图</span>
+        <label class="toggle"><input type="checkbox" id="set-auto-illust" ${store.autoIllust ? 'checked' : ''}><span class="tk"></span></label></div>
+      <div class="set-note">开启后每幕正文逾八十字自动绘一图。</div>
+    </div>
+    <div class="set-sec"><h4>数据</h4>
+      <div class="gallery-toolbar"><button class="gt-btn" id="set-export">导出配置</button><button class="gt-btn" id="set-clear">焚毁全部世界线</button></div>
+    </div>`;
+  $('#set-auto-illust').onchange = e => { store.autoIllust = e.target.checked; toast('已' + (e.target.checked ? '开启' : '停用') + '自动配图'); };
+  $('#set-export').onclick = () => toast('配置已导出（模拟）');
+  $('#set-clear').onclick = () => confirmDialog({ title:'焚毁全部世界线', body:'所有世界线、拓片与账将尽。不可复得。', okText:'焚毁', danger:true })
+    .then(ok => { if (ok){ store.sessions = []; store.curId = null; snaps = []; turnLogs = []; illustGallery = []; stateLedger = { decisions:0, commitments:0, facts:0, knowledge:0, events:0, causal:0, relationships:0, threads:0, entities:0 }; const s0 = newSession('序幕 · 帘未启'); store.sessions = [s0]; store.curId = s0.id; currentChoices = []; renderScroll(); renderSpine(); toast('已焚毁'); } });
+}
+function confirmDialog({ title, body, okText = '确定', danger = false, withInput = false, placeholder = '' } = {}){
+  return new Promise(resolve => {
+    const mask = $('#dlg-mask');
+    $('#dlg-title').textContent = title;
+    const bd = $('#dlg-body');
+    bd.className = 'dlg-body' + (danger ? '' : ' ink');
+    bd.innerHTML = esc(body);
+    if (withInput) bd.insertAdjacentHTML('beforeend', `<input class="dlg-input" id="dlg-input" placeholder="${esc(placeholder)}">`);
+    const ok = $('#dlg-ok');
+    ok.textContent = okText;
+    ok.className = 'dlg-btn ' + (danger ? 'danger' : 'primary');
+    mask.classList.add('show');
+    const input = $('#dlg-input');
+    if (input) input.focus(); else ok.focus();
+    const done = v => { mask.classList.remove('show'); ok.onclick = null; $('#dlg-cancel').onclick = null; document.removeEventListener('keydown', esc2); resolve(v); };
+    ok.onclick = () => done(input ? input.value.trim() : true);
+    $('#dlg-cancel').onclick = () => done(false);
+    const esc2 = e => { if (e.key === 'Escape') done(false); };
+    document.addEventListener('keydown', esc2);
+    mask.onclick = e => { if (e.target === mask) done(false); };
+  });
+}
+function openWsMenu(){
+  const menu = $('#ws-menu');
+  menu.innerHTML = '';
+  WORKSPACES.forEach(w => {
+    const b = el('button', '', `◈ ${esc(w.name)}${w.id === store.wsId ? ' ✓' : ''}`);
+    b.onclick = () => { switchWorkspace(w.id); menu.style.display = 'none'; };
+    menu.appendChild(b);
+  });
+  menu.appendChild(el('div', 'sep'));
+  const nw = el('button', '', '＋ 新辟世界');
+  nw.onclick = async () => {
+    menu.style.display = 'none';
+    const name = await confirmDialog({ title:'新辟世界', body:'为新的世界命名：', withInput:true, placeholder:'例：剑与魔法之地' });
+    if (name){ const w = { id:'ws-' + rid().slice(0, 4), name, kernelId:'k-six' }; WORKSPACES.push(w); switchWorkspace(w.id); toast(`「${name}」已开辟`); }
+  };
+  menu.appendChild(nw);
+  const rn = el('button', '', '✎ 重命名');
+  rn.onclick = async () => {
+    menu.style.display = 'none';
+    const name = await confirmDialog({ title:'重命名世界', body:`今名「${curWs().name}」，新名：`, withInput:true, placeholder:curWs().name });
+    if (name){ curWs().name = name; refreshHead(); toast('已更名'); }
+  };
+  menu.appendChild(rn);
+  menu.appendChild(el('div', 'sep'));
+  const dl = el('button', 'danger', '✕ 废弃此世界');
+  dl.onclick = async () => {
+    menu.style.display = 'none';
+    if (WORKSPACES.length <= 1) return toast('至少留一个世界', 'err');
+    const ok = await confirmDialog({ title:'废弃世界', body:`「${curWs().name}」及其全部世界线将尽。`, okText:'废弃', danger:true });
+    if (ok){ store.sessions = store.sessions.filter(s => s.wsId !== store.wsId); WORKSPACES.splice(WORKSPACES.indexOf(curWs()), 1); switchWorkspace(WORKSPACES[0].id); }
+  };
+  menu.appendChild(dl);
+  const r = $('#btn-ws').getBoundingClientRect();
+  menu.style.display = 'block';
+  menu.style.left = clamp(r.left - 40, 8, innerWidth - 220) + 'px';
+  menu.style.top = (r.bottom + 8) + 'px';
+}
+function switchWorkspace(id){
+  store.wsId = id;
+  const first = store.sessions.find(s => s.wsId === id);
+  store.curId = first ? first.id : null;
+  currentChoices = reparseChoices(curSession());
+  refreshHead(); renderSpine(); renderScroll();
+  announceIsland(`已入「${curWs().name}」`);
+}
+/* 命令面板 */
+const CMDS = [
+  { g:'卷册', label:'回到正文', k:'Ctrl K', run: () => switchMode('content') },
+  { g:'卷册', label:'进入内核设计', k:'Ctrl K', run: () => switchMode('kernel') },
+  { g:'卷册', label:'开内核库', k:'Ctrl Shift L', run: () => openBooklet('lib') },
+  { g:'卷册', label:'验内核源码', k:'Ctrl .', run: () => { switchMode('kernel'); openKernelEditor(wsKernel(store.wsId)); } },
+  { g:'卷册', label:'开画廊', k:'Ctrl G', run: () => openBooklet('gallery') },
+  { g:'卷册', label:'开检查册', k:'Ctrl Alt I', run: () => openBooklet('insp') },
+  { g:'卷册', label:'开帮助', k:'', run: () => openBooklet('help') },
+  { g:'卷册', label:'设置（匣）', k:'', run: () => openBooklet('settings') },
+  { g:'动作', label:'新世界线', k:'Ctrl N', run: () => newWorldline() },
+  { g:'动作', label:'切换昼夜书房', k:'', run: () => setMode(store.mode === 'day' ? 'night' : 'day') },
+  { g:'动作', label:'切换行密', k:'', run: () => { const o = ['compact','std','relaxed']; store.density = o[(o.indexOf(store.density) + 1) % 3]; applyAppearance(); toast('行密已调'); } },
+  { g:'动作', label:'收 / 展书脊', k:'Ctrl B', run: () => toggleSpine() },
+];
+let cmdkSel = 0, cmdkItems = [];
+function renderCmdk(q = ''){
+  const list = $('#cmdk-list');
+  const items = CMDS.filter(c => !q || c.label.toLowerCase().includes(q.toLowerCase()) || c.g.includes(q));
+  list.innerHTML = ''; cmdkItems = items;
+  if (!items.length){ list.innerHTML = '<div class="cmdk-empty">无此笺。</div>'; return; }
+  let lastG = null;
+  items.forEach((c, i) => {
+    if (c.g !== lastG){ lastG = c.g; list.appendChild(el('div', 'cmdk-group', c.g)); }
+    const it = el('button', 'cmdk-item');
+    it.setAttribute('role', 'option');
+    it.setAttribute('aria-selected', i === cmdkSel ? 'true' : 'false');
+    it.innerHTML = `<span class="ci-key">${c.g[0]}</span><span>${esc(c.label)}</span>${c.k ? `<kbd>${c.k.replace(/ /g, '</kbd><kbd>')}</kbd>` : ''}`;
+    it.onclick = () => { closeCmdk(); c.run(); };
+    list.appendChild(it);
+  });
+}
+function openCmdk(){ cmdkSel = 0; $('#cmdk-mask').classList.add('show'); $('#cmdk-input').value = ''; renderCmdk(''); $('#cmdk-input').focus(); }
+function closeCmdk(){ $('#cmdk-mask').classList.remove('show'); }
+function cmdkMove(d){
+  if (!cmdkItems.length) return;
+  cmdkSel = (cmdkSel + d + cmdkItems.length) % cmdkItems.length;
+  $$('#cmdk-list .cmdk-item').forEach((n, i) => n.setAttribute('aria-selected', i === cmdkSel ? 'true' : 'false'));
+}
+
+/* ============================================================
+   桌宠 · 墨滴
+   ============================================================ */
+const pet = { dragging:false, moved:false, dx:0, dy:0, tipIdx:0, modelState:'none', dlTimer:null, dlPct:0 };
+function petEvent(evt){
+  const p = $('#pet');
+  if (!p) return;
+  if (evt === 'busy') p.dataset.state = 'thinking';
+  else if (evt === 'done'){ p.dataset.state = 'happy'; petNotify(); setTimeout(() => { if (!busy) p.dataset.state = 'idle'; }, 1400); }
+  else if (evt === 'error'){ p.dataset.state = 'error'; setTimeout(() => p.dataset.state = 'idle', 1600); }
+  else if (evt === 'sleep') p.dataset.state = 'sleep';
+  else if (evt === 'wake') p.dataset.state = 'idle';
+}
+function petNotify(){ const b = $('#pet-badge'); b.classList.add('on'); setTimeout(() => b.classList.remove('on'), 2200); }
+function petBounce(){ const b = $('#pet-body'); b.classList.remove('pet-bounce'); void b.offsetWidth; b.classList.add('pet-bounce'); }
+function petPoke(){
+  petBounce();
+  const states = ['happy', 'thinking', 'idle'];
+  $('#pet').dataset.state = states[Math.floor(Math.random() * states.length)];
+  setTimeout(() => { if (!busy) $('#pet').dataset.state = 'idle'; }, 1500);
+  rotatePetTip();
+  if (!$('#pet-bubble').classList.contains('show')) openPetBubble();
+}
+function rotatePetTip(){ pet.tipIdx = (pet.tipIdx + 1) % PET_TIPS.length; $('#pb-tip').textContent = PET_TIPS[pet.tipIdx]; }
+function openPetBubble(){ $('#pet-bubble').classList.add('show'); rotatePetTip(); setTimeout(() => { try { $('#pet-ask-input').focus(); } catch(e){} }, 60); }
+function closePetBubble(){ $('#pet-bubble').classList.remove('show'); }
+function petAsk(text){
+  if (!text.trim()) return;
+  const feed = $('#pb-feed');
+  feed.appendChild(el('div', 'pb-line', `<span class="q">问</span><p>${esc(text)}</p>`));
+  feed.scrollTop = feed.scrollHeight;
+  const rule = PET_RULES.find(r => r.re.test(text));
+  const aLine = el('div', 'pb-line');
+  feed.appendChild(aLine);
+  petEvent('busy');
+  setTimeout(() => {
+    let ans = rule ? rule.a : null, who = '规则';
+    if (!ans){ who = pet.modelState === 'ready' ? '本地' : '云端'; ans = cloudFake(text); }
+    aLine.innerHTML = `<span class="a">答</span><p>【${who}】${esc(ans)}</p>`;
+    feed.scrollTop = feed.scrollHeight;
+    petEvent('done');
+  }, rule ? 240 : 700);
+}
+function cloudFake(q){
+  const bank = [
+    '这一幕的关键在「不逃避」——你前世已替你答过一次。',
+    '账面显示，近来事实都与「家」有关。要走出去，先离开河滩。',
+    '我建议 B：藏拙的世界线更长，也更险。',
+    '从我的角度看，这一卷的伏笔是那个蓝发人影。',
+  ];
+  return bank[Math.abs(q.length * 7) % bank.length];
+}
+function agentChoice(){
+  if (!currentChoices.length) return toast('现在没有待选之笺', 'err');
+  const pick = currentChoices[Math.floor(Math.random() * currentChoices.length)];
+  const feed = $('#pb-feed');
+  feed.appendChild(el('div', 'pb-line', `<span class="a">灵</span><p>荐 <b>【${pick.key}】${esc(pick.label)}</b>——此步信息增益最大，风险最小。</p>`));
+  const go = el('button', 'pa-chip', '替我递');
+  go.style.marginTop = '4px';
+  feed.appendChild(go); feed.scrollTop = feed.scrollHeight;
+  go.onclick = () => { closePetBubble(); sendTurn(`【${pick.key}】${pick.label}`); };
+}
+function agentAuto(){
+  if (busy) return toast('世界书写中', 'err');
+  const feed = $('#pb-feed');
+  feed.appendChild(el('div', 'pb-line', `<span class="a">灵</span><p>托管三幕始。我随时可叫停。</p>`));
+  const stop = el('button', 'pa-chip', '止托');
+  stop.style.marginTop = '4px';
+  feed.appendChild(stop); feed.scrollTop = feed.scrollHeight;
+  let n = 0;
+  const stopFn = () => { n = 99; stop.remove(); toast('已止托'); };
+  stop.onclick = stopFn;
+  (async function step(){
+    if (n >= 3 || !currentChoices.length){ stopFn(); return; }
+    if (n === 99) return;
+    n++;
+    const pick = currentChoices[Math.floor(Math.random() * currentChoices.length)];
+    await sendTurn(`【${pick.key}】${pick.label}`);
+    setTimeout(step, 500);
+  })();
+}
+function agentIllust(){
+  const s = curSession();
+  const candidates = s ? s.msgs.filter(m => m.role === 'assistant' && !m.error && !m.illust) : [];
+  if (!candidates.length) return toast('还没有值得配图的幕', 'err');
+  const pick = candidates[Math.floor(Math.random() * candidates.length)];
+  const cap = sceneCaption(pick);
+  const feed = $('#pb-feed');
+  feed.appendChild(el('div', 'pb-line', `<span class="a">灵</span><p>荐此幕：<b>${esc(cap)}</b>。留白多，光有戏。题语：a misty morning village, ink wash style.</p>`));
+  const go = el('button', 'pa-chip', '就此幕绘');
+  go.style.marginTop = '4px';
+  feed.appendChild(go); feed.scrollTop = feed.scrollHeight;
+  go.onclick = async () => { closePetBubble(); await drawIllustFor(s, pick); };
+}
+function agentPrompt(){
+  const s = curSession();
+  const lastAi = s ? [...s.msgs].reverse().find(m => m.role === 'assistant') : null;
+  if (!lastAi) return toast('先走一幕', 'err');
+  const cap = sceneCaption(lastAi);
+  $('#pb-feed').appendChild(el('div', 'pb-line', `<span class="a">灵</span><p>题语润色：a serene village at dusk, distant mountains, warm lantern light, ink illustration.</p>`));
+  $('#pb-feed').scrollTop = $('#pb-feed').scrollHeight;
+}
+function petModelDownload(){
+  if (pet.modelState !== 'none' && pet.modelState !== 'error') return;
+  confirmDialog({ title:'接入本地小模型', body:'将下载约 400MB 离线小模型，之后墨灵可离线对答。', okText:'下载（约 400MB）' })
+    .then(ok => {
+      if (!ok) return;
+      pet.modelState = 'downloading';
+      $('#pm-status').textContent = '下载中 · 0MB / 约400MB';
+      $('#pm-progress').style.display = 'flex';
+      $('#pm-download').style.display = 'none';
+      pet.dlPct = 0;
+      pet.dlTimer = setInterval(() => {
+        pet.dlPct = Math.min(100, pet.dlPct + 2 + Math.random() * 5);
+        $('#pm-bar-i').style.width = pet.dlPct + '%';
+        $('#pm-pct').textContent = Math.round(pet.dlPct) + '%';
+        $('#pm-status').textContent = `下载中 · ${Math.round(pet.dlPct * 4)}MB / 约400MB`;
+        if (pet.dlPct >= 100){
+          clearInterval(pet.dlTimer);
+          pet.modelState = 'loading';
+          $('#pm-status').textContent = '下载毕，接入中…';
+          setTimeout(() => {
+            pet.modelState = 'ready';
+            $('#pm-status').textContent = '本地小模型已接入 · 离线对答（双砚在线）';
+            $('#pm-progress').style.display = 'none';
+            announceIsland('本地小模型已接入');
+          }, 1600);
+        }
+      }, 260);
+    });
+}
+function petModelCancel(){
+  if (pet.dlTimer){ clearInterval(pet.dlTimer); pet.dlTimer = null; }
+  pet.modelState = 'none';
+  $('#pm-progress').style.display = 'none';
+  $('#pm-download').style.display = '';
+  $('#pm-status').textContent = '本地小模型 · 未接入';
+  toast('已取消下载');
+}
+function petMenu(x, y){
+  const menu = $('#pet-menu');
+  const items = [
+    ['戳一戳', () => petPoke()],
+    ['笺问', () => openPetBubble()],
+    ['换一侧', () => { const p = $('#pet'); const l = p.getBoundingClientRect().left < innerWidth / 2; p.style.left = l ? '' : '14px'; p.style.right = l ? '14px' : ''; }],
+    ['归砚位', () => { const p = $('#pet'); p.style.left = ''; p.style.right = ''; p.style.top = ''; p.style.bottom = '120px'; }],
+    ['sep'],
+    [$('#pet').dataset.state === 'sleep' ? '唤醒' : '小憩', () => petEvent($('#pet').dataset.state === 'sleep' ? 'wake' : 'sleep')],
+    ['sep'],
+    ['接入本地小模型 · 约 400MB', () => petModelDownload()],
+  ];
+  menu.innerHTML = '';
+  items.forEach(([label, fn]) => {
+    if (label === 'sep'){ menu.appendChild(el('div', 'sep')); return; }
+    const b = el('button', '', label);
+    b.onclick = () => { menu.style.display = 'none'; fn && fn(); };
+    menu.appendChild(b);
+  });
+  menu.style.display = 'block';
+  menu.style.left = clamp(x - 150, 8, innerWidth - 180) + 'px';
+  menu.style.top = clamp(y, 8, innerHeight - 280) + 'px';
+}
+function initPet(){
+  const p = $('#pet'), body = $('#pet-body');
+  if (store.pet === false) document.body.dataset.pet = 'off';
+  body.addEventListener('pointerdown', e => {
+    pet.dragging = true; pet.moved = false;
+    pet.dx = e.clientX - p.getBoundingClientRect().left;
+    pet.dy = e.clientY - p.getBoundingClientRect().top;
+    p.classList.add('dragging');
+    body.setPointerCapture(e.pointerId);
+  });
+  body.addEventListener('pointermove', e => {
+    if (!pet.dragging) return;
+    const nx = e.clientX - pet.dx, ny = e.clientY - pet.dy;
+    if (Math.abs(nx - p.getBoundingClientRect().left) + Math.abs(ny - p.getBoundingClientRect().top) > 4) pet.moved = true;
+    p.style.left = clamp(nx, 4, innerWidth - 80) + 'px';
+    p.style.top = clamp(ny, 4, innerHeight - 90) + 'px';
+    p.style.right = ''; p.style.bottom = '';
+  });
+  body.addEventListener('pointerup', () => {
+    p.classList.remove('dragging');
+    if (pet.dragging && !pet.moved) petPoke();
+    pet.dragging = false;
+  });
+  body.addEventListener('contextmenu', e => { e.preventDefault(); petMenu(e.clientX, e.clientY); });
+  $('#pet-bubble-close').onclick = closePetBubble;
+  $('#pet-ask-send').onclick = () => { petAsk($('#pet-ask-input').value); $('#pet-ask-input').value = ''; };
+  $('#pet-ask-input').onkeydown = e => { if (e.key === 'Enter'){ petAsk(e.target.value); e.target.value = ''; } };
+  $('#pa-choice').onclick = agentChoice;
+  $('#pa-auto').onclick = agentAuto;
+  $('#pa-illust').onclick = agentIllust;
+  $('#pa-prompt').onclick = agentPrompt;
+  $('#pm-download').onclick = petModelDownload;
+  $('#pm-cancel').onclick = petModelCancel;
+  $('#pb-tip').textContent = PET_TIPS[0];
+  setInterval(rotatePetTip, 14000);
+}
+
+/* ============================================================
+   外观 / 册页开关 / 模式切换 / 绑定 / 启动
+   ============================================================ */
+function applyAppearance(){
+  const r = document.documentElement;
+  r.dataset.mode = store.mode;
+  r.dataset.font = store.font;
+  r.dataset.width = store.width === 'std' ? '' : store.width;
+  r.dataset.density = store.density === 'std' ? '' : store.density;
+  r.dataset.radius = store.radius === 'std' ? '' : store.radius;
+  r.style.setProperty('--fs-scale', store.fsScale);
+  document.body.dataset.motion = store.motion ? '' : 'off';
+  document.body.dataset.pet = store.pet ? '' : 'off';
+  document.body.classList.toggle('skip-splash', !store.splash);
+  $$('#seg-font button').forEach(b => b.setAttribute('aria-pressed', b.dataset.font === store.font ? 'true' : 'false'));
+  $$('[data-seg]').forEach(seg => {
+    const key = seg.dataset.seg;
+    $$('button', seg).forEach(b => b.setAttribute('aria-pressed', (b.dataset.v === store[key]) || (b.dataset.v === 'std' && (store[key] === 'std' || !store[key])) ? 'true' : 'false'));
+  });
+  $('#mt-day').setAttribute('aria-pressed', store.mode === 'day' ? 'true' : 'false');
+  $('#mt-night').setAttribute('aria-pressed', store.mode === 'night' ? 'true' : 'false');
+  const petOn = $('#set-pet'); if (petOn) petOn.checked = store.pet;
+  const spl = $('#set-splash'); if (spl) spl.checked = store.splash;
+  const mo = $('#set-motion'); if (mo) mo.checked = !store.motion;
+  saveLS();
+}
+function setMode(m){ store.mode = m; applyAppearance(); refreshHead(); announceIsland(m === 'day' ? '宣纸昼 · 纸白墨青' : '靛夜 · 靛纸月墨'); }
+const BOOKLETS = {
+  lib: { scrim:'#scrim-lib', sheet:'#sheet-lib' },
+  gallery: { scrim:'#scrim-gallery', sheet:'#sheet-gallery' },
+  theme: { scrim:'#scrim-theme', sheet:'#sheet-theme' },
+  settings: { scrim:'#scrim-settings', sheet:'#sheet-settings' },
+  help: { scrim:'#scrim-help', sheet:'#sheet-help' },
+  insp: { scrim:'#scrim-insp', sheet:'#inspector' },
+};
+function openBooklet(name){
+  closeAllBooklets();
+  const c = BOOKLETS[name];
+  if (!c) return;
+  $(c.scrim).classList.add('show');
+  $(c.sheet).classList.add('show');
+  if (name === 'gallery') renderGallery();
+  if (name === 'lib') renderLib();
+  if (name === 'settings') renderSettings();
+  if (name === 'insp') renderInspector();
+  if (name === 'theme') applyAppearance();
+}
+function closeAllBooklets(){
+  Object.values(BOOKLETS).forEach(c => { $(c.scrim).classList.remove('show'); $(c.sheet).classList.remove('show'); });
+}
+function switchMode(m){
+  const isKernel = m === 'kernel';
+  $('#tab-content').setAttribute('aria-selected', !isKernel ? 'true' : 'false');
+  $('#tab-kernel').setAttribute('aria-selected', isKernel ? 'true' : 'false');
+  $('#area-kernel').classList.toggle('show', isKernel);
+  const sc = $('#scroll-col');
+  const ink = $('#inkstone');
+  const mt = $('#marginal-tip').parentElement;
+  sc.style.visibility = isKernel ? 'hidden' : '';
+  ink.style.visibility = isKernel ? 'hidden' : '';
+  if (isKernel) renderKhChat();
+  hideIsland();
+}
+function toggleSpine(){
+  const cur = document.body.dataset.sb || '';
+  if (innerWidth <= 880) document.body.dataset.sb = cur === 'open' ? '' : 'open';
+  else document.body.dataset.sb = cur === 'collapsed' ? '' : 'collapsed';
+}
+function newWorldline(){
+  if (busy) return toast('世界书写中，请稍候', 'err');
+  const s = newSession('新卷 · ' + fmtTime(now()));
+  store.curId = s.id;
+  currentChoices = [];
+  renderSpine(); renderScroll();
+  $('#input').focus();
+  toast('新世界线已展');
+}
+function bind(){
+  $('#btn-ws').onclick = e => { e.stopPropagation(); const m = $('#ws-menu'); m.style.display === 'block' ? m.style.display = 'none' : openWsMenu(); };
+  document.addEventListener('click', e => {
+    if (!e.target.closest('#ws-menu') && !e.target.closest('#btn-ws')) $('#ws-menu').style.display = 'none';
+    if (!e.target.closest('#pet-menu') && !e.target.closest('#pet-body')) $('#pet-menu').style.display = 'none';
+  });
+  $('#tab-content').onclick = () => switchMode('content');
+  $('#tab-kernel').onclick = () => switchMode('kernel');
+  $('#btn-gallery').onclick = () => openBooklet('gallery');
+  $('#btn-palette').onclick = openCmdk;
+  $('#btn-help').onclick = () => openBooklet('help');
+  $('#btn-theme').onclick = () => openBooklet('theme');
+  $('#btn-settings').onclick = () => openBooklet('settings');
+  $('#btn-search').onclick = () => { toggleSpine(); if (innerWidth > 880) toast('书脊上右键世界线可重命名 / 删除'); };
+  $('#btn-new').onclick = newWorldline;
+  $('#brand-seal').onclick = () => openCmdk();
+  const input = $('#input');
+  $('#btn-send').onclick = () => { if (busy){ toast('已停（模拟）', 'info'); return; } const v = input.value.trim(); if (v){ input.value = ''; sendTurn(v); } };
+  input.onkeydown = e => {
+    if (e.key === 'Enter' && !e.shiftKey){ e.preventDefault(); const v = input.value.trim(); if (v){ input.value = ''; sendTurn(v); } }
+  };
+  let insIdx = 0;
+  $('#chip-inspire').onclick = () => { insIdx = (insIdx + 1) % INSPIRES.length; input.value = INSPIRES[insIdx]; input.focus(); };
+  /* 册页关闭 */
+  Object.keys(BOOKLETS).forEach(name => {
+    const c = BOOKLETS[name];
+    $(c.scrim).onclick = () => { $(c.scrim).classList.remove('show'); $(c.sheet).classList.remove('show'); };
+    const x = $(c.sheet + ' .bh-x');
+    if (x) x.onclick = () => { $(c.scrim).classList.remove('show'); $(c.sheet).classList.remove('show'); };
+  });
+  /* 主题 */
+  $('#mt-day').onclick = () => setMode('day');
+  $('#mt-night').onclick = () => setMode('night');
+  $$('#seg-font button').forEach(b => b.onclick = () => { store.font = b.dataset.font; applyAppearance(); refreshHead(); });
+  $$('[data-seg]').forEach(seg => $$('button', seg).forEach(b => b.onclick = () => { store[seg.dataset.seg] = b.dataset.v; applyAppearance(); }));
+  $('#set-pet').onchange = e => { store.pet = e.target.checked; applyAppearance(); };
+  $('#set-splash').onchange = e => { store.splash = e.target.checked; applyAppearance(); };
+  $('#set-motion').onchange = e => { store.motion = !e.target.checked; applyAppearance(); };
+  $('#set-reset').onclick = () => { Object.assign(store, { mode:'day', font:'kai', width:'std', density:'std', radius:'std', pet:true, splash:true, motion:true, fsScale:1 }); applyAppearance(); refreshHead(); toast('装帧已还原'); };
+  /* 内核库 */
+  $$('#lib-tabs .lib-tab').forEach(t => t.onclick = () => { libFilter = t.dataset.libtab; renderLib(); });
+  $('#lib-search').oninput = e => { libQuery = e.target.value; renderLib(); };
+  $('#lib-new').onclick = () => {
+    closeAllBooklets(); switchMode('kernel');
+    const k = { id:'k-' + rid().slice(0, 5), title:'未名内核', type:'custom', status:'draft', version:'草稿', sub:'新的世界规则书。', tags:['草稿'], usedBy:[] };
+    KERNELS.push(k); openKernelEditor(k);
+    toast('新内核草稿已展');
+  };
+  $('#lib-import').onclick = () => toast('已选 .md（模拟导入）');
+  $('#gallery-save-all').onclick = () => toast('已保存全部插图（模拟）');
+  $('#gallery-export').onclick = () => toast('故事存档已导出（模拟）');
+  $('#gallery-worldline').onchange = () => renderGallery();
+  /* 帮助 tabs */
+  $('#ht-play').onclick = () => { $('#ht-play').setAttribute('aria-selected','true'); $('#ht-keys').setAttribute('aria-selected','false'); $('#hp-play').classList.add('active'); $('#hp-keys').classList.remove('active'); };
+  $('#ht-keys').onclick = () => { $('#ht-keys').setAttribute('aria-selected','true'); $('#ht-play').setAttribute('aria-selected','false'); $('#hp-keys').classList.add('active'); $('#hp-play').classList.remove('active'); };
+  /* 检查册 */
+  $$('.insp-tab').forEach(t => t.onclick = () => { inspTab = t.dataset.itab; renderInspector(); });
+  $('#insp-snap-create').onclick = createSnapshot;
+  $('#insp-snap-create2').onclick = createSnapshot;
+  /* 内核工作台 */
+  $('#kh-lib').onclick = () => openBooklet('lib');
+  $('#kh-source').onclick = () => openKernelEditor(khCurKernel || wsKernel(store.wsId));
+  $('#kh-audit-btn').onclick = () => { openKernelEditor(khCurKernel || wsKernel(store.wsId)); switchEdTab('audit'); };
+  $('#kh-save').onclick = () => {
+    if (khCurKernel){
+      khCurKernel.title = $('#kh-ed-name-input').value || khCurKernel.title;
+      $('#kernel-save-state').textContent = '已录'; $('#kernel-save-state').className = 'kh-pill save-ok';
+      announceIsland('内核已录'); dirty = false;
+    }
+  };
+  $('#kh-tab-src').onclick = () => switchEdTab('src');
+  $('#kh-tab-audit').onclick = () => switchEdTab('audit');
+  $('#kh-ed-save').onclick = () => $('#kh-save').click();
+  $('#kh-ed-done').onclick = () => $('#kh-editor').classList.remove('show');
+  $('#kh-ed-src').oninput = () => { dirty = true; $('#kernel-save-state').textContent = '有未录之墨'; $('#kernel-save-state').className = 'kh-pill save-dirty'; };
+  const khInput = $('#kh-input');
+  $('#kh-send').onclick = () => { khSend(khInput.value); khInput.value = ''; };
+  khInput.onkeydown = e => { if (e.key === 'Enter'){ khSend(khInput.value); khInput.value = ''; } };
+  $$('#kh-quick button').forEach(b => b.onclick = () => khSend(b.dataset.q));
+  /* 命令面板 */
+  $('#cmdk-mask').onclick = e => { if (e.target === $('#cmdk-mask')) closeCmdk(); };
+  $('#cmdk-input').oninput = e => { cmdkSel = 0; renderCmdk(e.target.value); };
+  $('#cmdk-input').onkeydown = e => {
+    if (e.key === 'ArrowDown'){ e.preventDefault(); cmdkMove(1); }
+    else if (e.key === 'ArrowUp'){ e.preventDefault(); cmdkMove(-1); }
+    else if (e.key === 'Enter'){ e.preventDefault(); if (cmdkItems[cmdkSel]){ closeCmdk(); cmdkItems[cmdkSel].run(); } }
+    else if (e.key === 'Escape') closeCmdk();
+  };
+  /* 灯箱 */
+  $('#lb-close').onclick = () => $('#lightbox').classList.remove('show');
+  $('#lb-prev').onclick = () => lbNav(-1);
+  $('#lb-next').onclick = () => lbNav(1);
+  /* 桌宠 */
+  initPet();
+  /* 滚动：离底时藏便笺，露出展开钮 */
+  const sc = $('#scroll-col');
+  sc.addEventListener('scroll', () => {
+    const wrap = $('#notes-wrap');
+    if (!wrap || !currentChoices.length) return;
+    const folded = sc.scrollHeight - sc.scrollTop - sc.clientHeight > 120;
+    wrap.style.display = folded ? 'none' : '';
+    let pill = $('#notes-expand');
+    if (folded && !pill){
+      pill = el('button', 'notes-expand', '▾ 展开这一幕的便笺');
+      pill.id = 'notes-expand';
+      pill.onclick = () => sc.scrollTo({ top: sc.scrollHeight, behavior: 'smooth' });
+      sc.appendChild(pill);
+    } else if (!folded && pill) pill.remove();
+    else if (folded && pill) pill.classList.add('show');
+  }, { passive: true });
+  /* 全局键 */
+  document.addEventListener('keydown', e => {
+    const inField = /INPUT|TEXTAREA|SELECT/.test((e.target.tagName || '')) || e.target.isContentEditable;
+    if (e.key === 'Escape'){
+      if ($('#lightbox').classList.contains('show')) return $('#lightbox').classList.remove('show');
+      if ($('#cmdk-mask').classList.contains('show')) return closeCmdk();
+      if ($('#dlg-mask').classList.contains('show')) return;
+      if ($('#pet-bubble').classList.contains('show')) return closePetBubble();
+      if ($('#pet-menu').style.display === 'block') return $('#pet-menu').style.display = 'none';
+      if ($('#ws-menu').style.display === 'block') return $('#ws-menu').style.display = 'none';
+      const any = Object.values(BOOKLETS).find(c => $(c.sheet).classList.contains('show'));
+      if (any) return closeAllBooklets();
+      return;
+    }
+    if (e.ctrlKey && !e.altKey && !inField){
+      const k = e.key.toLowerCase();
+      if (k === 'p'){ e.preventDefault(); openCmdk(); }
+      else if (k === 'n'){ e.preventDefault(); newWorldline(); }
+      else if (k === 'b'){ e.preventDefault(); toggleSpine(); }
+      else if (k === 'g'){ e.preventDefault(); openBooklet('gallery'); }
+      else if (k === 'k'){ e.preventDefault(); switchMode('kernel'); }
+      else if (k === 'l' && e.shiftKey){ e.preventDefault(); openBooklet('lib'); }
+      else if (k === '.'){ e.preventDefault(); switchMode('kernel'); openKernelEditor(wsKernel(store.wsId)); }
+    }
+    if (e.ctrlKey && !e.altKey && (e.key === '=' || e.key === '-' || e.key === '0')){
+      e.preventDefault();
+      store.fsScale = e.key === '0' ? 1 : clamp((store.fsScale || 1) + (e.key === '=' ? .06 : -.06), .85, 1.3);
+      applyAppearance();
+    }
+    if (e.ctrlKey && e.altKey && (e.key === 'i' || e.key === 'I')){ e.preventDefault(); openBooklet('insp'); }
+    if (e.key === 'ArrowUp' && !inField){
+      const s = curSession();
+      const lastUser = s ? [...s.msgs].reverse().find(m => m.role === 'user') : null;
+      if (lastUser){ input.value = lastUser.content; input.focus(); }
+    }
+  });
+}
+function boot(){
+  applyAppearance();
+  const s0 = newSession('序幕 · 帘未启');
+  store.sessions = [s0]; store.curId = s0.id;
+  renderSpine(); renderScroll();
+  bind();
+  renderKhChat();
+  if (innerWidth <= 880) document.body.dataset.sb = '';
+  /* 启动页 */
+  const splash = $('#splash');
+  const enter = () => { splash.classList.add('done'); setTimeout(() => splash.remove(), 640); };
+  $('#splash-enter').onclick = e => { e.stopPropagation(); enter(); };
+  let autoT = setTimeout(enter, 9800);
+  splash.addEventListener('click', () => { clearTimeout(autoT); enter(); });
+  document.addEventListener('keydown', function h(e){ if (e.key === 'Enter' || e.key === ' '){ clearTimeout(autoT); enter(); document.removeEventListener('keydown', h); } });
+  if (!store.splash) enter();
+}
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
+else boot();
+</script>
+</body>
+</html>

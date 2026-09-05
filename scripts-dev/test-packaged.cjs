@@ -36,6 +36,17 @@ async function main() {
   if (unwanted.length) throw new Error('桌宠模型后端混入了多余平台包（应只留 win-x64 CPU + Vulkan）：' + unwanted.join(', '))
   console.log('  桌宠模型后端二进制：' + backends.join(', '))
 
+  // ---- 自动更新元数据：electron-updater 的 app-update.yml 必须随包分发（provider=github）----
+  // build 配置漂移会让更新静默失效（设置里「检查更新」永远查不到），这里静态锁死。
+  const updYml = path.join(resources, 'app-update.yml')
+  if (!fs.existsSync(updYml)) throw new Error('dist/win-unpacked 缺少 app-update.yml（electron-builder publish 配置漂移，应用内自动更新将静默失效）')
+  const upd = fs.readFileSync(updYml, 'utf8')
+  if (!/provider:\s*github/.test(upd)) throw new Error('app-update.yml 的 provider 不是 github：\n' + upd)
+  if (!/owner:\s*tryanythingharder/.test(upd) || !/repo:\s*Undecided-Sequel\.Chapter/.test(upd)) throw new Error('app-update.yml 的 owner/repo 不符：\n' + upd)
+  console.log('  自动更新元数据：app-update.yml（github provider）已打包 ✓')
+  // NSIS 安装包产物也须带 latest.yml（electron-updater 检查更新拉取的清单），dist 根目录
+  if (!fs.existsSync(path.join(root, 'dist', 'latest.yml'))) throw new Error('dist/latest.yml 缺失（Release 上传后客户端无法检查更新）')
+
   const app = await electron.launch({
     executablePath: executable,
     env: { ...process.env, ELECTRON_DISABLE_SECURITY_WARNINGS: 'true', SIXWORLDS_TEST: '1' }
