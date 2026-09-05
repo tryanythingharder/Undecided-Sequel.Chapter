@@ -87,6 +87,23 @@ function validatePatch(patch, ctx) {
     if (!String(r.source_name || '').trim() || !String(r.target_name || '').trim()) {
       err(out, 'RELATION_ENDPOINTS', 'relationship 缺少 source_name/target_name')
     }
+    // relation_type 同义归一：模型常写 friendship/hostility 等协议外语（合法集见协议提示词）；
+    // 归一到既有集合可保检索代称推断的词面一致性；完全未知的值不拒收（自由文本是设计决定，只告警）
+    if (r.relation_type) {
+      const rt = String(r.relation_type)
+      const rnorm = {
+        friendship: 'friend', friend: 'friend', friendly: 'friend', ally: 'ally', allied: 'ally', alliance: 'ally',
+        hostility: 'enemy', hostile: 'enemy', foe: 'enemy', adversary: 'enemy', rival: 'rival', rivalry: 'rival',
+        kin: 'family', kinship: 'family', relative: 'family', servant: 'master_servant', master: 'master_servant',
+        romance: 'romantic', lover: 'romantic', love: 'romantic', acquaintance: 'acquaintance'
+      }[rt.toLowerCase()]
+      if (rnorm && rnorm !== rt) {
+        warn(out, 'RELATION_TYPE_NORMALIZED', 'relation_type ' + rt + ' 按 ' + rnorm + ' 归一')
+        r.relation_type = rnorm
+      } else if (!rnorm && !['friend', 'rival', 'ally', 'enemy', 'family', 'master_servant', 'romantic', 'other', 'acquaintance'].includes(rt.toLowerCase())) {
+        warn(out, 'RELATION_TYPE_FREE_TEXT', 'relation_type「' + rt + '」不在协议集合（friend|rival|ally|enemy|family|master_servant|romantic|other），按原样保留')
+      }
+    }
   }
 
   // ---- threads ----
@@ -121,6 +138,20 @@ function validatePatch(patch, ctx) {
   // ---- causal ----
   for (const c of patch.causal || []) {
     if (!String(c.cause || '').trim() || !String(c.effect || '').trim()) err(out, 'CAUSAL_INCOMPLETE', 'causal 缺少 cause/effect')
+  }
+  for (const cu of patch.causal_updates || []) {
+    if (!String(cu.ref || '').trim()) err(out, 'CAUSAL_UPDATE_REF', 'causal_updates 缺少 ref（编号或关键词）')
+    // 状态归一：常见同义偏差（HAPPENED/DONE/CONFIRMED → RESOLVED；ABANDONED/DROPPED/FAILED/VOID → CANCELLED）
+    if (cu.status) {
+      const cnorm = { HAPPENED: 'RESOLVED', DONE: 'RESOLVED', CONFIRMED: 'RESOLVED', OCCURRED: 'RESOLVED', ABANDONED: 'CANCELLED', DROPPED: 'CANCELLED', FAILED: 'CANCELLED', VOID: 'CANCELLED', NEGATED: 'CANCELLED' }[String(cu.status).toUpperCase()]
+      if (cnorm) {
+        warn(out, 'CAUSAL_STATUS_NORMALIZED', 'causal 状态 ' + cu.status + ' 按 ' + cnorm + ' 归一（causal_updates 用 RESOLVED/CANCELLED）')
+        cu.status = cnorm
+      }
+    }
+    if (cu.status && !['RESOLVED', 'CANCELLED'].includes(String(cu.status).toUpperCase())) {
+      err(out, 'CAUSAL_BAD_STATUS', 'causal_updates 目标状态非法：' + cu.status + '（只有 RESOLVED/CANCELLED）')
+    } else if (cu.status) cu.status = String(cu.status).toUpperCase()
   }
 
   // ---- scene ----

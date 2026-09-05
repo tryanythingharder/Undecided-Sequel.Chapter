@@ -302,6 +302,12 @@ class StateStore {
     return JSON.parse(fs.readFileSync(p, 'utf8'))
   }
 
+  deleteSnapshot(storyId, snapshotId) {
+    const p = this.snapshotPath(storyId, snapshotId)
+    fs.rmSync(p, { force: true })
+    return !fs.existsSync(p)
+  }
+
   listSnapshots(storyId) {
     const dir = path.join(this.snapshotsDir, String(storyId).replace(/[^a-zA-Z0-9_-]/g, '_'))
     if (!fs.existsSync(dir)) return []

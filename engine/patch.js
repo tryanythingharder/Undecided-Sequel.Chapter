@@ -107,6 +107,7 @@ function findTailJson(text) {
 /* 廉价预检：JSON 文本里出现协议键才值得 parse（避免对大段叙事 JSON 白做配平） */
 function looksLikeStatePatchLoose(jsonText) {
   return /turn_summary|"scene"|"player_state"|"entity_changes"|"decisions"|"commitments"|"commitment_updates"|"relationships"|"threads"|"knowledge"|"causal"|"facts"|"events"|"commitment_updates"/.test(jsonText)
+    || /"causal_updates"/.test(jsonText)
 }
 /* 从 start 的 '{' 起做括号配平（字符串感知），返回匹配 '}' 的下标；未闭合则返回 -1 */
 function scanDepth(text, start) {
@@ -189,7 +190,7 @@ function normalizePatch(p) {
   if (out.turn_summary != null) out.turn_summary = String(out.turn_summary).slice(0, 500)
   if (out.scene && typeof out.scene !== 'object') delete out.scene
   if (out.player_state && typeof out.player_state !== 'object') delete out.player_state
-  const arrKeys = ['entity_changes', 'decisions', 'commitments', 'commitment_updates', 'facts', 'events', 'relationships', 'knowledge', 'threads', 'causal']
+  const arrKeys = ['entity_changes', 'decisions', 'commitments', 'commitment_updates', 'facts', 'events', 'relationships', 'knowledge', 'threads', 'causal', 'causal_updates']
   for (const k of arrKeys) {
     if (out[k] === undefined) continue
     if (!Array.isArray(out[k])) out[k] = [out[k]] // 单对象 → 数组
@@ -231,7 +232,8 @@ function patchProtocolPrompt() {
     ' "relationships":[{"source_name":"A","target_name":"B","relation_type":"friend|rival|ally|enemy|family|master_servant|romantic|other","strength_delta":5,"description":"关系变化"}],',
     ' "knowledge":[{"content":"玩家角色新得知的信息","how_learned":"observed|told_by|inferred"}],',
     ' "threads":[{"op":"add","title":"新伏笔/长线标题","detail":"细节","importance":50},{"op":"update","ref":"THR-000001 或标题关键词","status":"RESOLVED|ABANDONED","detail":"进展"}], // threads 状态只有 OPEN/RESOLVED/ABANDONED：没有 ACTIVE——进行中就是 OPEN，别写成 ACTIVE',
-    ' "causal":[{"cause":"因","effect":"可预见的果","importance":50}]}',
+    ' "causal":[{"cause":"因","effect":"可预见的果","importance":50}],',
+    ' "causal_updates":[{"ref":"CSL-000001 或因/果内容关键词","status":"RESOLVED|CANCELLED","note":"兑现/落空的原因"}]}',
     '<<<END_PATCH>>>',
     '若本回合确实完全没有产生任何状态变化（例如纯寒暄、无新信息、无场景变动），则不要输出状态块，改为在回复最末尾输出一行：',
     '<<<NO_STATE_CHANGE>>>',

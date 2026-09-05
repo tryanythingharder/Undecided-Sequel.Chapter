@@ -181,6 +181,14 @@ function commitPatch(engine, rawPatch, meta, narrativeOverride) {
       ;(result.applied.causal = result.applied.causal || []).push(rec.causal_id)
     }
 
+    // causal_updates：预埋因果的兑现/落空闭环（此前只进不出，PENDING 因果永久滞留检索位）
+    for (const cu of patch.causal_updates || []) {
+      const c = resolveRef(story.causal, cu.ref, 'causal_id', (x) => x.cause + ' ' + x.effect)
+      if (!c) { result.errors.push({ code: 'CAUSAL_REF_MISSING', message: '因果未找到：' + cu.ref }); throw new Error('causal ref missing') }
+      Repos.updateCausalStatus(story, c.causal_id, cu.status, now)
+      ;(result.applied.causal_updates = result.applied.causal_updates || []).push(c.causal_id)
+    }
+
     // scene
     if (patch.scene) {
       const sc = patch.scene

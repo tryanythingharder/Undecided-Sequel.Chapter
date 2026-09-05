@@ -94,7 +94,8 @@ const SESSION_STATUS = ['ACTIVE', 'CLOSED']
 // ---- StatePatch（LLM 输出协议）顶层键 ----
 const PATCH_KEYS = [
   'turn_summary', 'scene', 'player_state', 'entity_changes', 'decisions',
-  'commitments', 'commitment_updates', 'facts', 'events', 'relationships', 'knowledge', 'threads', 'causal'
+  'commitments', 'commitment_updates', 'facts', 'events', 'relationships', 'knowledge', 'threads', 'causal',
+  'causal_updates' // 因果闭环：已埋的因兑现/落空时把 PENDING → RESOLVED/CANCELLED（与 threads 对称）
 ]
 
 // ---- 引擎版本（Story 文件内记录，向后迁移用） ----

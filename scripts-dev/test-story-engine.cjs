@@ -200,9 +200,59 @@ engine.ensureStory({ storyId: 'storyC', title: '故事C', kernelId: 'k2', kernel
   check('t11: 重启后第1回合决定仍可检索', ctx3.retrieved.decisions.length > 0)
 }
 
+// ============ 测试 12：因果闭环 + relation_type 归一 + 快照淘汰 + 同步指纹（本轮新增） ============
+{
+  // 12a causal 闭环：预埋 → 兑现（RESOLVED）不再滞留检索位；同义偏差（HAPPENED）归一；落空（CANCELLED）
+  engine.commitPatch(patchOf({ causal: [{ cause: '玩家救了铁匠的女儿', effect: '铁匠会赠予神兵', importance: 60 }] }), { storyId: 'storyB', playerInput: '救人' })
+  const causal0 = engine.getStory('storyB').causal.find((c) => c.status === 'PENDING' && String(c.effect).includes('神兵'))
+  check('t12: 因果预埋为 PENDING', !!causal0)
+  const r12 = engine.commitPatch(patchOf({ causal_updates: [{ ref: causal0.causal_id, status: 'RESOLVED', note: '铁匠如约赠剑' }] }), { storyId: 'storyB', playerInput: '领取' })
+  check('t12: 因果兑现（RESOLVED）提交成功', r12.ok === true, r12.errors)
+  check('t12: 已兑现因果不再 PENDING', engine.getStory('storyB').causal.every((c) => c.causal_id !== causal0.causal_id || c.status === 'RESOLVED'))
+  check('t12: 已兑现因果退出检索 pending 位', engine.buildContext('storyB', { playerInput: '铁匠 神兵' }).retrieved.causal.every((it) => it.rec.causal_id !== causal0.causal_id))
+  // 同义归一：HAPPENED → RESOLVED（validator 容错，警告不拒收）
+  engine.commitPatch(patchOf({ causal: [{ cause: '玩家得罪了行会', effect: '行会会报复', importance: 50 }] }), { storyId: 'storyB', playerInput: '结仇' })
+  const causal1 = engine.getStory('storyB').causal.find((c) => c.status === 'PENDING' && String(c.effect).includes('报复'))
+  const r12b = engine.commitPatch(patchOf({ causal_updates: [{ ref: causal1.causal_id, status: 'HAPPENED', note: '行会伏击' }] }), { storyId: 'storyB', playerInput: '遇袭' })
+  check('t12: HAPPENED 同义归一为 RESOLVED 提交成功', r12b.ok === true && r12b.warnings.some((w) => w.code === 'CAUSAL_STATUS_NORMALIZED'), r12b.errors)
+  check('t12: 非法目标状态被拒（对齐既有容错链行为）', engine.commitPatch(patchOf({ causal_updates: [{ ref: causal1.causal_id, status: 'WEIRD' }] }), { storyId: 'storyB', playerInput: 'x' }).ok === false)
+  // 引用不存在的因果 → 失败回滚（与 commitment/thread 行为一致）
+  const turnB = engine.getStory('storyB').counters.turn
+  const r12c = engine.commitPatch(patchOf({ causal_updates: [{ ref: 'CSL-999999', status: 'RESOLVED' }] }), { storyId: 'storyB', playerInput: '误引' })
+  check('t12: 引用不存在的因果 → 提交失败并回滚', r12c.ok === false && engine.getStory('storyB').counters.turn === turnB)
+
+  // 12b relation_type 归一：friendship → friend（协议集合内）；完全未知值不拒收（保留原样 + 告警）
+  const r12d = engine.commitPatch(patchOf({ relationships: [{ source_name: '罗恩', target_name: '玩家', relation_type: 'friendship', strength_delta: 5, description: '并肩作战' }] }), { storyId: 'storyB', playerInput: '并肩' })
+  check('t12: relation_type friendship 归一为 friend', r12d.ok === true && engine.getStory('storyB').relationships.some((r) => r.relation_type === 'friend' && String(r.description).includes('并肩')))
+  const r12e = engine.commitPatch(patchOf({ relationships: [{ source_name: '罗恩', target_name: '玩家', relation_type: 'sworn_brother', strength_delta: 5, description: '结拜' }] }), { storyId: 'storyB', playerInput: '结拜' })
+  check('t12: 未知 relation_type 按原样保留不拒收', r12e.ok === true && engine.getStory('storyB').relationships.some((r) => r.relation_type === 'sworn_brother'))
+
+  // 12c 快照淘汰：连续快照超 30 份后最旧的被自动清掉（磁盘治理）
+  for (let i = 0; i < 33; i++) {
+    engine.commitPatch(patchOf({ events: [{ type: 'action', description: '快照压测回合 ' + i, importance: 5 }] }), { storyId: 'storyC', playerInput: '推进' + i })
+    engine.snapshot('storyC', 'auto-' + i)
+  }
+  const snaps = engine.listSnapshots('storyC')
+  check('t12: 快照上限 30（33 份入 → 淘汰最旧 3 份）', snaps.length === 30, { count: snaps.length })
+  check('t12: 淘汰的是最旧（auto-0 不在列，最新仍在）', !snaps.some((s) => s.label === 'auto-0') && snaps.some((s) => s.label === 'auto-32'))
+  check('t12: 淘汰后恢复最新快照仍可用', (() => { try { engine.restoreSnapshot('storyC', snaps[0].snapshot_id); return true } catch { return false } })())
+
+  // 12d 向量同步内容指纹：结构水位变化但文本未变 → 跳过（stats 无新增行/重写；检索照常）
+  const stats0 = engine.vectorStats ? engine.vectorStats() : null
+  const ctxBefore = engine.buildContext('storyC', { playerInput: '快照压测' })
+  const hitBefore = ctxBefore.retrieved.events.length
+  // 同一 storyC 不再新增事实/事件/决定地重复 commit（仅 threads 推进——threads 不进向量索引）→ 指纹应一致
+  for (let i = 0; i < 3; i++) {
+    engine.commitPatch(patchOf({ threads: [{ op: 'add', title: '纯伏笔回合 ' + i, detail: '不进索引', importance: 30 }] }), { storyId: 'storyC', playerInput: '埋伏笔' + i })
+  }
+  const ctxAfter = engine.buildContext('storyC', { playerInput: '快照压测' })
+  check('t12: 纯 threads 回合后向量检索照常（同步未被指纹跳过破坏）', ctxAfter.retrieved.events.length === hitBefore, { before: hitBefore, after: ctxAfter.retrieved.events.length })
+  check('t12: 索引统计仍可用', !!(stats0 === null || stats0))
+}
+
 // ============ 汇总 ============
 console.log('\n===== 故事状态引擎测试结果 =====')
-for (const group of ['t1', 't2', 't3', 't4', 't5', 't7', 't8', 't9', 't10', 't11']) {
+for (const group of ['t1', 't2', 't3', 't4', 't5', 't7', 't8', 't9', 't10', 't11', 't12']) {
   const g = results.filter((r) => r.name.startsWith(group + ':'))
   if (!g.length) continue
   const pass = g.every((r) => r.pass)

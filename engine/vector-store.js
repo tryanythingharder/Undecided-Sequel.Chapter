@@ -145,6 +145,22 @@ function structuralWatermark(story) {
   return [story.facts.length, story.events.length, story.decisions.length, maxTurn].join(':')
 }
 
+/* 内容指纹：可同步文本的轻量 hash（非加密，只为变化检测）。
+ * 结构水位（长度 + maxTurn）每回合几乎必变（+1 event），但内容可能整段未变（例如补录回合只推进
+ * 已有账本状态）——指纹与上次一致时跳过全行扫描，长篇下省掉每回合 O(账本行数) 的 SELECT+文本比较。 */
+function contentFingerprint(story) {
+  let h = 2166136261
+  const rows = storyTexts(story)
+  for (const r of rows) {
+    const s = r.kind + '|' + r.rec_id + '|' + r.turn + '|' + r.importance + '|' + r.text
+    for (let i = 0; i < s.length; i++) {
+      h ^= s.charCodeAt(i)
+      h = Math.imul(h, 16777619) >>> 0
+    }
+  }
+  return rows.length + ':' + h.toString(36)
+}
+
 function createVectorStore(dataDir, opts) {
   const disabled = { enabled: false, sync() {}, search() { return null }, forgetStory() {}, stats() { return { enabled: false } }, close() {} }
   const fs = require('fs')
@@ -356,6 +372,8 @@ function createVectorStore(dataDir, opts) {
 
   const watermark = (storyId) => { try { const r = db.prepare('SELECT value FROM meta WHERE key=?').get('wm:' + storyId); return r ? r.value : null } catch { return null } }
   const setWatermark = (storyId, w) => { db.prepare('INSERT INTO meta(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value').run('wm:' + storyId, w) }
+  const fingerprint = (storyId) => { try { const r = db.prepare('SELECT value FROM meta WHERE key=?').get('fp:' + storyId); return r ? r.value : null } catch { return null } }
+  const setFingerprint = (storyId, f) => { db.prepare('INSERT INTO meta(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value').run('fp:' + storyId, f) }
 
   /* vec0 的 rowid 不接受绑定参数（扩展侧校验限制），只能内联整数——此处整数全部经本函数消毒 */
   function cidInt(v) {
@@ -403,6 +421,14 @@ function createVectorStore(dataDir, opts) {
     const embedFn = EMBEDDERS[embedderId].fn
     const wm = structuralWatermark(story)
     if (watermark(story.story_id) === wm) return
+    /* 内容指纹门：结构水位变了但可同步文本一字未变（补录推进已有账本等场景）——
+     * 直接推进水位并返回，跳过全行扫描；指纹仍需入库（下次结构变化时比对） */
+    const fp = contentFingerprint(story)
+    if (fingerprint(story.story_id) === fp) {
+      db.exec('BEGIN')
+      try { setWatermark(story.story_id, wm); setFingerprint(story.story_id, fp); db.exec('COMMIT') } catch (e) { try { db.exec('ROLLBACK') } catch {}; throw e }
+      return
+    }
     /* 向量写入：分区表带 story_id 列（TEXT 可绑定；rowid 仍需内联——vec0 主键不接受 REAL 绑定，
      * node:sqlite 把 JS 数字绑定为 real）；旧表（无分区）只写向量。 */
     const insVec = (cid, vec) => partitioned
@@ -480,6 +506,7 @@ function createVectorStore(dataDir, opts) {
         return
       }
       setWatermark(story.story_id, wm)
+      setFingerprint(story.story_id, fp)
       db.exec('COMMIT')
     } catch (e) {
       try { db.exec('ROLLBACK') } catch {}
@@ -573,6 +600,7 @@ function createVectorStore(dataDir, opts) {
         }
         db.prepare('DELETE FROM chunks WHERE story_id=?').run(storyId)
         db.prepare('DELETE FROM meta WHERE key=?').run('wm:' + storyId)
+        db.prepare('DELETE FROM meta WHERE key=?').run('fp:' + storyId) // 内容指纹一并清：重同步须全量重建，不得被旧指纹短路
         db.exec('COMMIT')
       } catch (e) {
         try { db.exec('ROLLBACK') } catch {}
