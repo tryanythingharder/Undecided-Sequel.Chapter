@@ -111,7 +111,7 @@ function startMock() {
       calls += 1
       const parsed = (() => { try { return JSON.parse(body) } catch { return {} } })()
       const sysMsgs = (parsed.messages || []).filter((m) => m.role === 'system').map((m) => String(m.content || ''))
-      const userMsgs = (parsed.messages || []).filter((m) => m.role === 'user').map((m) => String(m.content || ''))
+      const userMsgs = (parsed.messages || []).filter((m) => m.role === 'user' && !String(m.content).startsWith('（系统要求')).map((m) => String(m.content || ''))
       const lastUser = userMsgs[userMsgs.length - 1] || ''
       const ctxBlock = sysMsgs.find((t) => t.indexOf('【世界状态 · 结构化记忆') >= 0) || ''
       const wantsStream = (() => { try { return parsed.stream === true } catch { return false } })()

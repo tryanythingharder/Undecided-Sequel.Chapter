@@ -21,10 +21,10 @@ const src = fs.readFileSync(path.join(__dirname, '..', 'shared', 'send-flow.js')
 
 // 1) 末位重申注入：位于 msgs.push(...history) 之前、协议书之后
 const pushHistoryIdx = src.indexOf('msgs.push(...history)')
-const reminderIdx = src.indexOf('【回复结构 · 必须遵守】')
+const reminderIdx = src.indexOf('系统要求，非剧情内容')
 const protocolIdx = src.indexOf("msgs.push({ role: 'system', content: protocolText() })")
 check('reminder-exists', reminderIdx !== -1)
-check('reminder-before-history', reminderIdx !== -1 && pushHistoryIdx !== -1 && reminderIdx < pushHistoryIdx, 'reminder@' + reminderIdx + ' history@' + pushHistoryIdx)
+check('reminder-after-history', reminderIdx !== -1 && pushHistoryIdx !== -1 && reminderIdx > pushHistoryIdx, 'history@' + pushHistoryIdx + ' reminder@' + reminderIdx + '（重申必须是最后一条消息）')
 check('protocol-before-reminder', protocolIdx !== -1 && reminderIdx !== -1 && protocolIdx < reminderIdx)
 
 // 2) 三要素
@@ -34,8 +34,8 @@ check('reminder-mentions-state-patch', reminderTxt.includes('<<<STATE_PATCH>>>')
 check('reminder-mentions-no-state-change', reminderTxt.includes('<<<NO_STATE_CHANGE>>>'))
 check('reminder-mentions-json-closure', reminderTxt.includes('闭合'))
 
-// 3) 守卫：重申只在 engineMeta && protocolText() 时注入（双条件与协议书一致）
-check('reminder-guarded-by-engineMeta', /if \(engineMeta && protocolText\(\)\) msgs\.push\(\{\s*role: 'system',\s*content: '【回复结构/.test(src))
+// 3) 守卫：重申只在 engineMeta && protocolText() && history.length 时以 user 角色注入
+check('reminder-guarded-by-engineMeta', src.includes('if (engineMeta && protocolText() && history.length) msgs.push({') && src.includes("role: 'user',\n        content: '（系统要求，非剧情内容"))
 
 // 4) 补账重试提示词为最后一条消息（retryMsgs concat 的最后一项是 user patchRetryPrompt）
 const retryIdx = src.indexOf('const retryMsgs = msgs.concat([')

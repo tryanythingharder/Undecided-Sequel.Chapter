@@ -69,14 +69,16 @@
       const msgs = [{ role: 'system', content: kernel().text }]
       if (engineMeta && engineMeta.block) msgs.push({ role: 'system', content: engineMeta.block })
       if (engineMeta && protocolText()) msgs.push({ role: 'system', content: protocolText() })
-      // R85：输出协议末位重申——协议书埋在历史前的 system 里，长上下文下模型对「末尾输出格式」
-      // 的遵循会衰减（百轮实测 83% 轮次状态块缺失）；把三件必做（选项区/状态块/完整 JSON）垫在
-      // 历史之后，等效于补账路径「最后一条消息即指令」的 ~100% 遵循结构
-      if (engineMeta && protocolText()) msgs.push({
-        role: 'system',
-        content: '【回复结构 · 必须遵守】本次回复必须完整包含以下三部分，缺一不可：\n1. 叙事正文；\n2. 选项区：【你需要决定】+ A/B/C/D 选项行（每幕必出）；\n3. 状态记录块：回复最末尾输出 <<<STATE_PATCH>>> + 完整合法 JSON + <<<END_PATCH>>>（JSON 必须闭合所有括号，至少含 turn_summary 与 scene 两键）。仅在确实零状态变化时改为 <<<NO_STATE_CHANGE>>>。前述系统协议书中的所有规则继续有效，此处为末位重申。'
-      })
       msgs.push(...history)
+      // R85：输出协议末位重申——协议书埋在历史前的 system 里，长上下文下模型对「末尾输出格式」
+      // 的遵循会衰减（百轮实测 83% 轮次状态块缺失）。两次百轮实证迭代：
+      // ①历史后 system：前 25 轮 56% 缺失、后段回升 96%——A6api 等中转会丢弃/前置非头部 system，
+      //   末位语义在中转层已失真；②补账路径（user 角色、最后一条消息）同模型 ~100% 遵循。
+      // 故重申用 user 角色镜像补账路径的已验证结构，跟在玩家输入之后作为「格式要求随行」。
+      if (engineMeta && protocolText() && history.length) msgs.push({
+        role: 'user',
+        content: '（系统要求，非剧情内容，不要回应这段话也不要把它当玩家行动）本次回复必须完整包含以下三部分，缺一不可：\n1. 叙事正文；\n2. 选项区：【你需要决定】+ A/B/C/D 选项行（每幕必出）；\n3. 状态记录块：回复最末尾输出 <<<STATE_PATCH>>> + 完整合法 JSON + <<<END_PATCH>>>（JSON 必须闭合所有括号，至少含 turn_summary 与 scene 两键）。仅在确实零状态变化时改为 <<<NO_STATE_CHANGE>>>。'
+      })
       const payload = {
         baseUrl: cfg().baseUrl,
         apiKey: cfg().apiKey,

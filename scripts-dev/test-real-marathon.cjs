@@ -15,7 +15,7 @@ const { _electron: electron } = require('playwright')
 
 const ROUNDS = Number(process.argv[2]) || 100
 
-const state = { rounds: [], resolves: [], recoveries: 0, errors: [] }
+const state = { rounds: [], resolves: [], recoveries: 0, errors: [], errStreak: 0, outageRounds: 0 }
 const fmt = (n) => (n / 1000).toFixed(1) + 's'
 
 async function readUI(win) {
@@ -152,6 +152,44 @@ async function main() {
         await win.click('#btn-send')
         r = await waitRoundDone(win, prevTxt, 120000)
       }
+      // ---- API 故障轮识别（R85）：秒回 + 无选项 + 报错模板 = 服务端故障，不是有效叙事轮。
+      // 错误轮一律不入账、不烧轮次：单轮暂停 30s 后重打；连击 4 轮 → 熔断每 120s 探测恢复 ----
+      if (r.ok && r.dur < 5000 && r.ui.choices === 0 && /世界引擎报错/.test(r.ui.txt)) {
+        state.errStreak++
+        state.outageRounds++
+        if (state.errStreak >= 4) {
+          console.log(`  [round ${n}] API 故障带（连击 ${state.errStreak}）→ 熔断，每 2 分钟探测恢复…`)
+          let recovered = false
+          for (let probe = 1; probe <= 30 && !recovered; probe++) {
+            await win.waitForTimeout(120000)
+            const ui2 = await readUI(win)
+            if (!ui2.busy) {
+              await win.fill('#input', '（继续）')
+              await win.click('#btn-send')
+              const rp = await waitRoundDone(win, prevTxt, 150000)
+              if (rp.ok && rp.ui.choices > 0 && !/世界引擎报错/.test(rp.ui.txt)) {
+                recovered = true
+                console.log(`  [round ${n}] 服务已恢复（探测 ${probe} 次成功）`)
+              } else {
+                state.outageRounds++
+                console.log(`  [round ${n}] 探测 ${probe} 仍报错，继续等…`)
+              }
+            }
+          }
+          if (!recovered) {
+            console.log('  [熔断] 30 次探测均失败：服务持续不可用，提前收束')
+            state.errors.push('OUTAGE: 服务端故障未恢复，马拉松提前收束')
+            break
+          }
+          state.errStreak = 0
+        } else {
+          console.log(`  [round ${n}] API 报错轮（不计轮次，暂停 30s 后重打）`)
+          await win.waitForTimeout(30000)
+        }
+        n-- // 本轮作废重打（for 自增后仍是 n）
+        continue
+      }
+      state.errStreak = 0
       if (!r.ok) {
         // 超时分类观测：busy 卡住（请求挂起/流式中）vs 已停但文本未变（点击未生效/发送失败）
         console.log(`  [round ${n}] 超时态：busy=${r.ui.busy} · chip=${r.ui.pending}/${r.ui.committing} · 消息${r.ui.msgCount}`)
@@ -216,7 +254,7 @@ async function main() {
   const durs = done.map((x) => x.dur).sort((a, b) => a - b)
   const totalChars = done.reduce((a, x) => a + x.len, 0)
   console.log('\n== 马拉松汇总 ==')
-  console.log(`成功 ${done.length}/${ROUNDS} 轮（超时 ${timeouts.length}，补发后成功 ${retriedRounds.filter((x) => x.ok).length}，异常恢复 ${state.recoveries} 次）`)
+  console.log(`成功 ${done.length}/${ROUNDS} 轮（超时 ${timeouts.length}，补发后成功 ${retriedRounds.filter((x) => x.ok).length}，异常恢复 ${state.recoveries} 次，API 故障轮 ${state.outageRounds} 已熔断跳过）`)
   console.log(`耗时：中位 ${fmt(durs[Math.floor(durs.length / 2)] || 0)} · 最快 ${fmt(durs[0] || 0)} · 最慢 ${fmt(durs[durs.length - 1] || 0)} · 总计 ${fmt(Date.now() - tStart)}`)
   console.log(`叙事总字数 ${totalChars} · 待补录遗留 ${pendingHits.length} 轮（协议合规 ${done.length - pendingHits.length}/${done.length}）`)
   console.log(`后台补账触发 ${bgRounds.length} 轮（首轮 Patch 缺失率 ${Math.round(bgRounds.length / Math.max(state.rounds.length, 1) * 100)}%）· 补账总耗时 ${fmt(bgRounds.reduce((a, x) => a + Math.max(x.bg, 0), 0))}${bgRounds.some((x) => x.bg < 0) ? ' · 有挂起' : ''}`)
@@ -228,22 +266,26 @@ async function main() {
   console.log(`页面错误 ${state.errors.length} 条` + (state.errors.length ? '：' + JSON.stringify(state.errors.slice(0, 3)) : ''))
 
   // ---- R85 运行时验证：测试会话若存在待补录 → 实测横幅「放弃」按钮（只动本测试线）----
-  const testPending = await win.evaluate(() => document.querySelectorAll('.msg-pending-chip').length)
-  if (testPending > 0) {
-    const hasBtn = await win.locator('#btn-pending-discard').count()
-    if (hasBtn) {
-      await win.locator('#btn-pending-discard').click()
-      await win.waitForTimeout(500)
-      const cv = await win.locator('.confirm-mask').isVisible().catch(() => false)
-      if (cv) await win.locator('.confirm-mask .confirm-foot button').last().click()
-      await win.waitForTimeout(1500)
-      const afterP = await win.evaluate(() => ({
-        chips: document.querySelectorAll('.msg-pending-chip').length,
-        banner: !document.getElementById('pending-banner').classList.contains('hidden')
-      }))
-      console.log(`放弃按钮实测：${testPending} 条待补录 → 剩余 ${afterP.chips} · 横幅${afterP.banner ? '仍可见' : '已隐藏'} ${afterP.chips === 0 ? '✓' : '✗'}`)
-    } else console.log('放弃按钮实测：跳过（按钮未挂载）✗')
-  } else console.log('放弃按钮实测：本轮无待补录（未触发，正常）')
+  try {
+    const testPending = await win.evaluate(() => document.querySelectorAll('.msg-pending-chip').length)
+    if (testPending > 0) {
+      const hasBtn = await win.locator('#btn-pending-discard').count()
+      if (hasBtn) {
+        await win.locator('#btn-pending-discard').click({ timeout: 8000 })
+        await win.waitForTimeout(500)
+        const cv = await win.locator('.confirm-mask').isVisible().catch(() => false)
+        if (cv) await win.locator('.confirm-mask .confirm-foot button').last().click()
+        await win.waitForTimeout(1500)
+        const afterP = await win.evaluate(() => ({
+          chips: document.querySelectorAll('.msg-pending-chip').length,
+          banner: !document.getElementById('pending-banner').classList.contains('hidden')
+        }))
+        console.log(`放弃按钮实测：${testPending} 条待补录 → 剩余 ${afterP.chips} · 横幅${afterP.banner ? '仍可见' : '已隐藏'} ${afterP.chips === 0 ? '✓' : '✗'}`)
+      } else console.log('放弃按钮实测：跳过（按钮未挂载）✗')
+    } else console.log('放弃按钮实测：本轮无待补录（未触发，正常）')
+  } catch (e) {
+    console.log('放弃按钮实测：探针异常（不影响清理）', String(e).slice(0, 100))
+  }
 
   // ---- 清理测试会话 ----
   await win.locator('.session-item.active .session-del').click().catch(() => {})

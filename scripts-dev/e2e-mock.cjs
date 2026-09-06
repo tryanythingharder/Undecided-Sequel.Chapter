@@ -46,7 +46,7 @@ function startMock() {
         res.end(JSON.stringify(obj))
       }
       if (req.url.endsWith('/chat/completions')) {
-        const user = (() => { try { const p = JSON.parse(body); const u = p.messages.filter((m) => m.role === 'user').pop(); return u ? u.content : '' } catch { return '' } })()
+        const user = (() => { try { const p = JSON.parse(body); const u = p.messages.filter((m) => m.role === 'user' && !String(m.content).startsWith('（系统要求')).pop(); return u ? u.content : '' } catch { return '' } })()
         const wantsStream = (() => { try { return JSON.parse(body).stream === true } catch { return false } })()
         const reply = user.includes('【A】')
           ? '【甲龙历 407.03.02｜午后｜村口】你接受了委托，沿着薄雾中的小路向森林走去。\n【A】深入森林 B. 返回村庄报信'

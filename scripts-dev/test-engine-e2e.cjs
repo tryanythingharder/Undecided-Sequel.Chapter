@@ -27,13 +27,14 @@ const REPLY3 = NARR2 + '\n<<<STATE_PATCH>>>\n' + JSON.stringify(RETRY_PATCH) + '
 
 function startMock() {
   let calls = 0
-  let last = null // { systemCount, hasProtocol, hasStateBlock }
+  let last = null // 主发送载荷快照（calls<=2）
+  let lastRetry = null // 补录 retry 载荷快照（calls>=3）
   const server = http.createServer((req, res) => {
     let body = ''
     req.on('data', (c) => { body += c })
     req.on('end', () => {
       const json = (code, obj) => { res.writeHead(code, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(obj)) }
-      if (req.url === '/__last') return json(200, last)
+      if (req.url.split('?')[0] === '/__last') return json(200, req.url.includes('retry') ? (lastRetry || last) : last)
       if (req.url.endsWith('/models')) {
         if (req.headers.authorization !== 'Bearer sk-mock') return json(401, { error: { message: 'bad key' } })
         return json(200, { data: [{ id: 'mock-chat' }] })
@@ -44,13 +45,19 @@ function startMock() {
           const p = JSON.parse(body)
           const sys = p.messages.filter((m) => m.role === 'system')
           const users = p.messages.filter((m) => m.role === 'user')
-          last = {
+          const snap = {
             systemCount: sys.length,
             hasProtocol: sys.some((m) => String(m.content).includes('<<<STATE_PATCH')),
             hasStateBlock: sys.some((m) => String(m.content).includes('世界状态 · 结构化记忆')),
             hasRetryPrompt: users.some((m) => String(m.content).includes('缺少合法 State Patch')),
+            // R85：末位重申为 user 角色、消息序列最后一条（镜像补账路径 ~100% 遵循结构；
+            // system 版会被中转层丢弃/前置化——两轮百轮实证 83-84% 缺失）
+            hasTailReminder: users.some((m) => String(m.content).includes('系统要求，非剧情内容')),
+            tailReminderIsLast: p.messages.length > 0 && p.messages[p.messages.length - 1].role === 'user' && String(p.messages[p.messages.length - 1].content).includes('系统要求，非剧情内容'),
             userCount: users.length
           }
+          if (calls <= 2) last = snap // 主发送载荷；补录 retry 载荷另存（各断言各读，互不覆盖）
+          else lastRetry = snap
         } catch { last = { systemCount: 0 } }
         const reply = calls === 1 ? REPLY1 : (calls === 2 ? REPLY2 : REPLY3)
         // 第 3 次（补录重试）人为延迟首块 1.5s：制造「叙事已入列可读、补录仍在后台」的窗口，供断言验证
@@ -195,7 +202,10 @@ async function main() {
   check('turn2-payload-system-count>=3', !!info && info.systemCount >= 3, info && ('n=' + info.systemCount))
   check('turn2-payload-has-state-block', !!info && info.hasStateBlock === true, info && String(info.hasStateBlock))
   check('turn2-payload-has-protocol', !!info && info.hasProtocol === true)
-  check('turn2-retry-payload-has-retry-prompt', !!info && info.hasRetryPrompt === true, info && String(info.hasRetryPrompt))
+  check('turn2-payload-has-tail-reminder', !!info && info.hasTailReminder === true, info && String(info.hasTailReminder))
+  check('turn2-tail-reminder-is-last', !!info && info.tailReminderIsLast === true, info && String(info.tailReminderIsLast))
+  const retryInfo = await until(async () => { try { const r = await fetch(base + '/__last?retry=1'); const j = await r.json(); return j && j.hasRetryPrompt === true ? j : null } catch { return null } }, 5000)
+  check('turn2-retry-payload-has-retry-prompt', !!retryInfo, 'retry payload captured=' + !!retryInfo)
   const story2 = newFile ? readStoryByName(newFile) : null
   check('turn2-retry-committed-advances-engine', story2 && story2.counters.turn === 2, 'turn=' + (story2 && story2.counters.turn))
   check('turn2-retry-state-on-disk', story2 && story2.facts.some((f) => f.key === 'road_given'), story2 && JSON.stringify(story2.facts.map((f) => f.key)))
