@@ -19,7 +19,8 @@
     "test:perf": "node scripts-dev/bench.cjs && node scripts-dev/bench-recall.cjs && node scripts-dev/bench-fe.cjs && node scripts-dev/bench-vector.cjs",
     "test:packaged": "node scripts-dev/test-packaged.cjs",
     "icon": "electron scripts-dev/gen-icon.cjs",
-    "dist": "node -e \"fs.rmSync('dist',{recursive:true,force:true})\" && electron-builder --win nsis portable --publish never"
+    "dist": "node -e \"fs.rmSync('dist',{recursive:true,force:true})\" && electron-builder --win nsis portable --publish never",
+    "test:real": "node scripts-dev/test-real-model.cjs"
   },
   "build": {
     "appId": "com.sixworlds.codex",
