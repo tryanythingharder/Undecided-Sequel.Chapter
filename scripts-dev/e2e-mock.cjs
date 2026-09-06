@@ -444,8 +444,39 @@ async function main() {
   const assistantAfter = await win.locator('.msg.assistant').count()
   check('regen-keeps-count', assistantAfter === assistantBefore, 'before=' + assistantBefore + ' after=' + assistantAfter)
 
-  // ---- 多会话：新建 → 空态 → 切回 → 删除 ----
-  await waitEngineSettled(win) // 等 regen 的后台补录结束，避免 engineBusy 拦截
+  // ---- 顽固待补录「放弃」出口（R85）----
+  // mock 回复始终无状态块：后台补账重试也失败 → pending chip 留存。实测横幅放弃按钮整链
+  await waitEngineSettled(win)
+  let chipCnt = 0
+  for (let i = 0; i < 20; i++) {
+    chipCnt = await win.locator('.msg-pending-chip').count()
+    if (chipCnt >= 1) break
+    await win.waitForTimeout(300)
+  }
+  check('pending-chip-present', chipCnt >= 1, 'chips=' + chipCnt)
+  const bannerShown = await win.evaluate(() => !document.getElementById('pending-banner').classList.contains('hidden'))
+  check('pending-banner-shown', bannerShown)
+  check('pending-discard-btn-mounted', (await win.locator('#btn-pending-discard').count()) === 1)
+  await win.locator('#btn-pending-discard').click()
+  await win.waitForTimeout(300)
+  const discardConfirmVisible = await win.locator('.confirm-mask').isVisible().catch(() => false)
+  check('discard-confirm-opens', discardConfirmVisible)
+  if (discardConfirmVisible) await win.locator('.confirm-mask .confirm-foot button').last().click()
+  for (let i = 0; i < 20; i++) {
+    if ((await win.locator('.msg-pending-chip').count()) === 0) break
+    await win.waitForTimeout(300)
+  }
+  check('discard-clears-chips', (await win.locator('.msg-pending-chip').count()) === 0)
+  check('discard-hides-banner', await win.evaluate(() => document.getElementById('pending-banner').classList.contains('hidden')))
+  const pendLeft = await win.evaluate(async () => {
+    const sid = document.querySelector('.session-item.active').dataset.sid
+    const r = await window.api.enginePendings({ storyId: sid })
+    return (r && r.ok && Array.isArray(r.data)) ? r.data.length : -1
+  })
+  check('discard-empties-engine-pendings', pendLeft === 0, 'left=' + pendLeft)
+  check('discard-keeps-narrative', (await win.locator('.msg.assistant').count()) === assistantBefore)
+
+  // ---- 多会话：新建 → 空态 → 切回 → 删除 ----  await waitEngineSettled(win) // 等 regen 的后台补录结束，避免 engineBusy 拦截
   await win.click('#btn-new')
   await win.waitForTimeout(300)
   check('new-session-empty', (await win.locator('.empty').count()) === 1)

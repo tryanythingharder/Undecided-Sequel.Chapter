@@ -29,6 +29,8 @@ contextBridge.exposeInMainWorld('api', {
   engineLogs: (p) => ipcRenderer.invoke('engine:logs', p),
   engineLog: (p) => ipcRenderer.invoke('engine:log', p),
   engineProtocol: () => ipcRenderer.invoke('engine:protocol'),
+  engineDeleteStory: (p) => ipcRenderer.invoke('engine:deleteStory', p),
+  engineCloneStory: (p) => ipcRenderer.invoke('engine:cloneStory', p),
   engineDiscard: (p) => ipcRenderer.invoke('engine:discardTurn', p),
   enginePendings: (p) => ipcRenderer.invoke('engine:pendings', p),
   engineResolvePending: (p) => ipcRenderer.invoke('engine:resolvePending', p),

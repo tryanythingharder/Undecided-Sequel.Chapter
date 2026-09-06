@@ -227,6 +227,24 @@ async function main() {
   if (lastUi) console.log(`UI 终态：消息 ${lastUi.msgCount} 条 · 渲染堆 ${lastUi.heap}MB`)
   console.log(`页面错误 ${state.errors.length} 条` + (state.errors.length ? '：' + JSON.stringify(state.errors.slice(0, 3)) : ''))
 
+  // ---- R85 运行时验证：测试会话若存在待补录 → 实测横幅「放弃」按钮（只动本测试线）----
+  const testPending = await win.evaluate(() => document.querySelectorAll('.msg-pending-chip').length)
+  if (testPending > 0) {
+    const hasBtn = await win.locator('#btn-pending-discard').count()
+    if (hasBtn) {
+      await win.locator('#btn-pending-discard').click()
+      await win.waitForTimeout(500)
+      const cv = await win.locator('.confirm-mask').isVisible().catch(() => false)
+      if (cv) await win.locator('.confirm-mask .confirm-foot button').last().click()
+      await win.waitForTimeout(1500)
+      const afterP = await win.evaluate(() => ({
+        chips: document.querySelectorAll('.msg-pending-chip').length,
+        banner: !document.getElementById('pending-banner').classList.contains('hidden')
+      }))
+      console.log(`放弃按钮实测：${testPending} 条待补录 → 剩余 ${afterP.chips} · 横幅${afterP.banner ? '仍可见' : '已隐藏'} ${afterP.chips === 0 ? '✓' : '✗'}`)
+    } else console.log('放弃按钮实测：跳过（按钮未挂载）✗')
+  } else console.log('放弃按钮实测：本轮无待补录（未触发，正常）')
+
   // ---- 清理测试会话 ----
   await win.locator('.session-item.active .session-del').click().catch(() => {})
   await win.waitForTimeout(400)

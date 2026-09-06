@@ -437,6 +437,26 @@ app.whenReady().then(() => {
     }
   })
   createWindow()
+  // R85：孤儿引擎数据清理——历史版本删除会话不清理引擎侧（故事/快照/Pending/日志/向量），
+  // 实测残留 10 个孤儿故事占 6.6MB。启动时对照会话库级联删除；会话库不可读/为空时跳过（保守守卫）
+  setTimeout(() => {
+    try {
+      const db = sessionsDbFor()
+      let stored = null
+      if (db.enabled) { const fromDb = db.load(); if (fromDb) { const doc = fromDb.doc; stored = Array.isArray(doc) ? doc : doc && doc.sessions } }
+      if (!stored) {
+        const file = sessionsFile()
+        if (fs.existsSync(file)) { const doc = JSON.parse(readTextFileLimited(file, MAX_SESSIONS_JSON_BYTES, '会话文件')); stored = Array.isArray(doc) ? doc : doc && doc.sessions }
+      }
+      if (!Array.isArray(stored) || !stored.length) return // 库空/不可读：可能尚未初始化，不清理
+      const live = new Set(stored.filter((s) => s && s.id).map((s) => String(s.id)))
+      const eng = engineFor()
+      for (const m of eng.listStories()) {
+        const sid = m.story_id || m.id
+        if (sid && !live.has(String(sid))) eng.deleteStory(sid)
+      }
+    } catch { /* 清理失败不影响启动 */ }
+  }, 8000)
   // 桌宠本地小模型：已下载过的用户开机自动接入（错开启动高峰，加载 ~6s 在后台完成）
   if (petModelHasFile() && !process.env.SIXWORLDS_PET_FAKE) setTimeout(() => { petModelLoad() }, 2500)
   let stateTimer = null
@@ -690,6 +710,7 @@ const ENGINE_ID_RE = /^[A-Za-z0-9_-]{1,120}$/
 function validateEnginePayload(channel, payload) {
   if (channel === 'engine:protocol') return
   if (!ENGINE_ID_RE.test(String(payload.storyId || ''))) throw new Error('非法 storyId')
+  if (payload.targetId != null && !ENGINE_ID_RE.test(String(payload.targetId))) throw new Error('非法 targetId') // engine:cloneStory
   for (const key of ['pendingId', 'snapshotId', 'turnId']) {
     if (payload[key] != null && !ENGINE_ID_RE.test(String(payload[key]))) throw new Error('非法 ' + key)
   }
@@ -754,6 +775,8 @@ safeHandle('engine:commit', (p) => {
 safeHandle('engine:pendings', (p) => engineFor().listPendings(p.storyId))
 safeHandle('engine:resolvePending', (p) => engineFor().resolvePending({ storyId: p.storyId, pendingId: p.pendingId, raw: p.raw }))
 safeHandle('engine:discardPending', (p) => engineFor().discardPending({ storyId: p.storyId, pendingId: p.pendingId }))
+safeHandle('engine:deleteStory', (p) => { engineFor().deleteStory(p.storyId); return { deleted: true } })
+safeHandle('engine:cloneStory', (p) => engineFor().cloneStory({ storyId: p.storyId, targetId: p.targetId, title: p.title })) // IF 分歧线继承母线状态（R85） // 删除会话级联清理引擎数据（R85：防孤儿累积）
 safeHandle('engine:overview', (p) => engineFor().overview(p.storyId))
 safeHandle('engine:snapshot', (p) => engineFor().snapshot(p.storyId, p.label))
 safeHandle('engine:snapshots', (p) => engineFor().listSnapshots(p.storyId))

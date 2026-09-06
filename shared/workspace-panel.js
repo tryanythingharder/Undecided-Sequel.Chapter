@@ -207,6 +207,12 @@
       currentId = ns.id
       saveStore()
       saveSessions()
+      // IF 线状态继承（R85）：深拷贝母线引擎账本（实体/伏笔/事实/关系全量），否则 IF 线第一轮
+      // 就是个「失忆世界」——模型靠历史消息记得剧情，状态引擎却谁都不认识。
+      // 语义索引与快照计数不随克隆；母线尚无引擎故事（未发过言）时静默跳过
+      api.engineCloneStory({ storyId: s.id, targetId: ns.id, title: ns.title }).then((r) => {
+        if (r && r.ok) toast('IF 线已继承母线全部世界状态（实体/伏笔/事实）', 'ok', 2600)
+      }).catch(() => {})
       renderSessionList()
       renderMessages()
       updateTitle()

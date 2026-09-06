@@ -120,6 +120,12 @@ class StateStore {
     if (c) this.flushStory(storyId)
   }
 
+  /* 已构造好的故事对象直接入缓存并落盘（engine.cloneStory 用；story 必须自带 story_id） */
+  putStory(storyId, story) {
+    this._cache.set(storyId, { story })
+    this.flushStory(storyId)
+  }
+
   /* 派生索引挂点（语义索引 vector-store）：正本落盘后同步派生层。
    * 引擎创建时注入（engine/index.js）——store 自身不依赖 vector-store，保持单向。
    * 挂在 flushStory：所有状态变更路径（commit/事务/快照恢复/pendings）最终都经这里落盘，

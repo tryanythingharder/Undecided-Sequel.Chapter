@@ -66,6 +66,24 @@ function createEngine(dataDir, opts) {
     store.deleteStory(storyId)
     vectorStore.forgetStory(storyId) // 语义索引同步清理（派生层，漏清只浪费空间）
   }
+  /* IF 分歧线状态继承（R85）：深拷贝母线全部账本到新故事——IF 线不再是失忆世界。
+   * 派生数据不动：sessions 登记簿/懒索引清零，vector 索引由下次 flush 重建（onAfterFlush 只增不删）。 */
+  engine.cloneStory = ({ storyId, targetId, title }) => {
+    const src = store.getStory(storyId)
+    if (!src) throw new Error('story not found: ' + storyId)
+    if (store.getStory(targetId)) throw new Error('target story already exists: ' + targetId)
+    const cp = JSON.parse(JSON.stringify(src))
+    cp.story_id = targetId
+    cp.title = title || cp.title
+    cp.created_at = Date.now()
+    cp.updated_at = Date.now()
+    cp.sessions = [] // 登记簿按新故事的 session 重开
+    cp.discarded_turns = []
+    cp.counters.snapshot = 0
+    if (cp.scene) cp.scene.turn_started = null
+    store.putStory(targetId, cp) // 深拷贝对象直接入缓存并落盘（saveStory 只标脏不接收对象）
+    return stateOverview(cp)
+  }
   engine.listStories = () => store.listStories()
 
   engine.openSession = ({ storyId, sessionId, label }) => {

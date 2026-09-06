@@ -460,7 +460,7 @@
         if (busy) { toast('世界运转中，回合结束后再删除', 'info', 1800); return } // R57：生成中禁止删除世界线（防流式写入已删会话）
         confirmDialog({
           title: '删除这条世界线？',
-          body: '「' + s.title + '」的 ' + s.messages.length + ' 条对话与 ' + illustCount + ' 张插图将被永久删除，无法恢复。',
+          body: '「' + s.title + '」的 ' + s.messages.length + ' 条对话、' + illustCount + ' 张插图与世界状态记忆（含待补录记录）将被永久删除，无法恢复。',
           danger: true,
           okText: '删除'
         }).then((ok) => {
@@ -472,6 +472,8 @@
           }
           saveStore()
           saveSessions(true)
+          // 级联清理引擎侧数据（R85：故事/快照/Pending/日志/向量索引一并删除，防孤儿累积）
+          api.engineDeleteStory({ storyId: s.id }).catch(() => {})
           renderSessionList()
           renderMessages()
           updateTitle()
@@ -1484,7 +1486,7 @@ const sendSt = {
       const label = document.getElementById('pending-count')
       if (n > 0) {
         el.classList.remove('hidden')
-        if (label) label.textContent = n + ' 条回合状态未落账（剧情已展示，状态未提交——多因模型未按协议输出状态块；点击横幅可一键补录，频繁出现建议更换模型）'
+        if (label) label.textContent = n + ' 条回合状态未落账（剧情已展示，状态未提交——多因模型未按协议输出状态块。可一键补录；反复补不进可「放弃」并建议更换模型）'
       } else {
         el.classList.add('hidden')
       }
@@ -3344,10 +3346,46 @@ const KData = window.KernelData.createKernelData({
 
   // ============ 事件绑定 ============
   // Pending Commit 横幅按钮（条款 26：允许继续补 Patch，不能忘掉）
+  // R85：补不进的死账出口——重试仍失败时允许用户显式丢弃（记忆留痕于日志，叙事不丢，横幅不再永久噪音）
+  const discardAllPendings = () => {
+    const s = curSession()
+    if (!s || busy || engineBusy) return
+    confirmDialog({
+      title: '放弃这些待补录状态？',
+      body: '补录多次仍失败（模型反复输出无法通过校验的状态块）。放弃后：剧情与对话不受影响，这些回合的结构化状态（实体/伏笔/事实变化）不再写入世界记忆，也无法事后找回。确定放弃？',
+      danger: true,
+      okText: '放弃补录'
+    }).then((ok) => {
+      if (!ok) return
+      ;(async () => {
+        let n = 0
+        try {
+          const lr = await api.enginePendings({ storyId: s.id })
+          const list = (lr && lr.ok && Array.isArray(lr.data)) ? lr.data : []
+          for (const pc of list) {
+            const r = await api.engineDiscardPending({ storyId: s.id, pendingId: pc.pending_id })
+            if (r && r.data && r.data.discarded) n++
+          }
+        } catch {}
+        for (const m of s.messages) { if (m.pending) { m.pending = undefined; m.committing = false } }
+        saveSessions()
+        renderMessages()
+        refreshPendingBanner()
+        toast(n ? ('已放弃 ' + n + ' 条待补录（世界记忆不再含这些回合）') : '没有可放弃的待补录', n ? 'info' : 'ok')
+      })()
+    })
+  }
   const pendingBannerEl = document.getElementById('pending-banner')
   if (pendingBannerEl) {
     document.getElementById('btn-pending-resolve').addEventListener('click', () => resolvePendingFlow(null))
     document.getElementById('btn-pending-dismiss').addEventListener('click', () => pendingBannerEl.classList.add('hidden'))
+    const discardBtn = document.createElement('button')
+    discardBtn.id = 'btn-pending-discard'
+    discardBtn.className = 'pending-btn ghost'
+    discardBtn.textContent = '放弃'
+    discardBtn.title = '补录多次仍失败时，显式放弃这些回合的状态补录（剧情不受影响）'
+    discardBtn.addEventListener('click', discardAllPendings)
+    document.getElementById('btn-pending-resolve').after(discardBtn)
   }
   $('btn-new').addEventListener('click', () => {
     if (busy) { toast('请等当前回合结束', 'info'); return }
