@@ -20,7 +20,8 @@
     "test:packaged": "node scripts-dev/test-packaged.cjs",
     "icon": "electron scripts-dev/gen-icon.cjs",
     "dist": "node -e \"fs.rmSync('dist',{recursive:true,force:true})\" && electron-builder --win nsis portable --publish never",
-    "test:real": "node scripts-dev/test-real-model.cjs"
+    "test:real": "node scripts-dev/test-real-model.cjs",
+    "test:real:marathon": "node scripts-dev/test-real-marathon.cjs"
   },
   "build": {
     "appId": "com.sixworlds.codex",
