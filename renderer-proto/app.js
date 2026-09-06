@@ -82,14 +82,6 @@
   // ---- 插图风格预设（英文提示词：图像模型对英文风格词响应更稳，噪点更少） ----
   // ln-original 严格还原《无职转生》原作轻小说插画质感（シロタツ画风：细腻水彩 + 柔和光影 + 魔导氛围）
   // 针对本作内核（kernel.md = 六面世界/无职转生系）默认启用；换其他内核时玩家可自由切换其余风格
-  const ILLUST_STYLES = {
-    'ln-original': 'Japanese light novel illustration, faithfully styled after the original Mushoku Tensei: Jobless Reincarnation novel illustrations by Shirotaka: clean refined lineart with delicate watercolor-like coloring, soft luminous lighting, gentle color gradients, subtle paper texture, expressive finely-drawn faces, meticulous medieval-fantasy costumes and magic details, warm slightly nostalgic palette, dreamy fantasy atmosphere, composed like a light-novel frontispiece, single key scene, high quality, no text, no watermark, no logo',
-    anime: 'modern Japanese anime style light novel illustration, clean lineart, soft cel shading, harmonious colors, atmospheric composition, high quality, no text, no watermark',
-    watercolor: 'soft watercolor illustration, delicate loose brushwork, pale elegant colors, visible paper grain, warm quiet mood, high quality, no text, no watermark',
-    oil: 'classical oil painting illustration, rich impasto brushwork, dramatic chiaroscuro lighting, epic fantasy master style, high quality, no text, no watermark',
-    ink: 'East Asian ink wash painting sumi-e illustration, elegant negative space, flowing expressive brush lines, muted monochrome palette, oriental aesthetics, high quality, no text, no watermark',
-    realistic: 'cinematic photorealistic concept art illustration, film-grade lighting, rich detail, dramatic composition, high quality, no text, no watermark'
-  }
 
   // ---- 本地配置（持久化） ----
   const STORE_KEY = 'sixworlds.codex.state.v3'
@@ -571,163 +563,40 @@
     if (brandWorld) brandWorld.textContent = ws ? ws.name : '默认世界'
   }
 
-  function renderWsMenu() {
-    const listEl = $('ws-menu-list')
-    listEl.innerHTML = ''
-    for (const w of workspaces) {
-      const it = document.createElement('div')
-      it.className = 'ws-menu-item' + (w.id === currentWsId ? ' current' : '')
-      const cnt = sessions.filter((s) => s.ws === w.id).length
-      const name = document.createElement('span')
-      name.textContent = w.name
-      const meta = document.createElement('span')
-      meta.className = 'ws-menu-meta'
-      meta.textContent = (w.id === currentWsId ? '✓ ' : '') + cnt + ' 线' + ((w.kernelId || w.kernelPath) ? ' · 专属内核' : '')
-      it.appendChild(name); it.appendChild(meta)
-      it.addEventListener('click', () => { closeWsMenu(); if (w.id !== currentWsId) switchWorkspace(w.id) })
-      listEl.appendChild(it)
-    }
-    // 专属内核操作项（有覆盖时显示清除）
-    const kernelItem = $('ws-kernel')
-    const ws = curWs()
-    if (ws && (ws.kernelId || ws.kernelPath)) {
-      kernelItem.innerHTML = '<svg class="ic ic-sm" viewBox="0 0 16 16"><path d="M4 4l8 8M12 4l-8 8"/></svg> 清除专属内核（恢复全局）'
-      kernelItem.dataset.mode = 'clear'
-    } else {
-      kernelItem.innerHTML = '<svg class="ic ic-sm" viewBox="0 0 16 16"><path d="M8 1.5 14.5 8 8 14.5 1.5 8Z"/><path d="M8 4.5 11.5 8 8 11.5 4.5 8Z"/></svg> 设置专属内核…'
-      kernelItem.dataset.mode = 'set'
-    }
-  }
-
-  function openWsMenu() {
-    renderWsMenu()
-    cancelHideAnim(wsMenu)
-    wsMenu.classList.remove('hidden')
-    // 立即挂一次性关闭监听（下一拍生效，避免当次点击立刻关掉）
-    setTimeout(() => {
-      document.addEventListener('click', wsOutsideClose)
-      document.addEventListener('keydown', wsEscClose)
-    }, 0)
-  }
-  function closeWsMenu() {
-    hideWithAnim(wsMenu, () => wsMenu.classList.add('hidden'))
-    document.removeEventListener('click', wsOutsideClose)
-    document.removeEventListener('keydown', wsEscClose)
-  }
+const WsPanel = window.WorkspacePanel.createWorkspacePanel({
+    $, api,
+    workspaces: () => workspaces,
+    wsMenu,
+    wsOutsideClose, wsEscClose,
+    busy: () => busy,
+    sessions: () => sessions, sessionDrafts,
+    currentId: () => currentId, setCurrentId: (v) => { currentId = v },
+    currentWsId: () => currentWsId, setCurrentWsId: (v) => { currentWsId = v },
+    sbFilter: () => sbFilter, setSbFilter: (v) => { sbFilter = v },
+    curWs, wsSessions, saveWorkspaces, saveStore, saveSessions,
+    renderWsBtn, renderSessionList, renderMessages, updateTitle,
+    newSession, fitInput, loadKernel,
+    confirmDialog, promptDialog, toast,
+    currentKernelRef,
+  })
+  const renderWsMenu = () => WsPanel.renderWsMenu()
+  const openWsMenu = () => WsPanel.openWsMenu()
+  const closeWsMenu = () => WsPanel.closeWsMenu()
+  const switchWorkspace = (id) => WsPanel.switchWorkspace(id)
+  const newWorkspace = () => WsPanel.newWorkspace()
+  const renameWorkspace = () => WsPanel.renameWorkspace()
+  const deleteWorkspace = () => WsPanel.deleteWorkspace()
+  const wsKernelAction = () => WsPanel.wsKernelAction()
+  const branchFrom = (idx) => WsPanel.branchFrom(idx)
   function wsOutsideClose(e) {
     if (!wsMenu.contains(e.target) && e.target !== wsBtn && !wsBtn.contains(e.target)) closeWsMenu()
   }
   function wsEscClose(e) { if (e.key === 'Escape') closeWsMenu() }
 
-  async function switchWorkspace(id) {
-    if (busy) { toast('请等当前回合结束', 'info'); return }
-    const target = workspaces.find((w) => w.id === id)
-    if (!target || id === currentWsId) return
-    // 保存当前输入草稿与离开工作区的最近会话
-    if (currentId) sessionDrafts.set(currentId, $('input').value)
-    const oldWs = curWs()
-    if (oldWs) oldWs.lastSessionId = currentId
-    currentWsId = id
-    // 恢复目标工作区：优先上次会话 → 首条会话 → 新建
-    const wsS = wsSessions()
-    if (wsS.length) {
-      currentId = wsS.some((s) => s.id === target.lastSessionId) ? target.lastSessionId : wsS[0].id
-    } else {
-      currentId = null
-    }
-    saveWorkspaces()
-    saveStore()
-    $('input').value = currentId ? (sessionDrafts.get(currentId) || '') : ''
-    fitInput()
-    sbFilter = ''
-    $('sb-search').value = ''
-    renderWsBtn()
-    renderSessionList()
-    renderMessages()
-    updateTitle()
-    await loadKernel() // 工作区专属内核
-  }
 
-  async function newWorkspace() {
-    const name = await promptDialog({
-      title: '新建工作区',
-      body: '工作区之间完全隔离：各自拥有独立的世界线、搜索与画廊。适合存放不同的世界内核 / 不同的故事。',
-      value: '新世界 ' + (workspaces.length + 1),
-      placeholder: '工作区名称',
-      okText: '创建'
-    })
-    if (!name) return
-    const w = { id: 'w' + Date.now().toString(36), name, createdAt: Date.now() }
-    workspaces.push(w)
-    saveWorkspaces()
-    await switchWorkspace(w.id)
-    newSession() // 空工作区给一条新世界线
-    toast('工作区「' + name + '」已创建', 'ok')
-  }
 
-  async function renameWorkspace() {
-    const ws = curWs()
-    if (!ws) return
-    const name = await promptDialog({ title: '重命名工作区', value: ws.name, okText: '重命名' })
-    if (!name || name === ws.name) return
-    ws.name = name
-    saveWorkspaces()
-    renderWsBtn()
-    toast('已重命名', 'ok')
-  }
 
-  async function deleteWorkspace() {
-    const ws = curWs()
-    if (!ws) return
-    if (busy) { toast('世界运转中，回合结束后再删除', 'info', 1800); return } // R57：生成中禁止删除工作区（防流式写入已删会话）
-    if (workspaces.length <= 1) { toast('至少保留一个工作区', 'info'); return }
-    const cnt = sessions.filter((s) => s.ws === ws.id).length
-    const ok = await confirmDialog({
-      title: '删除工作区「' + ws.name + '」？',
-      body: '该工作区的 ' + cnt + ' 条世界线及其全部对话、插图将被永久删除，无法恢复。其他工作区不受影响。',
-      danger: true,
-      okText: '删除工作区'
-    })
-    if (!ok) return
-    sessions = sessions.filter((s) => s.ws !== ws.id)
-    // 删除语义立即持久化（防抖窗口内崩溃不复活已删数据）
-    workspaces = workspaces.filter((w) => w.id !== ws.id)
-    // 删除后切到剩余第一个工作区
-    currentWsId = workspaces[0].id
-    const wsS = wsSessions()
-    currentId = wsS.length ? wsS[0].id : null
-    if (!currentId) newSession()
-    saveSessions(true); saveWorkspaces(); saveStore()
-    renderWsBtn()
-    renderSessionList()
-    renderMessages()
-    updateTitle()
-    await loadKernel()
-    toast('工作区已删除', 'info')
-  }
 
-  async function wsKernelAction() {
-    const ws = curWs()
-    if (!ws) return
-    const mode = $('ws-kernel').dataset.mode
-    if (mode === 'clear') {
-      ws.kernelId = ''
-      ws.kernelPath = ''
-      saveWorkspaces()
-      await loadKernel()
-      renderWsBtn()
-      toast('已恢复全局内核', 'ok')
-      return
-    }
-    const r = await api.pickKernel()
-    if (r && r.ok && r.path) {
-      ws.kernelPath = r.path
-      saveWorkspaces()
-      await loadKernel()
-      renderWsBtn()
-      toast('工作区专属内核已加载', 'ok')
-    }
-  }
 
   wsBtn.addEventListener('click', () => {
     if (!wsMenu.classList.contains('hidden')) { closeWsMenu(); return }
@@ -739,38 +608,12 @@
   $('ws-kernel').addEventListener('click', () => { closeWsMenu(); wsKernelAction() })
 
   // ============ IF 线分歧：从任意玩家行动节点另开世界线重新选择 ============
-  function branchFrom(idx) {
-    const s = curSession()
-    if (!s) return
-    if (busy) return // 生成中不可达（工具栏 !busy 才渲染，app.js:1217）；保留守卫仅作防御
-    const act = String(s.messages[idx] ? s.messages[idx].content : '').slice(0, 30)
-    confirmDialog({
-      title: '开辟 IF 线？',
-      body: '将以「' + s.title + '」为母线，在新世界线里复刻到这一步之前的历史，让你重新选择。你的原世界线保持不变。' + (act ? '（将撤销的行动：' + act + '…）' : ''),
-      okText: '开辟 IF 线'
-    }).then((ok) => {
-      if (!ok) return
-      localStorage.setItem('sixworlds.ifhint-seen.v1', '1') // 用过 IF → 一次性发现提示永不再现（R7）
-      const now = Date.now()
-      const ns = {
-        id: 's' + now.toString(36),
-        ws: s.ws, // IF 线留在母线的工作区（隔离）
-        title: 'IF · ' + s.title,
-        // 复刻到该行动之前（含呈现选项的那次世界回应，选项按钮会重新出现）
-        messages: s.messages.slice(0, idx).map((m) => Object.assign({}, m)),
-        updatedAt: now, createdAt: now,
-        ifFrom: s.id
-      }
-      sessions.unshift(ns)
-      currentId = ns.id
-      saveStore()
-      saveSessions()
-      renderSessionList()
-      renderMessages()
-      updateTitle()
-      toast('IF 线已开辟：历史复刻完毕，重新选择吧', 'ok', 2600)
-    })
-  }
+
+const Rail = window.RailPanel.createRailPanel({ $, msgEl: () => document.getElementById('messages'), cancelHideAnim, hideWithAnim })
+  const buildProgressRail = (messages) => Rail.buildProgressRail(messages)
+  const tryShowRailHint = () => Rail.tryShowRailHint()
+  const updateRailFill = () => Rail.updateRailFill()
+  const hideRailPop = () => Rail.hideRailPop()
 
   // ============ 侧边栏：拖拽伸缩 + 收起（对标 Codex/ChatGPT） ============
   const sidebarEl = $('sidebar')
@@ -902,190 +745,26 @@
   function extractQuoteChoices(text) { return ChoiceParser.extractQuoteChoices(text) }
 
   // ---- 插图 ----
-  function illustReady() {
-    return cfg.illustPreset !== 'off' && cfg.illustBaseUrl && cfg.illustModel &&
-      (cfg.illustApiKey || cfg.apiKey)
-  }
-
-  function stylePrompt() {
-    if (cfg.illustStyle === 'custom') return String(cfg.illustCustom || '').trim() || ILLUST_STYLES['ln-original']
-    return ILLUST_STYLES[cfg.illustStyle] || ILLUST_STYLES['ln-original']
-  }
+const Illust = window.IllustPanel.createIllustPanel({
+    api, cfg: () => cfg,
+    curSession, busy: () => busy,
+    renderMessages, saveSessions, toast,
+    downloadIllust,
+  })
+  const illustReady = () => Illust.illustReady()
+  const stylePrompt = () => Illust.stylePrompt()
+  const buildIllustPrompt = (text) => Illust.buildIllustPrompt(text)
+  const generateIllust = (idx, regen, isAuto, customPrompt) => Illust.generateIllust(idx, regen, isAuto, customPrompt)
+  const viewIllust = (dataUrl, list) => Illust.viewIllust(dataUrl, list)
 
   // 从叙事文本提炼图像提示词：去掉选项/状态等结构化内容，取叙事主体
-  function buildIllustPrompt(text) {
-    let t = String(text || '')
-    t = t.replace(/【[^】*]*】[^【]*/g, ' ')
-    t = t.replace(/【[^】]*】/g, ' ')
-    t = t.replace(/\s+/g, ' ').trim()
-    if (!t) t = String(text || '').slice(0, 300)
-    if (t.length > 600) t = t.slice(0, 600)
-    const style = stylePrompt()
-    const prefix = (cfg.illustPrefixEnable && cfg.illustPrefix) ? String(cfg.illustPrefix) + ' ' : ''
-    // 风格与前缀均为英文（降低噪点）；画面内容取叙事原文（图像模型可直接理解中日文场景描述）
-    return prefix + style + '. Scene depicted: ' + t
-  }
 
   // 为指定消息生成插图。idx 为当前会话 messages 下标。
   // regen: 已有插图时重新生成；isAuto: 自动触发（受最短长度门槛约束），手动点击不受限
   // customPrompt: 智能体优化后的提示词（不传则按叙事原文现场构建）
-  async function generateIllust(idx, regen, isAuto, customPrompt) {
-    const s = curSession()
-    if (!s) return
-    const msg = s.messages[idx]
-    if (!msg || msg.role !== 'assistant' || (msg.illust && !regen) || !illustReady()) return
-    // 长度门槛：仅自动触发时，过短不生成（手动点击代表用户明确需要）
-    if (isAuto && cfg.illustMinLen > 0 && String(msg.content).length < cfg.illustMinLen) return
-    msg.illust = null
-    msg.illustPending = true
-    const renderPending = (attempt, retrying) => {
-      renderMessages()
-      const box = document.getElementById('illust-slot-' + idx)
-      if (box) {
-        box.className = 'illust-pending'
-        const label = retrying ? ('正在重试绘制' + (attempt > 0 ? '（第 ' + (attempt + 1) + ' 次）' : '')) : '正在绘制这一幕的插图'
-        box.innerHTML = '<span class="dots">' + label + '</span>'
-      }
-    }
-    renderPending(0, false)
-
-    // 单次尝试抽成函数，便于失败后重试一次
-    const attemptOnce = async () => api.generateImage({
-      baseUrl: cfg.illustBaseUrl,
-      apiKey: cfg.illustApiKey || cfg.apiKey,
-      model: cfg.illustModel,
-      prompt: customPrompt || buildIllustPrompt(msg.content),
-      size: cfg.illustSize,
-      quality: cfg.illustQuality || 'default', // 清晰度：default 不传参，standard/high 透传给支持的端点
-      negative: cfg.illustNegative,
-      seedLock: cfg.illustSeedLock,
-      seed: cfg.illustSeed,
-      n: cfg.illustN
-    })
-
-    let r = await attemptOnce()
-    // 失败自动重试一次（网络抖动 / 端点偶发 5xx 常见）
-    if (!r || !r.ok) {
-      renderPending(1, true)
-      await new Promise((res) => setTimeout(res, 800))
-      r = await attemptOnce()
-    }
-    msg.illustPending = false
-    if (r && r.ok) {
-      msg.illust = r.dataUrl
-      msg.illustAt = Date.now()
-      msg.illustError = null
-      // 端点若返回计费（usage.cost / cost），累计到本线费用（右上角用量面板可见）
-      const imgCost = Number(r.cost != null ? r.cost : ((r.usage && r.usage.cost) != null ? r.usage.cost : NaN))
-      if (Number.isFinite(imgCost)) {
-        s.tokens = s.tokens || { prompt: 0, completion: 0, total: 0 }
-        s.tokens.cost = (s.tokens.cost || 0) + imgCost
-      }
-      saveSessions()
-      renderMessages()
-    } else {
-      msg.illustError = (r && r.error) || '未知错误'
-      saveSessions()
-      renderMessages()
-      const box2 = document.getElementById('illust-slot-' + idx)
-      if (box2) {
-        box2.className = 'illust-error'
-        box2.textContent = '插图生成失败：' + msg.illustError
-      }
-      // 在错误框补重试按钮（renderMessages 分支也有一份）
-      if (box2 && !busy) {
-        const rb = document.createElement('button')
-        rb.className = 'retry-btn'
-        rb.textContent = '↻ 重试绘制'
-        rb.addEventListener('click', () => {
-          msg.illustError = null
-          generateIllust(idx, true)
-        })
-        box2.appendChild(document.createElement('br'))
-        box2.appendChild(rb)
-      }
-      toast('插图生成失败：' + msg.illustError, 'err')
-    }
-  }
 
   // ---- 大图查看（支持多图浏览：← → 键 / 箭头按钮切换，Esc 关闭） ----
   // list: 可选的图片数组（画廊或当前会话的全部插图）；dataUrl: 当前图（在 list 中定位）
-  function viewIllust(dataUrl, list) {
-    let mask = document.getElementById('lightbox')
-    if (mask) mask.remove()
-    const imgs = Array.isArray(list) && list.length ? list.filter(Boolean) : [dataUrl]
-    let idx = Math.max(0, imgs.indexOf(dataUrl))
-    const hasNav = imgs.length > 1
-
-    mask = document.createElement('div')
-    mask.id = 'lightbox'
-    mask.className = 'lightbox'
-    const img = document.createElement('img')
-    img.src = imgs[idx]
-    img.alt = '场景插图'
-    mask.appendChild(img)
-
-    // 计数器（多图时显示）
-    const counter = document.createElement('div')
-    counter.className = 'lightbox-counter'
-    const syncCounter = () => { counter.textContent = (idx + 1) + ' / ' + imgs.length }
-    syncCounter()
-    if (hasNav) mask.appendChild(counter)
-
-    // 左右切换按钮（多图时）
-    const prevBtn = document.createElement('button')
-    prevBtn.className = 'lightbox-nav lightbox-prev'
-    prevBtn.innerHTML = '<svg class="ic ic-lg" viewBox="0 0 16 16"><path d="M10 3.5 5.5 8l4.5 4.5"/></svg>'
-    prevBtn.title = '上一张（←）'
-    const nextBtn = document.createElement('button')
-    nextBtn.className = 'lightbox-nav lightbox-next'
-    nextBtn.innerHTML = '<svg class="ic ic-lg" viewBox="0 0 16 16"><path d="M6 3.5 10.5 8 6 12.5"/></svg>'
-    nextBtn.title = '下一张（→）'
-
-    // 关闭按钮（右上角）
-    const closeBtn = document.createElement('button')
-    closeBtn.className = 'lightbox-close'
-    closeBtn.innerHTML = '<svg class="ic ic-lg" viewBox="0 0 16 16"><path d="M4 4l8 8M12 4l-8 8"/></svg>'
-    closeBtn.title = '关闭（Esc）'
-    mask.appendChild(closeBtn)
-    // 保存按钮
-    const saveBtn = document.createElement('button')
-    saveBtn.className = 'lightbox-save'
-    saveBtn.textContent = '保存'
-    saveBtn.title = '保存这张插图'
-    mask.appendChild(saveBtn)
-
-    const step = (dir) => {
-      if (!hasNav) return
-      idx = (idx + dir + imgs.length) % imgs.length
-      img.style.opacity = '0'
-      setTimeout(() => { img.src = imgs[idx]; img.style.opacity = '1' }, 90)
-      syncCounter()
-    }
-    if (hasNav) {
-      prevBtn.addEventListener('click', (e) => { e.stopPropagation(); step(-1) })
-      nextBtn.addEventListener('click', (e) => { e.stopPropagation(); step(1) })
-      mask.appendChild(prevBtn)
-      mask.appendChild(nextBtn)
-    }
-
-    const close = () => {
-      mask.classList.add('closing')
-      setTimeout(() => mask.remove(), 160)
-      document.removeEventListener('keydown', onKey)
-    }
-    closeBtn.addEventListener('click', close)
-    saveBtn.addEventListener('click', (e) => { e.stopPropagation(); downloadIllust(imgs[idx], -1) })
-    // 点击任意位置关闭（按钮已阻止冒泡）
-    mask.addEventListener('click', close)
-    const onKey = (e) => {
-      if (e.key === 'Escape') close()
-      else if (e.key === 'ArrowLeft') step(-1)
-      else if (e.key === 'ArrowRight') step(1)
-    }
-    document.addEventListener('keydown', onKey)
-    document.body.appendChild(mask)
-  }
 
   // 轻量行内 Markdown：先 escapeHtml 再加标记（安全：不含原始 HTML）
   // 支持 **加粗** *斜体* `行内代码`
@@ -1678,103 +1357,8 @@
 
   // ============ 故事进度条（会话栏完全收起时显示在左侧） ============
   // 每次世界回应 = 一个节点；带插图的节点高亮，悬停显示图片小窗 / 文字摘要，点击跳转到那一幕
-  function buildProgressRail(messages) {
-    const rail = $('progress-rail')
-    const nodesEl = $('rail-nodes')
-    const fill = $('rail-fill')
-    if (!rail || !nodesEl) return
-    nodesEl.innerHTML = ''
-    // 世界回应节点（错误消息除外），最多保留最近 50 个
-    const beats = []
-    messages.forEach((m, i) => {
-      if (m.role === 'assistant' && !String(m.content || '').startsWith('⚠️')) beats.push({ i, m })
-    })
-    rail.classList.toggle('rail-empty', beats.length === 0)
-    const shown = beats.slice(-50)
-    shown.forEach((b, bi) => {
-      const n = document.createElement('div')
-      n.className = 'rail-node' + (b.m.illust ? ' has-img' : '') + (bi === shown.length - 1 ? ' latest' : '')
-      n.title = '第 ' + (beats.length - shown.length + bi + 1) + ' 幕 · 点击跳转'
-      // R33 键盘可达：进度条节点可聚焦跳转
-      n.tabIndex = 0
-      n.setAttribute('role', 'button')
-      n.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); n.click() }
-      })
-      // 悬停小窗：插图或场景摘要
-      n.addEventListener('mouseenter', () => showRailPop(n, b.m))
-      n.addEventListener('mouseleave', hideRailPop)
-      n.addEventListener('click', () => {
-        const el = msgEl.querySelector('[data-mi="' + b.i + '"]')
-        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
-      })
-      nodesEl.appendChild(n)
-    })
-    updateRailFill()
-    tryShowRailHint()
-  }
-  // R15：进度条一次性发现提示——首次可见且 ≥2 节点时浮现（✕ 或 8s 自消）；渲染与收起两处触发
-  function tryShowRailHint() {
-    const rail = $('progress-rail')
-    const nodesEl2 = $('rail-nodes')
-    if (!rail || !nodesEl2 || localStorage.getItem('sixworlds.railhint-seen.v1')) return
-    if (nodesEl2.childElementCount < 2) return
-    if (rail.getBoundingClientRect().width === 0) return
-    localStorage.setItem('sixworlds.railhint-seen.v1', '1')
-    const rh = document.createElement('div')
-    rh.className = 'rail-hint'
-    const rht = document.createElement('span')
-    rht.textContent = '故事进度条：悬停节点预览该幕，点击跳转到那一幕'
-    const rx = document.createElement('button')
-    rx.className = 'rail-hint-x'; rx.title = '知道了'; rx.innerHTML = '<svg class="ic" viewBox="0 0 16 16"><path d="M4 4l8 8M12 4l-8 8"/></svg>'
-    rx.addEventListener('click', () => rh.remove())
-    rh.appendChild(rht); rh.appendChild(rx)
-    rail.appendChild(rh)
-    setTimeout(() => { if (rh.parentNode) rh.remove() }, 8000)
-  }
   // 进度填充 = 当前滚动位置在整条故事中的比例
-  function updateRailFill() {
-    const fill = $('rail-fill')
-    const rail = $('progress-rail')
-    if (!fill || !rail) return
-    const frac = msgEl.scrollHeight > msgEl.clientHeight
-      ? msgEl.scrollTop / (msgEl.scrollHeight - msgEl.clientHeight)
-      : 1
-    fill.style.height = Math.round(Math.min(1, Math.max(0, frac)) * 100) + '%'
-  }
   // 悬停小窗内容：插图优先，否则场景行/摘要
-  function railSnippet(m) {
-    const t = String(m.content || '')
-    const sc = t.match(/【([^\]】]*历[^\]】]*｜[^\]】]*)】/)
-    if (sc) return sc[1]
-    return t.replace(/\s+/g, ' ').trim().slice(0, 60) || '（这一幕）'
-  }
-  function showRailPop(node, m) {
-    const pop = $('rail-pop')
-    if (!pop) return
-    pop.innerHTML = ''
-    if (m.illust) {
-      const img = document.createElement('img')
-      img.src = m.illust
-      img.alt = '这一幕的插图'
-      pop.appendChild(img)
-    }
-    const txt = document.createElement('div')
-    txt.className = 'rail-pop-text'
-    txt.textContent = railSnippet(m)
-    pop.appendChild(txt)
-    const chat = document.querySelector('.chat')
-    const nr = node.getBoundingClientRect()
-    const cr = chat.getBoundingClientRect()
-    cancelHideAnim(pop)
-    pop.classList.remove('hidden')
-    // 小窗贴在节点右侧
-    pop.style.top = Math.max(8, Math.min(nr.top - cr.top - 20, cr.height - 160)) + 'px'
-  }
-  function hideRailPop() {
-    const pop = $('rail-pop')
-    if (pop) hideWithAnim(pop, () => pop.classList.add('hidden'))
-  }
 
   // 流式期间只更新最后一条流式消息的文本（不整页重绘）
   // 性能：增量按帧合并（requestAnimationFrame），且用 appendData 只「追加」新字——
@@ -4110,439 +3694,21 @@ const KData = window.KernelData.createKernelData({
   // ============ R72 初始化配置向导（首次安装：外观 → 文本模型 → 插图模型） ============
   // ============ R72/R73 初始化配置向导（外观 → 模型拉取配置） ============
   // DOM-source-of-truth：mask.dataset.step 驱动步进；cacheStep 切步前缓存表单值；模型名支持 GET /models 拉取下拉
-  const WIZ_PRESETS = {
-    deepseek: { name: 'DeepSeek', baseUrl: 'https://api.deepseek.com', model: 'deepseek-chat' },
-    openai: { name: 'OpenAI', baseUrl: 'https://api.openai.com/v1', model: 'gpt-4o-mini' },
-    moonshot: { name: 'Kimi', baseUrl: 'https://api.moonshot.cn/v1', model: 'kimi-k2-0711-preview' },
-    zhipu: { name: '智谱 GLM', baseUrl: 'https://open.bigmodel.cn/api/paas/v4', model: 'glm-4-flash' },
-    qwen: { name: '通义 Qwen', baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1', model: 'qwen-plus' },
-    silicon: { name: '硅基流动', baseUrl: 'https://api.siliconflow.cn/v1', model: 'deepseek-ai/DeepSeek-V3' },
-    custom: { name: '自定义', baseUrl: '', model: '' },
-  }
-  const WIZ_IMG_PRESETS = {
-    off: { name: '暂不启用', baseUrl: '', model: '' },
-    openai: { name: 'OpenAI', baseUrl: 'https://api.openai.com/v1', model: 'gpt-image-1' },
-    zhipu: { name: '智谱 CogView', baseUrl: 'https://open.bigmodel.cn/api/paas/v4', model: 'cogview-4' },
-    silicon: { name: '硅基流动', baseUrl: 'https://api.siliconflow.cn/v1', model: 'Kwai-Kolors/Kolors' },
-    dashscope: { name: '通义万相', baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1', model: 'wanx2.1-t2i-turbo' },
-    custom: { name: '自定义', baseUrl: '', model: '' },
-  }
-  function showSetupWizard() {
-    return new Promise((resolve) => {
-      const mask = document.createElement('div')
-      mask.className = 'confirm-mask'
-      const box = document.createElement('div')
-      box.className = 'confirm wizard'
-      box.style.width = '640px'
-      box.style.display = 'flex'
-      box.style.flexDirection = 'column'
-      // 欢迎区（R75 → Finalize Design：居中 Emblem 列式头部）
-      const head = document.createElement('div')
-      head.className = 'wizard-head'
-      head.innerHTML = '<span class="wizard-logo">六</span>' +
-        '<span class="wizard-welcome">欢迎使用六面世界</span>' +
-        '<span class="wizard-welcome-sub">三步完成初始配置，所有选项之后都能在设置中调整</span>'
-      // 步骤条独立于 body：切步时只重绘状态，不参与内容动画
-      const stepsEl = document.createElement('div')
-      stepsEl.className = 'wizard-steps'
-      const body = document.createElement('div')
-      body.className = 'wizard-body'
-      const pane = document.createElement('div')
-      pane.className = 'wizard-pane'
-      body.appendChild(pane)
-      const foot = document.createElement('div')
-      foot.className = 'confirm-foot wizard-foot'
-      const prog = document.createElement('span')
-      prog.className = 'wizard-progress'
-      const back = document.createElement('button')
-      back.className = 'cancel'
-      const next = document.createElement('button')
-      next.className = 'primary'
-      foot.appendChild(prog); foot.appendChild(back); foot.appendChild(next)
-      box.appendChild(head); box.appendChild(stepsEl); box.appendChild(body); box.appendChild(foot)
-      mask.appendChild(box)
-      document.body.appendChild(mask)
-
-      const gv = (cls) => { const el = pane.querySelector(cls); return el ? el.value.trim() : null }
-      const st = { theme: 'dark', palette: cfg.palette || 'classic', preset: 'deepseek', imgPreset: 'off' }
-      const wizModels = { text: [], img: [] } // 拉取到的模型列表
-      const origTheme = cfg.theme // 实时预览用：跳过时还原
-      const origPalette = cfg.palette // 配色预览同理：跳过时还原
-      let prevStep = 0 // 切步动画方向
-
-      // 模型选择控件渲染：有列表 → 下拉；无 → 手填输入框（均可切换）
-      function modelControl(kind) {
-        const isText = kind === 'text'
-        const list = isText ? wizModels.text : wizModels.img
-        const valCls = isText ? '.wizard-model' : '.wizard-imgmodel'
-        const cur = gv(valCls) || ''
-        if (list.length) {
-          let h = '<select class="' + (isText ? 'wizard-model' : 'wizard-imgmodel') + ' wizard-model-select">'
-          if (!list.includes(cur) && cur) h += '<option value="' + cur + '" selected>' + cur + '（手填）</option>'
-          for (const m of list) h += '<option value="' + m + '"' + (m === cur ? ' selected' : '') + '>' + m + '</option>'
-          h += '</select>'
-          return h
-        }
-        return '<input type="text" class="' + (isText ? 'wizard-model' : 'wizard-imgmodel') + '" value="' + cur + '" placeholder="' + (isText ? '点右侧按钮拉取，或手填' : '点右侧按钮拉取，或手填') + '">'
-      }
-
-      // 迷你界面模拟预览（R75）：CSS 画的侧栏 + 正文小窗，代替纯色块
-      const themeCard = (v, name, desc) =>
-        '<button class="wizard-theme-opt' + (st.theme === v ? ' sel' : '') + '" data-v="' + v + '">' +
-        '<span class="wizard-theme-check">✓</span>' +
-        '<span class="wizard-theme-mock ' + v + '"><span class="mock-side"><i></i><i></i><i></i></span>' +
-        '<span class="mock-main"><b></b><i></i><i></i><i class="short"></i></span></span>' +
-        '<span class="wizard-theme-name">' + name + '</span>' +
-        '<span class="wizard-theme-desc">' + desc + '</span></button>'
-
-      function render() {
-        const steps = ['外观', '对话模型', '插图模型']
-        const step = +mask.dataset.step || 0
-        const seg = []
-        steps.forEach((s, i) => {
-          seg.push('<span class="wizard-step' + (i === step ? ' active' : '') + (i < step ? ' done' : '') + '">' +
-            '<span class="wizard-step-dot">' + (i < step ? '✓' : (i + 1)) + '</span>' +
-            '<span class="wizard-step-label">' + s + '</span></span>')
-          if (i < steps.length - 1) seg.push('<span class="wizard-step-line' + (i < step ? ' passed' : '') + '"></span>')
-        })
-        stepsEl.innerHTML = seg.join('')
-        let h = ''
-        if (step === 0) {
-          h += '<div class="wizard-title">选择外观</div><p class="wizard-sub">先选明暗基调，再挑一套界面配色——点击卡片立即预览效果</p>'
-          h += '<div class="wizard-look">'
-          h += '<div class="wizard-theme-row">'
-          h += themeCard('light', '纯白', '明亮清爽，适合白天')
-          h += themeCard('dark', '纯黑', '暗色沉浸，适合夜晚')
-          h += themeCard('system', '跟随系统', '自动随系统切换')
-          h += '</div>'
-          // 配色预设（R76d）：与设置-外观/标题栏主题弹窗同一组调色板（原型：panel-2 圆角盒）
-          h += '<div class="wizard-palette-box">'
-          h += '<div class="wizard-palette-label">配色方案</div>'
-          h += '<div class="wizard-palette-row">'
-          for (const p of PALETTES) {
-            h += '<button class="wizard-palette-opt' + (st.palette === p.id ? ' sel' : '') + '" data-pal="' + p.id + '" title="' + p.name + '">' +
-              '<span class="wizard-palette-dot" style="background:linear-gradient(135deg,' + p.dot[0] + ' 50%,' + p.dot[1] + ' 50%)"></span>' +
-              '<span class="wizard-palette-name">' + p.name + '</span></button>'
-          }
-          h += '</div>'
-          h += '</div>'
-          h += '<div class="wizard-hint">随时可以在右上角主题按钮或设置中更改</div>'
-        } else if (step === 1) {
-          const p = WIZ_PRESETS[st.preset] || WIZ_PRESETS.custom
-          const cb = st.baseUrl !== undefined ? st.baseUrl : p.baseUrl
-          const ck = st.apiKey !== undefined ? st.apiKey : ''
-          // R75b：表单步内容整体垂直居中（与第 1 步视觉逻辑统一，消除底部大片留白）
-          h += '<div class="wizard-form">'
-          h += '<div class="wizard-title">配置对话模型</div><p class="wizard-sub">驱动故事生成的文本模型——填好地址与密钥后，可直接拉取可用模型列表</p>'
-          h += '<div class="wizard-preset-row cols-4">'
-          for (const k in WIZ_PRESETS) h += '<button class="wizard-preset-opt' + (k === st.preset ? ' sel' : '') + '" data-p="'+ k + '"><span class="wizard-preset-dot">' + (k === 'custom' ? '＋' : WIZ_PRESETS[k].name[0]) + '</span>' + WIZ_PRESETS[k].name + '</button>'
-          h += '</div>'
-          h += '<div class="wizard-field"><label>API 地址</label><input class="wizard-baseurl" type="text" value="' + cb + '" placeholder="https://api.deepseek.com"></div>'
-          h += '<div class="wizard-field"><label>API Key</label><input class="wizard-apikey" type="password" value="' + ck + '" placeholder="sk-…（在提供商控制台获取）"></div>'
-          h += '<div class="wizard-field"><label>模型</label><div class="wizard-fetch-row">' + modelControl('text')
-          h += '<button class="wizard-fetch-btn" data-fetch="text">拉取模型</button></div></div>'
-          h += '<div class="wizard-status" data-status="text"></div>'
-          h += '</div>'
-        } else {
-          const p = WIZ_IMG_PRESETS[st.imgPreset] || WIZ_IMG_PRESETS.off
-          const cb = st.imgBaseUrl !== undefined ? st.imgBaseUrl : p.baseUrl
-          const ck = st.imgApiKey !== undefined ? st.imgApiKey : ''
-          h += '<div class="wizard-form">'
-          h += '<div class="wizard-title">配置插图模型</div><p class="wizard-sub">为故事生成插图的图像模型——可跳过，不影响文字游玩；Key 留空则复用对话模型的</p>'
-          h += '<div class="wizard-preset-row">'
-          for (const k in WIZ_IMG_PRESETS) h += '<button class="wizard-preset-opt' + (k === st.imgPreset ? ' sel' : '') + '" data-ip="'+ k + '"><span class="wizard-preset-dot">' + (k === 'custom' ? '＋' : k === 'off' ? '—' : WIZ_IMG_PRESETS[k].name[0]) + '</span>' + WIZ_IMG_PRESETS[k].name + '</button>'
-          h += '</div>'
-          if (st.imgPreset === 'off') {
-            // 空状态（R75）：不启用时给明确的视觉反馈，不再留白
-            h += '<div class="wizard-empty"><span class="wizard-empty-icon"></span>' +
-              '<span class="wizard-empty-title">暂不启用插图</span>' +
-              '<span class="wizard-empty-desc">不影响文字游玩；之后可以随时在设置中开启并配置图像模型</span></div>'
-          } else {
-            h += '<div class="wizard-field"><label>API 地址</label><input class="wizard-imgbaseurl" type="text" value="' + cb + '" placeholder="https://api.openai.com/v1"></div>'
-            h += '<div class="wizard-field"><label>API Key</label><input class="wizard-imgapikey" type="password" value="' + ck + '" placeholder="留空则复用对话模型的 Key"></div>'
-            h += '<div class="wizard-field"><label>模型</label><div class="wizard-fetch-row">' + modelControl('img')
-            h += '<button class="wizard-fetch-btn" data-fetch="img">拉取模型</button></div></div>'
-          }
-          h += '<div class="wizard-status" data-status="img"></div>'
-          h += '</div>'
-        }
-        pane.innerHTML = h
-        // 切步动画（R75）：方向感知，前进从右滑入、后退从左滑入
-        pane.classList.remove('anim-fwd', 'anim-back')
-        void pane.offsetWidth
-        pane.classList.add(step >= prevStep ? 'anim-fwd' : 'anim-back')
-        prevStep = step
-        // 实时预览：点击主题卡立即切换整个界面明暗（跳过时在 back 处理中还原）
-        pane.querySelectorAll('.wizard-theme-opt').forEach((b) => b.addEventListener('click', () => { st.theme = b.dataset.v; applyTheme(b.dataset.v); render() }))
-        // 实时预览：点击配色卡立即切换整套调色板（只动 DOM 属性不写 cfg；完成时落库、跳过时还原）
-        pane.querySelectorAll('.wizard-palette-opt').forEach((b) => b.addEventListener('click', () => {
-          st.palette = b.dataset.pal
-          document.documentElement.setAttribute('data-palette', st.palette)
-          render()
-        }))
-        pane.querySelectorAll('.wizard-preset-opt[data-p]').forEach((b) => b.addEventListener('click', () => {
-          cacheStep(1)
-          st.preset = b.dataset.p
-          const p = WIZ_PRESETS[b.dataset.p]
-          st.baseUrl = p.baseUrl; st.model = p.model
-          wizModels.text = [] // 换预设清空已拉取列表
-          render()
-        }))
-        pane.querySelectorAll('.wizard-preset-opt[data-ip]').forEach((b) => b.addEventListener('click', () => {
-          cacheStep(2)
-          st.imgPreset = b.dataset.ip
-          const p = WIZ_IMG_PRESETS[b.dataset.ip]
-          st.imgBaseUrl = p.baseUrl; st.imgModel = p.model
-          wizModels.img = []
-          render()
-        }))
-        // 拉取模型按钮
-        const fb = pane.querySelector('.wizard-fetch-btn')
-        if (fb) fb.addEventListener('click', async () => {
-          const kind = fb.dataset.fetch
-          const isText = kind === 'text'
-          const baseUrl = isText ? gv('.wizard-baseurl') : gv('.wizard-imgbaseurl')
-          let apiKey = isText ? gv('.wizard-apikey') : (gv('.wizard-imgapikey') || gv('.wizard-apikey'))
-          const status = pane.querySelector('[data-status="' + kind + '"]')
-          if (!baseUrl || !apiKey) { if (status) { status.textContent = '请先填写 API 地址与密钥'; status.className = 'wizard-status err' } return }
-          fb.disabled = true
-          const old = fb.textContent
-          fb.textContent = '获取中…'
-          if (status) { status.textContent = ''; status.className = 'wizard-status' }
-          const r = await api.testEndpoint({ baseUrl, apiKey })
-          fb.disabled = false
-          fb.textContent = old
-          if (r && r.ok && r.models && r.models.length) {
-            if (isText) wizModels.text = r.models; else wizModels.img = r.models
-            // render 重建 DOM 前先缓存当前表单值（否则地址/密钥被预设默认覆盖）
-            cacheStep(isText ? 1 : 2)
-            if (status) { status.textContent = '已获取 ' + r.models.length + ' 个模型'; status.className = 'wizard-status ok' }
-            render()
-            // render 重建了 status 元素，重新标记
-            const status2 = pane.querySelector('[data-status="' + kind + '"]')
-            if (status2) { status2.textContent = '已获取 ' + r.models.length + ' 个模型'; status2.className = 'wizard-status ok' }
-          } else {
-            const msg = (r && r.error) || '端点未返回模型列表，可手填模型名'
-            if (status) { status.textContent = msg; status.className = 'wizard-status err' }
-          }
-        })
-        const s = +mask.dataset.step || 0
-        prog.textContent = '第 ' + (s + 1) + ' / 3 步'
-        back.textContent = s === 0 ? '跳过' : '上一步'
-        next.innerHTML = s === 2 ? '完成' : '下一步<span class="btn-arrow">→</span>'
-      }
-      // 离开某步前缓存表单值（render 重建 DOM）
-      const cacheStep = (step) => {
-        if (step === 1) {
-          const v = gv('.wizard-baseurl'); if (v !== null) st.baseUrl = v
-          const k = gv('.wizard-apikey'); if (k !== null) st.apiKey = k
-          const m = gv('.wizard-model'); if (m !== null) st.model = m
-        } else if (step === 2) {
-          const v = gv('.wizard-imgbaseurl'); if (v !== null) st.imgBaseUrl = v
-          const k = gv('.wizard-imgapikey'); if (k !== null) st.imgApiKey = k
-          const m = gv('.wizard-imgmodel'); if (m !== null) st.imgModel = m
-        }
-      }
-      function close() {
-        if (mask.dataset.leaving === '1') return
-        mask.dataset.leaving = '1'
-        document.removeEventListener('keydown', onKey)
-        box.classList.add('closing'); mask.classList.add('closing')
-        let done = false
-        const finish = () => {
-          if (done) return
-          done = true
-          document.removeEventListener('keydown', onKey)
-          mask.remove(); resolve(true)
-        }
-        box.addEventListener('animationend', (ev) => { if (ev.target === box) finish() })
-        setTimeout(finish, 260)
-      }
-      // 键盘（R75）：Enter 前进 / Esc 退出；焦点在弹窗内按钮/下拉上时交还原生行为，
-      // 焦点在弹窗外（如聊天输入框）时仍由向导接管
-      function onKey(e) {
-        if (mask.dataset.leaving === '1') return
-        const ae = document.activeElement
-        const inMask = !!(ae && mask.contains(ae))
-        if (e.key === 'Escape') { e.preventDefault(); back.click(); return }
-        if (e.key !== 'Enter') return
-        if (inMask && (ae.tagName === 'BUTTON' || ae.tagName === 'SELECT' || ae.tagName === 'TEXTAREA')) return
-        e.preventDefault()
-        next.click()
-      }
-      document.addEventListener('keydown', onKey)
-      next.addEventListener('click', () => {
-        const step = +mask.dataset.step || 0
-        if (step < 2) { cacheStep(step); mask.dataset.step = String(step + 1); render(); return }
-        cacheStep(2)
-        const b = gv('.wizard-baseurl') || st.baseUrl || '', k = gv('.wizard-apikey') || st.apiKey || '', m = gv('.wizard-model') || st.model || ''
-        const ib = gv('.wizard-imgbaseurl') || st.imgBaseUrl || '', ik = gv('.wizard-imgapikey') || st.imgApiKey || '', im = gv('.wizard-imgmodel') || st.imgModel || ''
-        const palOk = PALETTES.some((p) => p.id === st.palette)
-        if (palOk) cfg.palette = st.palette // 配色方案落库（先赋值，applyTheme 按新值写 data-palette）
-        applyTheme(st.theme)
-        if (palOk) applyPalettePresetLink(cfg.palette) // 与标题栏主题弹窗一致：部分配色联动推荐外观
-        if (b) cfg.baseUrl = b
-        if (k) cfg.apiKey = k
-        if (m) cfg.model = m
-        if (st.preset && WIZ_PRESETS[st.preset]) cfg.preset = st.preset
-        cfg.illustPreset = st.imgPreset
-        if (st.imgPreset !== 'off') {
-          if (ib) cfg.illustBaseUrl = ib
-          if (ik) cfg.illustApiKey = ik
-          if (im) cfg.illustModel = im
-        }
-        saveStore()
-        try { api.mainChanged({ theme: cfg.theme }) } catch { /* noop */ }
-        refreshModelSelect()
-        toast('配置完成，祝你转生愉快', 'ok')
-        close()
-      })
-      back.addEventListener('click', () => {
-        const step = +mask.dataset.step || 0
-        if (step === 0) {
-          if (origTheme !== st.theme) applyTheme(origTheme) // 跳过：还原实时预览切换的主题
-          if (origPalette !== st.palette) { cfg.palette = origPalette; document.documentElement.setAttribute('data-palette', origPalette) } // 跳过：还原配色预览
-          close(); return // 跳过：保留默认，稍后设置
-        }
-        cacheStep(step)
-        mask.dataset.step = String(step - 1); render()
-      })
-      mask.dataset.step = '0'
-      render()
-    })
-  }
   // ============ 免责声明（首次安装须确认） ============
-  function showDisclaimer() {    return new Promise((resolve) => {
-      const mask = document.createElement('div')
-      mask.className = 'confirm-mask'
-      const box = document.createElement('div')
-      box.className = 'confirm disclaimer'
-      box.style.width = '520px'
-      const head = document.createElement('div')
-      head.className = 'confirm-head disclaimer-head'
-      const emblem = document.createElement('span')
-      emblem.className = 'disclaimer-emblem'
-      emblem.textContent = '六'
-      const headTxt = document.createElement('span')
-      headTxt.className = 'disclaimer-head-txt'
-      const title = document.createElement('div')
-      title.className = 'confirm-title'
-      title.textContent = '请先阅读免责声明'
-      const sub = document.createElement('div')
-      sub.className = 'disclaimer-sub'
-      sub.textContent = '首次启动 · 阅读以下条款后继续'
-      headTxt.appendChild(title); headTxt.appendChild(sub)
-      head.appendChild(emblem); head.appendChild(headTxt)
-      const body = document.createElement('div')
-      body.className = 'disclaimer-body'
-      // 条款列表：mono 编号（§01–05）+ 文本，对齐原型 F
-      const items = [
-        ['§01', '<strong>本软件是纯粹的本地工具。</strong>六面世界只是一个开源的桌面壳（界面 + 本地存储），不内置、不分发、也不代理任何 AI 服务。所有故事文本与插图均由<strong>你自己在设置中配置的第三方模型提供商</strong>（DeepSeek / OpenAI / 智谱等）生成并直接返回给你。'],
-        ['§02', '<strong>不涉及侵权分发。</strong>本软件不提供、不托管任何受版权保护的小说原文、插画、音频或视频。世界内核（kernel.md）为玩家自备的同人创作设定文本；生成内容的权利与合规性由所用提供商的服务条款约束。'],
-        ['§03', '<strong>生成内容免责。</strong>AI 生成的内容可能存在不准确、不适宜或与原作不符之处，仅供个人娱乐，请勿用于商业用途或对外发布为官方内容。'],
-        ['§04', '<strong>费用自负。</strong>调用第三方 API 产生的 token 费用与图像生成费用由你的账户承担，请自行关注用量面板与提供商账单。'],
-        ['§05', '<strong>内容安全。</strong>请遵守当地法律法规与提供商的使用政策；未满 18 周岁请在监护人指导下使用。']
-      ]
-      body.innerHTML = items.map((it) =>
-        '<div class="d-item"><span class="d-no">' + it[0] + '</span><p>' + it[1] + '</p></div>'
-      ).join('') +
-        '<p class="d-final">继续使用即表示你已阅读并理解以上条款，<strong>相关风险与责任由使用者自行承担</strong>。</p>'
-      const check = document.createElement('label')
-      check.className = 'disclaimer-check'
-      const cb = document.createElement('input')
-      cb.type = 'checkbox'
-      const ct = document.createElement('span')
-      ct.textContent = '我已阅读并同意以上声明，理解风险由我自行承担'
-      check.appendChild(cb); check.appendChild(ct)
-      const foot = document.createElement('div')
-      foot.className = 'confirm-foot disclaimer-foot'
-      const ok = document.createElement('button')
-      ok.className = 'primary'
-      ok.textContent = '同意并继续'
-      ok.disabled = true
-      foot.appendChild(ok)
-      box.appendChild(head); box.appendChild(body); box.appendChild(check); box.appendChild(foot)
-      mask.appendChild(box)
-      document.body.appendChild(mask)
-      cb.addEventListener('change', () => { ok.disabled = !cb.checked })
-      ok.addEventListener('click', () => {
-        if (mask.dataset.leaving === '1') return
-        mask.dataset.leaving = '1'
-        box.classList.add('closing'); mask.classList.add('closing')
-        let done = false
-        const finish = () => {
-          if (done) return
-          done = true
-          mask.remove(); resolve(true)
-        }
-        box.addEventListener('animationend', (ev) => { if (ev.target === box) finish() })
-        setTimeout(finish, 260)
-      })
-      setTimeout(() => { body.scrollTop = 0; cb.focus() }, 50)
-    })
-  }
 
   // ============ R76 入场动画（Mineradio 式启动页） ============
   // 五层舞台 + 字标序列由纯 CSS 驱动；此处只负责：粒子尘埃、点击/键盘进入、12s 兜底、离场双层时序。
   // e2e 环境（SIXWORLDS_TEST=1）直接移除，不阻塞自动化；设置 sixworlds.splash-preview 可强制预览。
-  ;(function splashBoot() {
-    const el = document.getElementById('splash')
-    if (!el) return
-    const preview = (() => { try { return !!localStorage.getItem('sixworlds.splash-preview') } catch { return false } })()
-    if ((window.api && window.api.isTest) && !preview) { el.remove(); return }
-    // R85：用户在设置里勾选「跳过开场动画」→ 移除启动页（窗口 show:false + ready-to-show 才显示，此处在首帧前执行，无闪现）
-    const skip = (() => { try { return !!JSON.parse(localStorage.getItem(STORE_KEY) || '{}').skipSplash } catch { return false } })()
-    if (skip && !preview) { el.remove(); return }
-
-    // 粒子尘埃：约 70 颗光尘缓慢上浮（72% 琥珀 / 其余青与珊瑚），出界回收
-    const cv = document.getElementById('splash-dust')
-    if (cv && cv.getContext) {
-      const ctx = cv.getContext('2d')
-      const resize = () => { cv.width = innerWidth; cv.height = innerHeight }
-      resize(); addEventListener('resize', resize)
-      const dust = []
-      for (let i = 0; i < 70; i++) {
-        dust.push({
-          x: Math.random(), y: Math.random(),
-          r: .6 + Math.random() * 1.6,
-          vx: (Math.random() - .5) * .00016,
-          vy: -.00006 - Math.random() * .00022,
-          a: .08 + Math.random() * .3,
-          tint: Math.random() < .72 ? '217,154,82' : (Math.random() < .5 ? '122,215,194' : '255,83,103')
-        })
-      }
-      ;(function tick() {
-        if (!el.isConnected) return // 离场移除后停帧
-        ctx.clearRect(0, 0, cv.width, cv.height)
-        for (const d of dust) {
-          d.x += d.vx; d.y += d.vy
-          if (d.y < -.02) { d.y = 1.02; d.x = Math.random() }
-          if (d.x < -.02) d.x = 1.02; else if (d.x > 1.02) d.x = -.02
-          ctx.beginPath()
-          ctx.arc(d.x * cv.width, d.y * cv.height, d.r, 0, 7)
-          ctx.fillStyle = 'rgba(' + d.tint + ',' + d.a + ')'
-          ctx.fill()
-        }
-        requestAnimationFrame(tick)
-      })()
-    }
-
-    let done = false
-    const finish = () => {
-      if (done) return
-      done = true
-      el.classList.add('exiting') // 粒子层先行淡出（CSS 双层时序），整层 620ms 后移除
-      document.removeEventListener('keydown', onKey)
-      setTimeout(() => el.remove(), 660)
-    }
-    const onKey = (e) => {
-      if (e.key === 'Enter' || e.key === 'Escape' || e.key === ' ') { e.preventDefault(); finish() }
-    }
-    // 主词定格（约 2.6s）后开放点击进入；「点击进入」提示 4.6s 才出现（CSS 动画时序）
-    setTimeout(() => { el.classList.add('ready'); el.addEventListener('click', finish) }, 2600)
-    document.addEventListener('keydown', onKey)
-    setTimeout(finish, 12000) // 兜底：12s 未点击自动进入
-  })()
+const Onboarding = window.Onboarding.createOnboarding({
+    $, api, cfg: () => cfg,
+    applyTheme, applyPalettePresetLink, refreshModelSelect, saveStore, toast,
+    STORE_KEY, OB_KEY: 'sixworlds.onboard.v1', PALETTES,
+  })
+  const WIZ_PRESETS = Onboarding.WIZ_PRESETS
+  const WIZ_IMG_PRESETS = Onboarding.WIZ_IMG_PRESETS
+  const showSetupWizard = () => Onboarding.showSetupWizard()
+  const showDisclaimer = () => Onboarding.showDisclaimer()
+  Onboarding.splashBoot()
 
   // ---- 启动 ----
   ;(async function boot() {
