@@ -3259,7 +3259,7 @@ const KData = window.KernelData.createKernelData({
     if (resKeys.length) pBits.push('资源:' + resKeys.map((k) => k + '=' + player.resources[k]).join(', '))
     return [
       '<div class="insp-head"><span class="insp-story">' + escapeHtml(o.title || o.story_id) + '</span>',
-      '<span class="insp-meta">' + escapeHtml(o.story_id) + ' · 引擎回合 <b>' + o.engine_turn + '</b> · 内核 ' + escapeHtml(String((o.kernel && o.kernel.version) || '?')).slice(0, 24) + '</span></div>',
+      '<span class="insp-meta">' + escapeHtml(o.story_id) + ' · 引擎回合 <b>' + escapeHtml(String(o.engine_turn)) + '</b> · 内核 ' + escapeHtml(String((o.kernel && o.kernel.version) || '?')).slice(0, 24) + '</span></div>',
       '<div class="insp-chips">',
       inspChip('有效决定', c.decisions), inspChip('活跃承诺', c.commitments_active), inspChip('活跃事实', c.facts_active),
       inspChip('玩家已知', c.knowledge), inspChip('事件', c.events), inspChip('待兑现因果', c.causal_pending),
@@ -3293,7 +3293,7 @@ const KData = window.KernelData.createKernelData({
       inspRestoreArm = ''
       panels.snaps.innerHTML = list.length ? [
         '<div class="insp-actions"><span class="insp-meta">快照保存完整结构化状态；恢复会替换当前状态（叙事消息不受影响）。</span></div>'
-      ].concat(list.map((sp) => '<div class="insp-row"><span class="insp-grow"><span class="insp-id">' + escapeHtml(sp.snapshot_id) + '</span>' + escapeHtml(sp.label) + ' · 第' + sp.turn + '回合</span><button class="insp-btn" data-act="restore" data-id="' + escapeHtml(sp.snapshot_id) + '">恢复</button></div>')).join('') : '<div class="insp-empty">尚无快照。在「总览」或此页创建。</div>'
+      ].concat(list.map((sp) => '<div class="insp-row"><span class="insp-grow"><span class="insp-id">' + escapeHtml(sp.snapshot_id) + '</span>' + escapeHtml(sp.label) + ' · 第' + escapeHtml(String(sp.turn)) + '回合</span><button class="insp-btn" data-act="restore" data-id="' + escapeHtml(sp.snapshot_id) + '">恢复</button></div>')).join('') : '<div class="insp-empty">尚无快照。在「总览」或此页创建。</div>'
     } else {
       const r = await api.engineLogs({ storyId: sid })
       const list = (r && r.ok && r.data) || []

@@ -277,10 +277,11 @@ function createWindow() {
     return { action: 'deny' }
   })
   win.webContents.on('will-navigate', (e, url) => {
-    if (!url.startsWith('file://')) {
-      e.preventDefault()
-      if (/^https?:/i.test(url)) shell.openExternal(url)
-    }
+    // 安全（五岗评审 S1）：无条件封堵——应用内页面切换全部走 loadFile，不存在合法页内导航。
+    // 原先放行 file:// 是漏洞：把恶意 .html 拖进窗口即触发导航，preload 随之注入攻击页，
+    // window.api（含 secrets:load 明文密钥）全量暴露。http(s) 链接仍转交系统浏览器。
+    e.preventDefault()
+    if (/^https?:/i.test(url)) shell.openExternal(url)
   })
   // 渲染进程崩溃/无响应兜底：自动重载，恢复到崩溃前状态（localStorage 持久化）
   win.webContents.on('render-process-gone', (_e, details) => {
@@ -349,6 +350,16 @@ function createSettingsWindow() {
   })
   settingsWin.loadFile(path.join(__dirname, 'renderer', 'settings.html'))
   settingsWin.once('ready-to-show', () => settingsWin.show())
+  // 安全（五岗评审 S2）：设置窗口与主窗口同 preload 同暴露面，防护对齐——
+  // 导航封堵（含 file://，防拖放攻击页）+ 开窗拒绝 + 外链转系统浏览器
+  settingsWin.webContents.setWindowOpenHandler(({ url }) => {
+    if (/^https?:/i.test(url)) shell.openExternal(url)
+    return { action: 'deny' }
+  })
+  settingsWin.webContents.on('will-navigate', (e, url) => {
+    e.preventDefault()
+    if (/^https?:/i.test(url)) shell.openExternal(url)
+  })
   watchTopmost(settingsWin)
   const emitMax = () => {
     if (settingsWin && !settingsWin.isDestroyed()) {
@@ -1975,8 +1986,23 @@ ipcMain.handle('progress:import', async (evt) => {
     if (bundle.sessions != null && !Array.isArray(bundle.sessions)) throw new Error('进度包世界线数据不正确')
     const sessions = Array.isArray(bundle.sessions) ? bundle.sessions : []
     if (sessions.length > MAX_SESSIONS) throw new Error('进度包世界线数量超过上限（50）')
+    /* 导入侧会话清洗（安全评审 S5，与导出侧 progressSessions 对称；移动端 SessionStore 同防线）：
+     * ① 剥离 illust/illustAsset——导出侧本就剥离，导入透传会把任意 data URL 塞进渲染层 img.src 消耗内存；
+     * ② 单条消息 2MB / 全量 64MB 上限，攻击包无法借消息字段塞入超大数据。 */
+    const IMPORT_MAX_MESSAGE_BYTES = 2 * 1024 * 1024
+    const IMPORT_MAX_SESSIONS_BYTES = 64 * 1024 * 1024
+    let sessionsTotal = 0
     for (const s of sessions) {
       if (!s || typeof s !== 'object' || !Array.isArray(s.messages)) throw new Error('进度包会话数据不完整')
+      for (const m of s.messages) {
+        if (!m) continue
+        delete m.illust
+        delete m.illustAsset
+      }
+      const bytes = Buffer.byteLength(JSON.stringify(s), 'utf8')
+      if (bytes > IMPORT_MAX_MESSAGE_BYTES) throw new Error('进度包中的单个世界线数据过大')
+      sessionsTotal += bytes
+      if (sessionsTotal > IMPORT_MAX_SESSIONS_BYTES) throw new Error('进度包世界线数据总量过大')
     }
     // 引擎状态：先全部校验并收集，全部通过后一次性落盘（不留半写状态）
     const engineDir = path.join(app.getPath('userData'), 'story-engine')
