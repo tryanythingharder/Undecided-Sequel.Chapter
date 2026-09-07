@@ -40,7 +40,8 @@ android {
         applicationId = "com.sixworlds.mobile"
         minSdk = 26
         targetSdk = 36
-        versionCode = 1
+        // 版本号编码 主.次.补丁 → 单调整数（Android 升级安装要求 versionCode 严格递增）
+        versionCode = pkgVersion.split(".").take(3).map { it.toInt() }.fold(0) { acc, v -> acc * 100 + v.toInt() }
         versionName = pkgVersion
         ndk {
             abiFilters.add("arm64-v8a")
