@@ -250,9 +250,33 @@ engine.ensureStory({ storyId: 'storyC', title: '故事C', kernelId: 'k2', kernel
   check('t12: 索引统计仍可用', !!(stats0 === null || stats0))
 }
 
+// ============ 测试 13：IF 分歧线状态继承（cloneStory 归属戳重写，五岗评审 C1 回归） ============
+{
+  const snap13 = engine.snapshot('storyA', 'clone 前锚点')
+  const ov = engine.cloneStory({ storyId: 'storyA', targetId: 'storyIF', title: 'IF 分歧线' })
+  check('t13: clone 返回新故事概览', ov && ov.story_id === 'storyIF')
+  const ifStory = engine.getStory('storyIF')
+  // C1 核心：每条继承记录的 story_id 必须重戳为 IF 线，否则检索层过滤后全部不可见（失忆 IF 线）
+  const stamped = ['decisions', 'commitments', 'knowledge', 'facts', 'events', 'causal', 'relationships', 'threads', 'entities']
+  const foreign = stamped.flatMap((k) => ifStory[k].filter((r) => r.story_id !== 'storyIF').map((r) => k))
+  check('t13: 全账本归属戳已重写（0 条残留母线戳）', foreign.length === 0, foreign.slice(0, 5))
+  const ctxIF = engine.buildContext('storyIF', { playerInput: '雾林 妹妹 失踪' })
+  const ifIds = ctxIF.retrieved.retrieved_ids
+  const motherDec = engine.getStory('storyA').decisions[0].decision_id
+  check('t13: IF 线检索可见继承记忆（第1回合决定命中）', ifIds.includes(motherDec), ifIds.slice(0, 8))
+  const blockIF = ctxIF.block
+  check('t13: IF 线上下文文本含继承事实', blockIF.includes('妹妹在雾林失踪'))
+  // 写入链路：IF 线上提交新记录不被 check() 交叉写闸拦截
+  const r13 = engine.commitPatch(patchOf({ facts: [{ key: 'if_only', statement: 'IF 线独立新事实', importance: 40 }] }), { storyId: 'storyIF', sessionId: 'SES-if', playerInput: '探索' })
+  check('t13: IF 线提交新回合成功（归属戳一致，写闸放行）', r13.ok === true, r13.errors)
+  check('t13: 母线不受 IF 线写入影响', !engine.getStory('storyA').facts.some((f) => f.key === 'if_only'))
+  engine.deleteStory('storyIF') // 清理：不影响后续测试的世界线集合
+  check('t13: clone 后母线快照不被连带（独立快照域）', engine.listSnapshots('storyA').some((s) => s.snapshot_id === snap13.snapshot_id))
+}
+
 // ============ 汇总 ============
 console.log('\n===== 故事状态引擎测试结果 =====')
-for (const group of ['t1', 't2', 't3', 't4', 't5', 't7', 't8', 't9', 't10', 't11', 't12']) {
+for (const group of ['t1', 't2', 't3', 't4', 't5', 't7', 't8', 't9', 't10', 't11', 't12', 't13']) {
   const g = results.filter((r) => r.name.startsWith(group + ':'))
   if (!g.length) continue
   const pass = g.every((r) => r.pass)

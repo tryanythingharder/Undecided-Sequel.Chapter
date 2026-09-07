@@ -67,7 +67,10 @@ function createEngine(dataDir, opts) {
     vectorStore.forgetStory(storyId) // 语义索引同步清理（派生层，漏清只浪费空间）
   }
   /* IF 分歧线状态继承（R85）：深拷贝母线全部账本到新故事——IF 线不再是失忆世界。
+   * C1 修复（五岗评审）：检索层/仓储层按每条记录内嵌的 story_id 过滤（retriever.js 硬闸），
+   * 深拷贝若只改顶层 story_id，继承记录全部被过滤成不可见——必须逐账本重戳归属戳。
    * 派生数据不动：sessions 登记簿/懒索引清零，vector 索引由下次 flush 重建（onAfterFlush 只增不删）。 */
+  const LEDGERS = ['decisions', 'commitments', 'knowledge', 'facts', 'events', 'causal', 'relationships', 'threads', 'entities']
   engine.cloneStory = ({ storyId, targetId, title }) => {
     const src = store.getStory(storyId)
     if (!src) throw new Error('story not found: ' + storyId)
@@ -77,11 +80,18 @@ function createEngine(dataDir, opts) {
     cp.title = title || cp.title
     cp.created_at = Date.now()
     cp.updated_at = Date.now()
+    for (const key of LEDGERS) {
+      const arr = cp[key]
+      if (!Array.isArray(arr)) continue
+      for (const rec of arr) rec.story_id = targetId // 归属戳重写：检索过滤层才认领这些继承记录
+    }
     cp.sessions = [] // 登记簿按新故事的 session 重开
     cp.discarded_turns = []
     cp.counters.snapshot = 0
     if (cp.scene) cp.scene.turn_started = null
+    cp._nameIndex = null // JSON 克隆把 Map 退化成 {}，置空由 nameIndex() 懒重建
     store.putStory(targetId, cp) // 深拷贝对象直接入缓存并落盘（saveStory 只标脏不接收对象）
+    store._dropRetrCache(targetId) // 派生缓存已按新 story_id 就位，丢掉懒索引避免 retr 槽带着母线版本串台
     return stateOverview(cp)
   }
   engine.listStories = () => store.listStories()
