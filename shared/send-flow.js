@@ -17,11 +17,46 @@
   function createSend(ctx) {
     const st = ctx.st
     const { $, api, cfg, kernel, curSession, deriveTitle, fitInput, generateIllust, illustReady, newSession, openSettings, renderMessages, renderSessionList, saveSessions, sessionDrafts, setSendButtonState, showBusyIsland, toast, touchSession, updateTitle, enginePrep, patchRetryPrompt, protocolText } = ctx
+    /* R86 发送排队：生成中/补账中的点击不再拒绝，入队待本轮收尾自动续发（最多 1 条，
+     * 后到的覆盖先到的——用户最后点的才是想要的）。UI 反馈即时，观感零等待。 */
+    let queuedSend = null
+    let queueDrainer = 0
+    function drainQueue() {
+      if (queueDrainer) return
+      queueDrainer = setInterval(() => {
+        if (st.busy || st.engineBusy) return
+        clearInterval(queueDrainer)
+        queueDrainer = 0
+        const q = queuedSend
+        queuedSend = null
+        const s = curSession()
+        if (q && s && s.id === q.sid) send(q.text, q.opts) // 会话钉扎：切线后丢弃（内容属于原世界线）
+      }, 300)
+    }
+    function clearQueue(reason) {
+      if (queuedSend) { queuedSend = null; toast(reason || '已取消排队中的发送', 'info', 1600) }
+    }
     async function send(text, opts) {
       opts = opts || {}
       const value = String(text || '').trim()
-      if (st.busy) return
-      if (st.engineBusy) { toast('上一回合状态正在补录，请稍候', 'info'); return }
+      if (st.busy) {
+        // R86：生成中点击 → 入队（本轮结束自动发出），不再静默吞掉
+        if (value || opts.regen) {
+          const s0 = curSession()
+          queuedSend = { text: value, opts, sid: s0 ? s0.id : null }
+          toast('已排队：本轮结束后自动发出', 'info', 1600)
+        }
+        return
+      }
+      if (st.engineBusy) { // R86：补账中点击 → 入队（补录结束自动发出），不再「请稍候」拒绝
+        if (value || opts.regen) {
+          const s0 = curSession()
+          queuedSend = { text: value, opts, sid: s0 ? s0.id : null }
+          drainQueue()
+          toast('已排队：状态补录完成后自动发出', 'info', 1600)
+        }
+        return
+      }
       if (!value && !opts.regen) return
       if (!cfg().baseUrl || !cfg().apiKey || !cfg().model) {
         toast('请先在设置中填写 API 地址、密钥与模型。', 'err')
@@ -77,7 +112,7 @@
       // 故重申用 user 角色镜像补账路径的已验证结构，跟在玩家输入之后作为「格式要求随行」。
       if (engineMeta && protocolText() && history.length) msgs.push({
         role: 'user',
-        content: '（系统要求，非剧情内容，不要回应这段话也不要把它当玩家行动）本次回复必须完整包含以下三部分，缺一不可：\n1. 叙事正文；\n2. 选项区：【你需要决定】+ A/B/C/D 选项行（每幕必出）；\n3. 状态记录块：回复最末尾输出 <<<STATE_PATCH>>> + 完整合法 JSON + <<<END_PATCH>>>（JSON 必须闭合所有括号，至少含 turn_summary 与 scene 两键）。仅在确实零状态变化时改为 <<<NO_STATE_CHANGE>>>。'
+        content: '（系统要求，非剧情内容，不要回应这段话也不要把它当玩家行动）本次回复必须完整包含三部分：叙事正文 → 选项区（【你需要决定】+ A/B/C/D 选项行，每幕必出）→ 最末尾状态记录块。状态记录块严格按此格式输出（最小可用示例）：\n<<<STATE_PATCH>>>\n{"turn_summary":"本回合一句话概括","scene":{"game_time":"故事内时间","location":"当前地点"},"events":[{"type":"action","description":"本回合发生的主要事件","importance":30}]}\n<<<END_PATCH>>>\nJSON 必须闭合所有括号、可被直接解析；需要记录新事实/承诺/伏笔/关系变化时按系统协议加对应键。本回合确实零状态变化时，改为最末尾输出一行 <<<NO_STATE_CHANGE>>>。'
       })
       const payload = {
         baseUrl: cfg().baseUrl,
@@ -200,6 +235,13 @@
       renderMessages()
       updateTitle()
 
+      // R86：本轮收尾 → 排队的下一发送自动续跑（补账中的轮次由 drainQueue 的 engineBusy 轮询接管）
+      if (!st.engineBusy && queuedSend && s.id === queuedSend.sid) {
+        const q = queuedSend
+        queuedSend = null
+        setTimeout(() => { if (!st.busy && !st.engineBusy) send(q.text, q.opts) }, 200)
+      }
+
       // 自动插图：为刚生成的叙事生成
       const last = s.messages.length - 1
       if (r && r.ok && r.content && cfg().illustAuto && illustReady() && last >= 0) {
@@ -243,13 +285,16 @@
       }
       st.streamRenderedLen = shown.length
       ctx.autoScroll()
+      // R86：选项提前渲染——可见文本（已截去状态块 JSON 尾巴）交给 UI 层渐进解析选项，
+      // 用户读到【你需要决定】即可点选（点击经排队发送），不必等不可见 JSON 流完
+      if (ctx.onStreamChoices) { try { ctx.onStreamChoices(shown) } catch { /* 渐进解析失败静默 */ } }
     }
     function appendStream(piece) {
       st.streaming += piece
       if (!st.streamRaf) st.streamRaf = requestAnimationFrame(flushStream)
     }
 
-    return { send, appendStream, flushStream }
+    return { send, appendStream, flushStream, clearQueue }
   }
 
   function createResolvePendingFlow(ctx) {

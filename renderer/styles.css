@@ -2741,3 +2741,6 @@ html[data-theme="light"] .kernel-hub {
   .kernel-source-actions .primary { min-height: 44px; height: 44px; }
   .kernel-source-tabs, .kernel-source-tab { min-height: 44px; }
 }
+
+/* R86 流式选项渐进渲染：可先点选提示（choices-head 内） */
+.stream-choices-hint { font-family: var(--mono); font-size: 10px; color: var(--accent); letter-spacing: 1px; }

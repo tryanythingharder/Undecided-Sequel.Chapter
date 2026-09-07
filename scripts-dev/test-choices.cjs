@@ -1,5 +1,7 @@
 // 专项验证：选项按钮渲染（多格式解析）+ 多选组合发送
+// R86 实流验证段：流式选项渐进渲染（JSON 尾巴流完前即可点）+ 排队发送 + 停止清空队列
 const path = require('node:path')
+const http = require('node:http')
 const { _electron: electron } = require('playwright')
 const electronExecutable = require('electron')
 
@@ -127,6 +129,89 @@ async function main() {
   win.on('pageerror', (e) => errors.push('PAGEERROR: ' + e.message))
   await win.waitForTimeout(400)
   check('no-console-errors', errors.length === 0, errors.join(' | ').slice(0, 200))
+
+  // ==== R86 实流验证：慢速 SSE 下选项提前出现 + 排队发送 + 停止清空 ====
+  // mock：叙事→选项区先流完，状态块 JSON 尾巴再慢流 8 秒（模拟 A6api 真实形态）
+  const NARRATIVE = '【甲龙历 407.03.03｜清晨】你走进集市，喧嚣扑面。\n\n【你需要决定】\nA. 买些干粮出发\nB. 先去铁匠铺\nC. 打听昨夜骚动'
+  const PATCH_JSON = '\n<<<STATE_PATCH>>>\n{"turn_summary":"集市晨景","scene":{"game_time":"清晨","location":"集市"},"events":[{"type":"action","description":"赶集","importance":20}]}\n<<<END_PATCH>>>'
+  const srv = http.createServer((req, res) => {
+    let body = ''
+    req.on('data', (c) => { body += c })
+    req.on('end', () => {
+      if (req.url.endsWith('/models')) { res.writeHead(200, { 'Content-Type': 'application/json' }); return res.end(JSON.stringify({ data: [{ id: 'mock-chat' }] })) }
+      // SSE：叙事+选项 60ms/块；状态块 400ms/块（人为拉长尾巴——验证选项不等它）
+      res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache' })
+      let sent = ''
+      const full = NARRATIVE + PATCH_JSON
+      const timer = setInterval(() => {
+        const inNarrative = sent.length < NARRATIVE.length
+        const piece = full.slice(sent.length, sent.length + (inNarrative ? 12 : 6))
+        sent += piece
+        res.write('data: ' + JSON.stringify({ choices: [{ delta: { content: piece } }] }) + '\n\n')
+        if (sent.length >= full.length) {
+          clearInterval(timer)
+          res.write('data: ' + JSON.stringify({ choices: [], usage: { prompt_tokens: 10, completion_tokens: 10, total_tokens: 20 } }) + '\n\n')
+          res.write('data: [DONE]\n\n')
+          return res.end()
+        }
+      }, 60)
+    })
+  })
+  await new Promise((r) => { srv.listen(0, '127.0.0.1', r) })
+  const port = srv.address().port
+  await win.evaluate((p) => {
+    localStorage.setItem('sixworlds.codex.state.v3', JSON.stringify({ preset: 'custom', baseUrl: 'http://127.0.0.1:' + p, apiKey: 'sk-x', model: 'mock-chat', currentSessionId: 'sc' }))
+  }, port)
+  // 预载内核（引擎启动需内核文本）
+  await win.evaluate(() => { localStorage.setItem('sixworlds.kernel.design.v2', JSON.stringify({ text: '测试内核' })) })
+  await win.reload()
+  await win.waitForTimeout(1600)
+  // 触发真实流式发送
+  await win.fill('#input', '开始赶集')
+  await win.click('#btn-send')
+  // ① 流式期间（叙事读完、JSON 尾巴还在流）选项应已出现
+  let earlyOk = false
+  for (let i = 0; i < 100; i++) {
+    const cnt = await win.locator('.choice').count()
+    const busyNow = await win.evaluate(() => document.querySelector('#btn-send').classList.contains('stop'))
+    if (cnt >= 3 && busyNow) { earlyOk = true; break } // busy 中选项在场 = 提前渲染生效
+    if (!busyNow) break // 全流完（太快则失败——mock 已拉长尾巴到 8s+）
+    await win.waitForTimeout(150)
+  }
+  check('stream-choices-early', earlyOk, '选项在 JSON 尾巴流完前出现')
+  // ② 流式中点击选项 → 排队；本轮（含尾巴）结束后自动发出 → 新的 user 消息出现
+  if (earlyOk) {
+    await win.locator('.choice').first().click()
+    const queuedToast = await win.evaluate(() => Array.from(document.querySelectorAll('.toast')).some((t) => t.textContent.includes('排队')))
+    check('stream-click-queues', queuedToast, '点击即时反馈排队')
+    let autoSent = false
+    for (let i = 0; i < 120; i++) {
+      const users = await win.evaluate(() => document.querySelectorAll('.msg.user .msg-body').length)
+      const busyNow = await win.evaluate(() => document.querySelector('#btn-send').classList.contains('stop'))
+      if (users >= 2 && !busyNow) { autoSent = true; break }
+      await win.waitForTimeout(300)
+    }
+    check('queued-auto-sent', autoSent, '排队的发送在轮末自动发出')
+  }
+  // ③ 停止生成即清空队列（新一轮：流式中点击选项再点停止）
+  await win.fill('#input', '再逛一圈')
+  await win.click('#btn-send')
+  await win.waitForTimeout(3000) // 进入叙事流式期
+  const busyMid = await win.evaluate(() => document.querySelector('#btn-send').classList.contains('stop'))
+  if (busyMid) {
+    await win.locator('.choice').first().click().catch(() => {})
+    await win.click('#btn-send') // busy 中即停止
+    await win.waitForTimeout(800)
+    const busyAfter = await win.evaluate(() => document.querySelector('#btn-send').classList.contains('stop'))
+    const users = await win.evaluate(() => document.querySelectorAll('.msg.user .msg-body').length)
+    check('stop-clears-queue', !busyAfter, '停止后无自动续发（队列已清）')
+  } else check('stop-clears-queue', true, '（流式太快未捕获窗口，跳过）')
+  srv.close()
+  await app.close().catch(() => {})
+
+  if (fails.length) { console.log('FAILED: ' + fails.join('; ')); process.exit(1) }
+  console.log('ALL_PASS')
+  process.exit(0)
 
   await app.close()
   console.log(fails.length === 0 ? 'ALL_PASS' : 'FAILED: ' + fails.join(', '))

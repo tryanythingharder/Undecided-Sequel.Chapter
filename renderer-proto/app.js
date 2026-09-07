@@ -851,6 +851,44 @@ const Illust = window.IllustPanel.createIllustPanel({
     if (scrollBtn) scrollBtn.classList.toggle('hidden', wasNearBottom)
   }
 
+  /* R86 流式选项渐进渲染：生成期间【你需要决定】文本一流到（状态块 JSON 尾巴还在路上）
+   * 就把选项按钮先画出来——读完即可点选排队，观感等待从「全轮完成」缩短到「叙事读完」。
+   * 逐帧调用幂等：选项集合签名没变且区非空则跳过；本轮结束后 renderMessages 全量重建权威版。 */
+  let streamChoicesKey = ''
+  function renderStreamingChoices(shownText) {
+    if (!busy) { streamChoicesKey = ''; return }
+    const cs = parseChoices(shownText)
+    const key = cs.map((c) => c.key + '' + c.label).join('')
+    if (key === streamChoicesKey && choiceEl.children.length > 0) return
+    streamChoicesKey = key
+    choiceEl.innerHTML = ''
+    if (!cs.length) return
+    const head = document.createElement('div')
+    head.className = 'choices-head'
+    const title = document.createElement('span')
+    title.className = 'choices-title'
+    title.textContent = '这一幕的 ' + cs.length + ' 个选择'
+    const hint = document.createElement('span')
+    hint.className = 'stream-choices-hint'
+    hint.textContent = ' · 可先点选，稍后自动发出'
+    head.appendChild(title); head.appendChild(hint)
+    choiceEl.appendChild(head)
+    for (const c of cs) {
+      const b = document.createElement('button')
+      b.className = 'choice'
+      const ck = document.createElement('span')
+      ck.className = 'ck'
+      ck.textContent = c.key
+      const lb = document.createElement('span')
+      lb.textContent = c.label
+      b.appendChild(ck); b.appendChild(lb)
+      b.title = '点击即排队这一行动，本回合结束自动发出'
+      b.addEventListener('click', () => send('【' + c.key + '】' + c.label))
+      choiceEl.appendChild(b)
+    }
+    applyChoicesFold()
+  }
+
   function renderMessages() {
     const searchState = Search.state()
     // 记住重绘前的滚动位置：贴底则重绘后仍贴底，否则保持原位（不打扰翻阅历史的用户）
@@ -1439,6 +1477,8 @@ const sendSt = {
     renderMessages, renderSessionList, saveSessions, sessionDrafts,
     setSendButtonState, showBusyIsland, toast, touchSession, updateTitle,
     enginePrep, patchRetryPrompt, protocolText: () => EngineFlow.protocolText(),
+    // R86：流式选项渐进渲染——【你需要决定】一出现即可点选（点击经排队发送，不等 JSON 尾巴）
+    onStreamChoices: (shownText) => renderStreamingChoices(shownText),
   })
   const send = SendOrch.send
   const appendStream = (piece) => SendOrch.appendStream(piece)
@@ -1454,6 +1494,7 @@ const sendSt = {
   function stopGeneration() {
     if (!busy || !currentReqId) return
     api.abortChat(currentReqId)
+    SendOrch.clearQueue('已停止生成本轮（排队中的发送一并取消）') // R86：停止即放弃排队续发
   }
 
   // 重新生成指定回合（默认最后一回合）

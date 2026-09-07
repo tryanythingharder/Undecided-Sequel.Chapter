@@ -2978,3 +2978,6 @@ html[data-theme="light"] .illust { box-shadow: 0 18px 50px rgba(0, 0, 0, .14), 0
 .kernel-checkpoint:not([hidden]) ~ .kernel-ai-composer {
   position: static;
 }
+
+/* R86 流式选项渐进渲染：可先点选提示（choices-head 内） */
+.stream-choices-hint { font-family: var(--mono); font-size: 10px; color: var(--accent); letter-spacing: 1px; }
