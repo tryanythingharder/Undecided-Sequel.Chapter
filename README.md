@@ -171,9 +171,9 @@ KERNEL_META-->
 
 | 文件 | 说明 |
 |---|---|
-| `SixWorlds-Setup-1.5.1.exe` | 安装版：可选目录、创建快捷方式 |
-| `SixWorlds-Portable-1.5.1.exe` | 免安装单文件，双击即用 |
-| `SixWorlds-Android-1.5.1.apk` | Android 配套 App（导入桌面进度包接续游玩） |
+| `SixWorlds-Setup-1.5.2.exe` | 安装版：可选目录、创建快捷方式 |
+| `SixWorlds-Portable-1.5.2.exe` | 免安装单文件，双击即用 |
+| `SixWorlds-Android-1.5.2.apk` | Android 配套 App（导入桌面进度包接续游玩） |
 
 ### 方式二：源码运行
 
