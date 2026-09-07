@@ -3895,6 +3895,9 @@ const Onboarding = window.Onboarding.createOnboarding({
         await showSetupWizard()
         await showDisclaimer()
         openGuide()
+        // 产品评审：引导链路终点聚焦输入框——新用户下一步动作就是写下转生开场
+        const el = document.getElementById('input')
+        if (el) el.focus()
       }
       try { localStorage.setItem(OB_KEY, '1') } catch {}
     }

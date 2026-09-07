@@ -1192,6 +1192,13 @@ const Illust = window.IllustPanel.createIllustPanel({
       tip.textContent = 'Enter 发送 · Shift+Enter 换行 · Ctrl+, 设置'
       empty.appendChild(sigil); empty.appendChild(title); empty.appendChild(p)
       empty.appendChild(btn); empty.appendChild(quick); empty.appendChild(tip)
+      // 内核入口（产品评审：引导后不再直落内核集散地，这里补一步可达）——换内核 = 换一个世界规则
+      const kern = document.createElement('button')
+      kern.className = 'empty-kernel-link'
+      kern.textContent = '换个内核试试？打开内核集散地 →'
+      kern.title = '内核决定世界的规则与题材；也可以在这里设计自己的内核'
+      kern.addEventListener('click', () => openKernelHub())
+      empty.appendChild(kern)
       // R10 P2：API 未配置时预防提示（点击前就知道会发生什么，而非仅靠事后报错）
       if (!cfg.baseUrl || !cfg.apiKey || !cfg.model) {
         const cfgTip = document.createElement('p')
@@ -3213,10 +3220,14 @@ const KData = window.KernelData.createKernelData({
     closeModalAnim($('guide'), guideMask, () => {
       guideMask.hidden = true
       $('guide').hidden = true
-      // 首次配置完成后，帮助页关闭即进入通用内核设计起点；普通帮助关闭不改变当前区域。
-      if (guideMask.dataset.afterOnboarding === 'kernel') {
+      // 首次配置完成后回到主创作页（产品评审：新用户要的是「开始转生」，不是内核数据管理）。
+      // 空状态自带「开始游戏」+ 出身预设，从这里进入故事；内核设计随时可从侧栏/帮助进入。
+      if (guideMask.dataset.afterOnboarding === 'home') {
         delete guideMask.dataset.afterOnboarding
-        openKernelHub()
+        if (!curSession()) newSession()
+        renderMessages(); updateTitle()
+        const el = document.getElementById('input')
+        if (el) el.focus()
       }
     })
   }
@@ -3902,7 +3913,7 @@ const Onboarding = window.Onboarding.createOnboarding({
       if (!(window.api && window.api.isTest)) {
         await showSetupWizard()
         await showDisclaimer()
-        guideMask.dataset.afterOnboarding = 'kernel'
+        guideMask.dataset.afterOnboarding = 'home'
         openGuide()
       }
       try { localStorage.setItem(OB_KEY, '1') } catch {}

@@ -180,7 +180,12 @@
               let pendingKept = false
               st.engineBusy = true // 补录期间禁止并发发送/重生成（消息顺序保证），但阅读与选择不受影响
               try {
-                const retryMsgs = msgs.concat([
+                // 成本评审：补账重试曾整包重发（内核+状态块+协议+64 条历史），实测占单轮
+                // 开销的大头。补录只需「已生成的叙事 + 当前状态」即可重建状态块——砍掉历史。
+                // msgs[0]=内核 / msgs[1]=状态块（有历史时才注入）→ 保前缀，丢其余。
+                const prefix = msgs.slice(0, engineMeta && engineMeta.block ? 2 : 1)
+                const retryMsgs = prefix.concat([
+                  { role: 'user', content: engineMeta.playerInput || '（玩家行动）' },
                   { role: 'assistant', content: narrative },
                   // 拒绝原因必须带上：实测 deepseek 会把 threads[update] 写成 ACTIVE（合法 RESOLVED|ABANDONED），
                   // 不带原因的盲重试会原样重蹈（test-memory-real PC-000002）；MISSING 没有原因可言，传 null
@@ -195,6 +200,17 @@
                     pendingKept = true
                   }
                 } else pendingKept = true
+                // 补账也是真实计费调用：计入本线用量（成本评审前这里被漏记，账单≈面板 1.4 倍）
+                if (rr && rr.ok && rr.usage) {
+                  const u = rr.usage
+                  s.tokens = s.tokens || { prompt: 0, completion: 0, total: 0 }
+                  s.tokens.prompt += Number(u.prompt_tokens) || 0
+                  s.tokens.completion += Number(u.completion_tokens) || 0
+                  s.tokens.total += Number(u.total_tokens) || 0
+                  const c = Number(u.cost != null ? u.cost : (rr.cost != null ? rr.cost : NaN))
+                  if (Number.isFinite(c)) s.tokens.cost = (s.tokens.cost || 0) + c
+                  saveSessions()
+                }
               } catch { pendingKept = true }
               st.engineBusy = false
               msg.committing = false
@@ -330,6 +346,16 @@
             if (rr && rr.ok && rr.content) {
               const rs = await api.engineResolvePending({ storyId: s.id, pendingId: pc.pending_id, raw: rr.content })
               if (rs && rs.ok && rs.data && rs.data.resolved) okN++
+            }
+            // 补录也是真实计费调用：计入本线用量（成本评审前被漏记）
+            if (rr && rr.ok && rr.usage) {
+              const u = rr.usage
+              s.tokens = s.tokens || { prompt: 0, completion: 0, total: 0 }
+              s.tokens.prompt += Number(u.prompt_tokens) || 0
+              s.tokens.completion += Number(u.completion_tokens) || 0
+              s.tokens.total += Number(u.total_tokens) || 0
+              const c = Number(u.cost != null ? u.cost : (rr.cost != null ? rr.cost : NaN))
+              if (Number.isFinite(c)) s.tokens.cost = (s.tokens.cost || 0) + c
             }
           } catch { /* 单条失败不影响其余补录 */ }
         }

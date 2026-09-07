@@ -54,7 +54,10 @@ function startMock() {
             // system 版会被中转层丢弃/前置化——两轮百轮实证 83-84% 缺失）
             hasTailReminder: users.some((m) => String(m.content).includes('系统要求，非剧情内容')),
             tailReminderIsLast: p.messages.length > 0 && p.messages[p.messages.length - 1].role === 'user' && String(p.messages[p.messages.length - 1].content).includes('系统要求，非剧情内容'),
-            userCount: users.length
+            userCount: users.length,
+            msgCount: p.messages.length,
+            // 成本评审回归：补账重试不得整包重发历史（只保留内核/状态块前缀 + 叙事 + 重试指令）
+            hasOldHistory: p.messages.some((m) => String(m.content).includes('敲门问路'))
           }
           if (calls <= 2) last = snap // 主发送载荷；补录 retry 载荷另存（各断言各读，互不覆盖）
           else lastRetry = snap
@@ -206,6 +209,9 @@ async function main() {
   check('turn2-tail-reminder-is-last', !!info && info.tailReminderIsLast === true, info && String(info.tailReminderIsLast))
   const retryInfo = await until(async () => { try { const r = await fetch(base + '/__last?retry=1'); const j = await r.json(); return j && j.hasRetryPrompt === true ? j : null } catch { return null } }, 5000)
   check('turn2-retry-payload-has-retry-prompt', !!retryInfo, 'retry payload captured=' + !!retryInfo)
+  // 成本评审回归：补账重试载荷不含历史消息（曾整包重发 64 条历史 → 单轮实际开销≈显示的 1.4 倍）
+  check('turn2-retry-no-full-history', !!retryInfo && retryInfo.hasOldHistory === false, '历史泄漏=' + (retryInfo && retryInfo.hasOldHistory) + ' msgs=' + (retryInfo && retryInfo.msgCount))
+  check('turn2-retry-payload-compact', !!retryInfo && retryInfo.msgCount <= 5, 'msgs=' + (retryInfo && retryInfo.msgCount))
   const story2 = newFile ? readStoryByName(newFile) : null
   check('turn2-retry-committed-advances-engine', story2 && story2.counters.turn === 2, 'turn=' + (story2 && story2.counters.turn))
   check('turn2-retry-state-on-disk', story2 && story2.facts.some((f) => f.key === 'road_given'), story2 && JSON.stringify(story2.facts.map((f) => f.key)))

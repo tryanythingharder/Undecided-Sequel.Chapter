@@ -40,7 +40,10 @@ android {
         applicationId = "com.sixworlds.mobile"
         minSdk = 26
         targetSdk = 36
-        // 版本号编码 主.次.补丁 → 单调整数（Android 升级安装要求 versionCode 严格递增）
+        // 版本号编码 主.次.补丁 → 单调递增整数（Android 升级安装要求 versionCode 严格递增）：
+        // 1.5.2 → 10502。QA 评审指出的「2.0.0=20000 < 1.5.x? 」实为误判（20000 > 10502，可正常升级）；
+        // 真正的边界是次/补丁位不能 ≥100（1.100.0 会与 2.0.0 同码），semver 下不会发生。
+        // 双防线：build 完成后自检 versionCode 单调性 + CI 对照上一 tag 校验（check-android-release）。
         versionCode = pkgVersion.split(".").take(3).map { it.toInt() }.fold(0) { acc, v -> acc * 100 + v.toInt() }
         versionName = pkgVersion
         ndk {

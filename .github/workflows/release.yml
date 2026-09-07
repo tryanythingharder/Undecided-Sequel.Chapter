@@ -22,6 +22,17 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
+      - name: 版本一致性闸门（QA 评审：tag/package/README 三方对齐才允许出包）
+        shell: pwsh
+        run: |
+          $tag = "${env:GITHUB_REF_NAME}"
+          if (-not $tag.StartsWith('v')) { Write-Error "::error::tag 不以 v 开头: $tag"; exit 1 }
+          $tagVer = $tag.Substring(1)
+          $pkg = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          if ($pkg -ne $tagVer) { Write-Error "::error::package.json 版本 $pkg 与 tag 版本 $tagVer 不一致（tag 前必须先 bump 版本号并提交）"; exit 1 }
+          $readmeHit = Select-String -Path README.md -Pattern ([regex]::Escape($tagVer)) -Quiet
+          if (-not $readmeHit) { Write-Error "::error::README.md 未提及版本 $tagVer（下载表需同步更新）"; exit 1 }
+          Write-Host "版本一致性通过: tag=$tagVer package=$pkg README 已同步"
       - run: npm test
       # 出包前先全量测试。dist 脚本已内建 --publish never（发布动作由下方 release job 统一做；
       # 旗标经 npm -- 追加会与脚本内重复成数组使 never 失效，故不再另传）
@@ -35,7 +46,9 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force dist-assets | Out-Null
           Copy-Item "dist\*.exe" dist-assets\
-          Copy-Item "dist\latest.yml" dist-assets\   # electron-updater 更新清单（自更新必需）
+          Copy-Item "dist\*.exe.blockmap" dist-assets\   # 差量更新块图（electron-updater 按 <exe>.blockmap 约定 URL 拉取；缺省则每次更新全量 165MB 重下）
+          Copy-Item "dist\latest.yml" dist-assets\        # electron-updater 更新清单（自更新必需）
+          if (-not (Get-Item dist-assets\*.exe.blockmap)) { Write-Error "::error::blockmap 未生成——NSIS 差量打包配置漂移"; exit 1 }
           Get-ChildItem dist-assets
         shell: pwsh
       - uses: actions/upload-artifact@v4
@@ -43,6 +56,7 @@ jobs:
           name: desktop-assets
           path: |
             dist-assets/*.exe
+            dist-assets/*.exe.blockmap
             dist-assets/latest.yml
           if-no-files-found: error
 

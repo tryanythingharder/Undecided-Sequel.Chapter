@@ -37,11 +37,14 @@ check('reminder-mentions-json-closure', reminderTxt.includes('闭合'))
 // 3) 守卫：重申只在 engineMeta && protocolText() && history.length 时以 user 角色注入
 check('reminder-guarded-by-engineMeta', src.includes('if (engineMeta && protocolText() && history.length) msgs.push({') && src.includes("role: 'user',\n        content: '（系统要求，非剧情内容"))
 
-// 4) 补账重试提示词为最后一条消息（retryMsgs concat 的最后一项是 user patchRetryPrompt）
-const retryIdx = src.indexOf('const retryMsgs = msgs.concat([')
+// 4) 补账重试：载荷为「内核/状态块前缀 + 玩家输入 + 叙事 + 重试提示」（成本评审砍掉 64 条历史），
+//    不变量仍是重试提示为最后一条消息（~100% 遵循的位置形态）
+const retryIdx = src.indexOf('const retryMsgs = prefix.concat([')
 const retryTail = retryIdx !== -1 ? src.slice(retryIdx, retryIdx + 900) : ''
 const concatEnd = retryTail.indexOf('])')
 check('retry-prompt-is-last-message', concatEnd !== -1 && retryTail.slice(0, concatEnd).lastIndexOf("{ role: 'user', content: patchRetryPrompt(") > retryTail.slice(0, concatEnd).lastIndexOf("{ role: 'assistant'"), 'user prompt is the last concat item')
+// 成本评审回归：前缀只保留内核（+状态块），不夹带历史（concat 输入必须是 msgs.slice 前 2 条）
+check('retry-prefix-not-full-history', /const prefix = msgs\.slice\(0, engineMeta && engineMeta\.block \? 2 : 1\)/.test(src), 'prefix = kernel (+state block) only')
 
 // 5) resolvePendingFlow 的提示词同样在消息末位（msgs2 最后一条 user）
 const resolveIdx = src.indexOf('function resolvePendingFlow')

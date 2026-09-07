@@ -979,6 +979,7 @@ ipcMain.handle('chat:send', async (_evt, cfg) => {
     // silent + rp 前缀 reqId = 状态补录静默重试：不进 UI 流式，改用非流式请求——
     // 部分中继的 SSE 会在流中途干净断开（无 [DONE] 无错误），流式重试同样会被截；
     // 非流式一次性返回完整 JSON，不受断流影响，补录成功率更高。
+    // usage 照常请求（成本评审：补账也是真实计费调用，渲染层会把它计入用量面板）
     const isSilentRetry = !!cfg.silent && /^rp/.test(String(cfg.reqId || ''))
     const payload = {
       model,

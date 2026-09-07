@@ -284,9 +284,13 @@ async function main() {
   check('session-auto-title', /布耶纳村/.test(title || ''), 'title=' + title)
 
   // ---- 新功能：token 用量累计（R70 起展示在模型芯片用量面板 #model-pop）----
+  // 成本评审回归：补账静默重试的 usage 也计入（此前被漏记 → 账单≈面板 1.4 倍）。
+  // 本轮 = 主调用(50/20/70) + 无 patch 触发的补录重试(100/40/140) = 150/60/210。
+  await waitEngineSettled(win) // 等补录结束，usage 累计稳定
   await win.locator('#chip-text-model').click()
   const meta1 = await win.locator('#model-pop').textContent()
-  check('token-usage-shown', /70 tok/.test(meta1 || ''), 'meta=' + meta1)
+  check('token-usage-shown', /210 tok/.test(meta1 || ''), 'meta=' + meta1)
+  check('retry-usage-counted', (meta1 || '').includes('150 输入 / 60 输出 / 210 tok'), 'meta=' + meta1)
   await win.locator('#chip-text-model').click()
 
   // ---- 新消息带时间戳（悬停显示）----
