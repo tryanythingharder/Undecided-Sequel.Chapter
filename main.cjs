@@ -1051,7 +1051,10 @@ ipcMain.handle('chat:send', async (_evt, cfg) => {
       // 流式响应：逐行解析 SSE
       if (!res.ok) {
         const body = (await readResponseBufferLimited(res, 1024 * 1024, '错误响应')).toString('utf8')
-        return { ok: false, error: 'HTTP ' + res.status + ' ' + body.slice(0, 400) }
+        let errPayload = res.status + ' ' + body.slice(0, 400)
+        try { const j = JSON.parse(body); if (j && j.error) errPayload = JSON.stringify(j.error) } catch { /* 非 JSON 错误体，原样 */ }
+        // P1 错误归因：流式路径与非流式同等待遇（此前裸 HTTP 状态码直透渲染层）
+        return { ok: false, error: friendlyError(errPayload) }
       }
       let full = ''
       let usage = null

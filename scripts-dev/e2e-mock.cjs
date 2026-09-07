@@ -146,6 +146,14 @@ async function main() {
   check('settings-window-opens', !!sw)
   await sw.selectOption('#set-preset', 'custom')
   await sw.fill('#set-baseurl', base)
+  // P1-5 明文端点警示：http:// 地址就地亮警示（不打断输入）；https 隐藏
+  const warnHttp = await sw.locator('#set-baseurl-warn').isVisible().catch(() => false)
+  check('plain-http-warn-shown', warnHttp === true, 'http 警示可见=' + warnHttp)
+  await sw.fill('#set-baseurl', 'https://example.com')
+  await sw.waitForTimeout(100)
+  const warnHttps = await sw.locator('#set-baseurl-warn').isVisible().catch(() => true)
+  check('plain-http-warn-hidden-on-https', warnHttps === false, 'https 警示隐藏=' + warnHttps)
+  await sw.fill('#set-baseurl', base)
   await sw.fill('#set-apikey', 'sk-mock')
   await sw.fill('#set-model', 'mock-chat')
 

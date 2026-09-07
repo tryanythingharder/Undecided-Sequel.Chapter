@@ -16,11 +16,32 @@
 
   function createSend(ctx) {
     const st = ctx.st
-    const { $, api, cfg, kernel, curSession, deriveTitle, fitInput, generateIllust, illustReady, newSession, openSettings, renderMessages, renderSessionList, saveSessions, sessionDrafts, setSendButtonState, showBusyIsland, toast, touchSession, updateTitle, enginePrep, patchRetryPrompt, protocolText } = ctx
+    const { $, api, cfg, kernel, curSession, deriveTitle, fitInput, generateIllust, illustReady, newSession, openSettings, renderMessages, renderSessionList, saveSessions, sessionDrafts, setSendButtonState, showBusyIsland, toast, touchSession, updateTitle, enginePrep, patchRetryPrompt, protocolText, onTokensUpdated } = ctx
+    /* Codex 化输入框的可选钩子：token 计账后通知 UI 刷新底栏常显小字（经典版不注入则无操作） */
+    const pingTokensUpdated = () => { if (onTokensUpdated) { try { onTokensUpdated() } catch { /* noop */ } } }
     /* R86 发送排队：生成中/补账中的点击不再拒绝，入队待本轮收尾自动续发（最多 1 条，
      * 后到的覆盖先到的——用户最后点的才是想要的）。UI 反馈即时，观感零等待。 */
     let queuedSend = null
     let queueDrainer = 0
+    /* P1-2 排队持久指示：入队即在忙碌岛挂「已排队」chip（点击取消），出队/清队即撤。
+     * 跨模块经 DOM 桥（#island-busy 由 app.js 的 showBusyIsland 创建，双方案同 id），
+     * chip 生命周期完全由 send-flow 自管，岛关闭时随 DOM 一起消失，无需额外清理钩子。 */
+    function renderQueueChip() {
+      const island = document.getElementById('island-busy')
+      if (!island) return
+      let chip = document.getElementById('island-queue-chip')
+      if (!queuedSend) { if (chip) chip.remove(); return }
+      if (!chip) {
+        chip = document.createElement('button')
+        chip.id = 'island-queue-chip'
+        chip.className = 'island-queue-chip'
+        chip.title = '点击取消排队中的发送'
+        chip.addEventListener('click', () => clearQueue('已取消排队中的发送'))
+        island.appendChild(chip)
+      }
+      const preview = queuedSend.text ? String(queuedSend.text).replace(/\s+/g, ' ').slice(0, 24) : '重新生成'
+      chip.textContent = '已排队：' + preview + (queuedSend.text && queuedSend.text.length > 24 ? '…' : '') + ' ✕'
+    }
     function drainQueue() {
       if (queueDrainer) return
       queueDrainer = setInterval(() => {
@@ -29,12 +50,17 @@
         queueDrainer = 0
         const q = queuedSend
         queuedSend = null
+        renderQueueChip()
         const s = curSession()
         if (q && s && s.id === q.sid) send(q.text, q.opts) // 会话钉扎：切线后丢弃（内容属于原世界线）
       }, 300)
     }
     function clearQueue(reason) {
-      if (queuedSend) { queuedSend = null; toast(reason || '已取消排队中的发送', 'info', 1600) }
+      if (queuedSend) {
+        queuedSend = null
+        renderQueueChip()
+        toast(reason || '已取消排队中的发送', 'info', 1600)
+      }
     }
     async function send(text, opts) {
       opts = opts || {}
@@ -44,6 +70,7 @@
         if (value || opts.regen) {
           const s0 = curSession()
           queuedSend = { text: value, opts, sid: s0 ? s0.id : null }
+          renderQueueChip()
           toast('已排队：本轮结束后自动发出', 'info', 1600)
         }
         return
@@ -52,6 +79,7 @@
         if (value || opts.regen) {
           const s0 = curSession()
           queuedSend = { text: value, opts, sid: s0 ? s0.id : null }
+          renderQueueChip()
           drainQueue()
           toast('已排队：状态补录完成后自动发出', 'info', 1600)
         }
@@ -210,6 +238,7 @@
                   const c = Number(u.cost != null ? u.cost : (rr.cost != null ? rr.cost : NaN))
                   if (Number.isFinite(c)) s.tokens.cost = (s.tokens.cost || 0) + c
                   saveSessions()
+                  pingTokensUpdated()
                 }
               } catch { pendingKept = true }
               st.engineBusy = false
@@ -228,9 +257,11 @@
         // 没有收到任何内容也取消了
         toast('已停止生成', 'info')
       } else {
+        // P1 错误归因：这里报告的是「模型服务/网络」问题（引擎记账在回复后另行处理），
+        // 不再把服务商故障算到引擎头上；文案直接说人话。
         const errMsg = (r && r.error) || '未知错误'
-        s.messages.push({ role: 'assistant', content: '⚠️ [[世界引擎报错]]\n' + errMsg })
-        toast('世界引擎报错：' + errMsg, 'err')
+        s.messages.push({ role: 'assistant', content: '⚠️ [[生成失败]]\n' + errMsg })
+        toast('生成失败：' + errMsg, 'err')
         api.notify({ title: '六面世界 · 生成失败', body: String(errMsg).slice(0, 120) }).catch(() => {})
       }
       // 累计本轮 token 用量到当前世界线（主进程从 usage 字段解析）
@@ -244,6 +275,7 @@
         const c = Number(u.cost != null ? u.cost : (r.cost != null ? r.cost : NaN))
         if (Number.isFinite(c)) s.tokens.cost = (s.tokens.cost || 0) + c
         saveSessions()
+        pingTokensUpdated()
       }
       const keepN = Math.min(400, Math.max(8, Number(cfg().keepCount) || 80))
       if (s.messages.length > keepN) s.messages = s.messages.slice(s.messages.length - keepN)
@@ -257,6 +289,7 @@
         queuedSend = null
         setTimeout(() => { if (!st.busy && !st.engineBusy) send(q.text, q.opts) }, 200)
       }
+      renderQueueChip() // 本轮收尾：排队项转正（chip 变为新一轮忙碌岛）或已清空（chip 撤下）
 
       // 自动插图：为刚生成的叙事生成
       const last = s.messages.length - 1
@@ -315,7 +348,8 @@
 
   function createResolvePendingFlow(ctx) {
     const st = ctx.st
-    const { $, api, cfg, kernel, curSession, renderMessages, toast, enginePrep, patchRetryPrompt, protocolText, seedProtocolText, refreshPendingBanner } = ctx
+    const { $, api, cfg, kernel, curSession, renderMessages, toast, enginePrep, patchRetryPrompt, protocolText, seedProtocolText, refreshPendingBanner, onTokensUpdated } = ctx
+    const pingTokensUpdated = () => { if (onTokensUpdated) { try { onTokensUpdated() } catch { /* noop */ } } }
     async function resolvePendingFlow(pendingId) {
       const s = curSession()
       if (!s || st.busy || st.engineBusy) return
@@ -356,6 +390,7 @@
               s.tokens.total += Number(u.total_tokens) || 0
               const c = Number(u.cost != null ? u.cost : (rr.cost != null ? rr.cost : NaN))
               if (Number.isFinite(c)) s.tokens.cost = (s.tokens.cost || 0) + c
+              pingTokensUpdated()
             }
           } catch { /* 单条失败不影响其余补录 */ }
         }

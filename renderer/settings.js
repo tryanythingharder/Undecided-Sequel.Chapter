@@ -319,6 +319,7 @@
     $('set-ctx').value = cfg.ctxCount
     $('set-keep').value = cfg.keepCount
     syncCustomStyleVisibility()
+    refreshPlainHttpWarn()
   }
 
   function syncCustomStyleVisibility() {
@@ -326,6 +327,21 @@
     $('set-illust-custom-label').classList.toggle('hidden', !isCustom)
     $('set-illust-custom').classList.toggle('hidden', !isCustom)
   }
+
+  /* P1-5 明文端点提示（安全评审低危 → P1）：http:// 端点意味着 API 密钥明文出网，
+   * 中间人可见。填写时就地警示（保存/测试/切换预设都会刷新），不用弹窗打断。 */
+  function refreshPlainHttpWarn() {
+    const pairs = [['set-baseurl', 'set-baseurl-warn'], ['set-illust-baseurl', 'set-illust-baseurl-warn']]
+    for (const [inputId, warnId] of pairs) {
+      const input = $(inputId), warn = $(warnId)
+      if (!input || !warn) continue
+      const url = String(input.value || '').trim()
+      const plain = /^http:\/\//i.test(url)
+      warn.classList.toggle('hidden', !plain)
+    }
+  }
+  $('set-baseurl').addEventListener('input', refreshPlainHttpWarn)
+  $('set-illust-baseurl').addEventListener('input', refreshPlainHttpWarn)
 
   // ============ 端点测试 ============
   async function testEndpoint(btn, resultEl, baseUrl, apiKey, model) {

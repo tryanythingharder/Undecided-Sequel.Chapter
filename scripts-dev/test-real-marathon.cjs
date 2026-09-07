@@ -154,7 +154,7 @@ async function main() {
       }
       // ---- API 故障轮识别（R85）：秒回 + 无选项 + 报错模板 = 服务端故障，不是有效叙事轮。
       // 错误轮一律不入账、不烧轮次：单轮暂停 30s 后重打；连击 4 轮 → 熔断每 120s 探测恢复 ----
-      if (r.ok && r.dur < 5000 && r.ui.choices === 0 && /世界引擎报错/.test(r.ui.txt)) {
+      if (r.ok && r.dur < 5000 && r.ui.choices === 0 && /生成失败|世界引擎报错/.test(r.ui.txt)) {
         state.errStreak++
         state.outageRounds++
         if (state.errStreak >= 4) {
@@ -167,7 +167,7 @@ async function main() {
               await win.fill('#input', '（继续）')
               await win.click('#btn-send')
               const rp = await waitRoundDone(win, prevTxt, 150000)
-              if (rp.ok && rp.ui.choices > 0 && !/世界引擎报错/.test(rp.ui.txt)) {
+              if (rp.ok && rp.ui.choices > 0 && !/生成失败|世界引擎报错/.test(rp.ui.txt)) {
                 recovered = true
                 console.log(`  [round ${n}] 服务已恢复（探测 ${probe} 次成功）`)
               } else {

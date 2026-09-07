@@ -39,7 +39,8 @@
       </select>
       <label>API 地址 (Base URL)</label>
       <input id="set-baseurl" type="text" placeholder="https://api.deepseek.com" />
-      <label>API 密钥</label>
+
+      <p id="set-baseurl-warn" class="field-warn hidden">⚠ 这是 http:// 明文地址：密钥会不加密地经过网络（同一网络里的他人可能看到）。官方 API 均为 https，请确认这是你信任的内网/中转服务。</p>      <label>API 密钥</label>
       <div class="row">
         <input id="set-apikey" type="password" placeholder="sk-..." />
         <button class="mini ghost-mini" id="btn-peek-key" type="button" title="显示 / 隐藏密钥" aria-label="显示 / 隐藏密钥"><svg class="ic" viewBox="0 0 16 16"><path d="M1.5 8s2.5-4.5 6.5-4.5S14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8Z"/><circle cx="8" cy="8" r="1.8"/></svg></button>
@@ -84,7 +85,8 @@
       </select>
       <label>API 地址 (Base URL)</label>
       <input id="set-illust-baseurl" type="text" placeholder="https://api.openai.com/v1" />
-      <label>API 密钥（留空则复用文本模型的密钥）</label>
+
+      <p id="set-illust-baseurl-warn" class="field-warn hidden">⚠ 这是 http:// 明文地址：密钥会不加密地经过网络（同一网络里的他人可能看到）。官方 API 均为 https，请确认这是你信任的内网/中转服务。</p>      <label>API 密钥（留空则复用文本模型的密钥）</label>
       <div class="row">
         <input id="set-illust-apikey" type="password" placeholder="sk-..." />
         <button class="mini ghost-mini" id="btn-peek-illust-key" type="button" title="显示 / 隐藏密钥" aria-label="显示 / 隐藏密钥"><svg class="ic" viewBox="0 0 16 16"><path d="M1.5 8s2.5-4.5 6.5-4.5S14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8Z"/><circle cx="8" cy="8" r="1.8"/></svg></button>

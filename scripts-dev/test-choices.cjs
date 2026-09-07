@@ -184,6 +184,16 @@ async function main() {
     await win.locator('.choice').first().click()
     const queuedToast = await win.evaluate(() => Array.from(document.querySelectorAll('.toast')).some((t) => t.textContent.includes('排队')))
     check('stream-click-queues', queuedToast, '点击即时反馈排队')
+    // P1-2 排队持久指示：忙碌岛挂「已排队」chip（点击可取消），不再是转瞬即逝的 toast
+    const chipText = await win.evaluate(() => { const c = document.getElementById('island-queue-chip'); return c ? c.textContent : '' })
+    check('queue-chip-persistent', chipText.includes('已排队'), 'chip=' + chipText)
+    // chip 点击 → 取消排队（queuedSend 清空，本轮结束后不再自动发出）
+    await win.evaluate(() => document.getElementById('island-queue-chip').click())
+    await win.waitForTimeout(400)
+    const chipGone = await win.evaluate(() => !document.getElementById('island-queue-chip'))
+    check('queue-chip-click-cancels', chipGone, 'chip 点击后撤下')
+    // 重新排队并验证轮末自动发出路径未被取消逻辑破坏
+    await win.locator('.choice').first().click()
     let autoSent = false
     for (let i = 0; i < 120; i++) {
       const users = await win.evaluate(() => document.querySelectorAll('.msg.user .msg-body').length)

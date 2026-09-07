@@ -460,7 +460,7 @@
         if (busy) { toast('世界运转中，回合结束后再删除', 'info', 1800); return } // R57：生成中禁止删除世界线（防流式写入已删会话）
         confirmDialog({
           title: '删除这条世界线？',
-          body: '「' + s.title + '」的 ' + s.messages.length + ' 条对话、' + illustCount + ' 张插图与世界状态记忆（含待补录记录）将被永久删除，无法恢复。',
+          body: '「' + s.title + '」的 ' + s.messages.length + ' 条对话、' + illustCount + ' 张插图与世界记忆将被永久删除，无法恢复。',
           danger: true,
           okText: '删除'
         }).then((ok) => {
@@ -1101,14 +1101,14 @@ const Illust = window.IllustPanel.createIllustPanel({
           // 记账中：后台补录进行时（不可点击，阅读/选项不受影响）
           const chip = document.createElement('div')
           chip.className = 'msg-committing-chip'
-          chip.textContent = '◌ 记忆记账中…'
+          chip.textContent = '◌ 正在保存本回合的世界记忆…'
           chip.title = '正在把这一回合写入世界记忆（后台进行，不影响阅读和选择）。完成后自动消失。'
           div.appendChild(chip)
         } else {
           const chip = document.createElement('button')
           chip.className = 'msg-pending-chip'
-          chip.textContent = '⚠ 状态未落账 · 点击补录'
-          chip.title = '这一回合的结构化状态没有正式提交（模型缺状态块或校验未过）。点击立即尝试补录。'
+          chip.textContent = '⚠ 这一幕的世界记忆没存上 · 点击补存'
+          chip.title = '剧情已经生成并展示，但这一幕的记忆（人物、事实、伏笔的变化）还没有存进世界记忆。点击立即补存。'
           chip.addEventListener('click', () => resolvePendingFlow(typeof m.pending === 'string' ? m.pending : null))
           div.appendChild(chip)
         }
@@ -1505,7 +1505,7 @@ const sendSt = {
   // 重新生成指定回合（默认最后一回合）
   function regenerate(idx) {
     if (busy) { toast('请等当前回合结束', 'info'); return }
-    if (engineBusy) { toast('上一回合状态正在补录，请稍候', 'info'); return }
+    if (engineBusy) { toast('正在保存上一幕的世界记忆，请稍候', 'info'); return }
     const s = curSession()
     if (!s) return
     // idx 指向一条 assistant 消息；找到其前的 user，移除该 assistant 及之后
@@ -1534,7 +1534,7 @@ const sendSt = {
       const label = document.getElementById('pending-count')
       if (n > 0) {
         el.classList.remove('hidden')
-        if (label) label.textContent = n + ' 条回合状态未落账（剧情已展示，状态未提交——多因模型未按协议输出状态块。可一键补录；反复补不进可「放弃」并建议更换模型）'
+        if (label) label.textContent = n + ' 幕的世界记忆没存上（剧情正常，是模型漏交了记忆部分）。可一键补存；反复存不进可「放弃」，或考虑换个推理更强的模型'
       } else {
         el.classList.add('hidden')
       }
@@ -3403,10 +3403,10 @@ const KData = window.KernelData.createKernelData({
     const s = curSession()
     if (!s || busy || engineBusy) return
     confirmDialog({
-      title: '放弃这些待补录状态？',
-      body: '补录多次仍失败（模型反复输出无法通过校验的状态块）。放弃后：剧情与对话不受影响，这些回合的结构化状态（实体/伏笔/事实变化）不再写入世界记忆，也无法事后找回。确定放弃？',
+      title: '放弃这些幕的记忆补存？',
+      body: '多次补存仍然失败（模型反复给出无法采用的记忆数据）。放弃后：剧情与对话不受影响，但这些幕的人物/事实/伏笔变化不会进入世界记忆，也无法事后找回。确定放弃？',
       danger: true,
-      okText: '放弃补录'
+      okText: '放弃补存'
     }).then((ok) => {
       if (!ok) return
       ;(async () => {
@@ -3423,7 +3423,7 @@ const KData = window.KernelData.createKernelData({
         saveSessions()
         renderMessages()
         refreshPendingBanner()
-        toast(n ? ('已放弃 ' + n + ' 条待补录（世界记忆不再含这些回合）') : '没有可放弃的待补录', n ? 'info' : 'ok')
+        toast(n ? ('已放弃 ' + n + ' 幕的记忆补存（世界记忆不再含这些幕）') : '没有需要放弃的补存', n ? 'info' : 'ok')
       })()
     })
   }
@@ -3435,7 +3435,7 @@ const KData = window.KernelData.createKernelData({
     discardBtn.id = 'btn-pending-discard'
     discardBtn.className = 'pending-btn ghost'
     discardBtn.textContent = '放弃'
-    discardBtn.title = '补录多次仍失败时，显式放弃这些回合的状态补录（剧情不受影响）'
+    discardBtn.title = '多次补存仍失败时，放弃这些幕的记忆补存（剧情不受影响）'
     discardBtn.addEventListener('click', discardAllPendings)
     document.getElementById('btn-pending-resolve').after(discardBtn)
   }
@@ -3637,6 +3637,17 @@ const KData = window.KernelData.createKernelData({
       let current = 'classic'
       try { current = await api.uiScheme() } catch { /* noop */ }
       if (target === current) return
+      // P1-4 忙碌守卫：切换方案会整页重载，生成中的回合会被直接杀掉——先确认
+      if (busy || engineBusy) {
+        const ok = await confirmDialog({
+          title: '正在生成中',
+          body: '切换界面方案会重载整个页面，正在生成的这一幕会丢失（已显示的文字不会保留）。确定切换吗？',
+          danger: true,
+          okText: '仍然切换',
+          cancelText: '继续等待'
+        })
+        if (!ok) return
+      }
       try { await api.setUiScheme(target) } catch { /* noop */ }
     })
   })
