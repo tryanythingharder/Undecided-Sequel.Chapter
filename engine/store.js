@@ -35,7 +35,7 @@ class StateStore {
   /* 检索缓存槽：version 单调递增，任何状态落盘（含快照恢复）都会 bump → 所有派生缓存失效 */
   retrSlot(storyId) {
     let c = this._retrCache.get(storyId)
-    if (!c) { c = { version: 0, entityIndex: null, queries: new Map() }; this._retrCache.set(storyId, c) }
+    if (!c) { c = { version: 0, entityIndex: null, entityById: null, queries: new Map() }; this._retrCache.set(storyId, c) }
     return c
   }
   _dropRetrCache(storyId) {
@@ -144,7 +144,7 @@ class StateStore {
     this._writeMeta(storyId, story)
     this._cache.set(storyId, { story })
     const rc = this._retrCache.get(storyId)
-    if (rc) { rc.version += 1; rc.queries.clear() } // 缓存一致性（规范四十三）：状态变更即失效；实体索引按水位增量续建（retriever 管理）
+    if (rc) { rc.version += 1; rc.queries.clear(); rc.entityById = null } // 缓存一致性（规范四十三）：状态变更即失效；实体索引按水位增量续建、entityById 随版本重建（retriever 管理）
     try { if (this._onAfterFlush) this._onAfterFlush(story) } catch { /* 派生层失败不阻断正本（下次 flush/查询自愈） */ }
   }
 

@@ -110,17 +110,20 @@ async function main() {
   check('degraded-save-still-writes-mirror', degSave.ok === true && JSON.parse(fs.readFileSync(SESSIONS_JSON, 'utf8')).sessions[0].id === 'sess-test-9')
   await app.close()
 
-  // ---- 6. 迁移分支的格式防御（>50 条、非数组）----
+  // ---- 6. 迁移分支的格式防御（P2 上限治理：>200 条不拒载而是截旧保新；非数组仍拒）----
   fs.rmSync(SESSIONS_DB, { force: true }); fs.rmSync(SESSIONS_DB + '-wal', { force: true }); fs.rmSync(SESSIONS_DB + '-shm', { force: true })
-  const overflow = []; for (let i = 0; i < 51; i++) overflow.push(sample(100 + i))
+  const overflow = []; for (let i = 0; i < 201; i++) overflow.push(sample(100 + i))
   fs.writeFileSync(SESSIONS_JSON, JSON.stringify({ v: 1, sessions: overflow }))
   app = await launch()
   win = await app.firstWindow()
   await win.waitForTimeout(1500)
   r = await win.evaluate(() => window.api.loadSessions())
-  check('migration-rejects-overflow', r.ok === false && /格式不正确|上限/.test(r.error || ''), JSON.stringify(r && { ok: r.ok, error: (r.error || '').slice(0, 40) }))
+  const ids = (r.sessions || []).map((s) => s.id)
+  check('migration-overflow-truncates-keeps-newest', r.ok === true && r.sessions.length === 200 && ids.includes('sess-test-300') && !ids.includes('sess-test-100'), JSON.stringify(r && { ok: r.ok, n: r.sessions && r.sessions.length }))
   await app.close()
 
+  // 上一步溢出迁移成功后库里有数据——先清库，坏形状才会真正走到 JSON 迁移分支
+  fs.rmSync(SESSIONS_DB, { force: true }); fs.rmSync(SESSIONS_DB + '-wal', { force: true }); fs.rmSync(SESSIONS_DB + '-shm', { force: true })
   fs.rmSync(SESSIONS_JSON, { force: true })
   fs.writeFileSync(SESSIONS_JSON, JSON.stringify({ v: 1, sessions: 'not-an-array' }))
   app = await launch()

@@ -24,7 +24,11 @@ const MAX_IMAGE_BYTES = 25 * 1024 * 1024
 const MAX_CHAT_RESPONSE_BYTES = 16 * 1024 * 1024
 const MAX_IMAGE_BATCH = 100
 const MAX_SESSIONS_JSON_BYTES = 64 * 1024 * 1024
-const MAX_SESSIONS = 50
+/* 世界线上限（P2 数据丢失治理）：50 → 200。原 50 上限在渲染层是「保存时静默 slice(0,50)」——
+ * 用户建到第 51 条即被无声丢弃（重启后消失），QA 数据丢失风险表 D4 实锤。实测约 8KB/条
+ * （不含插图，插图为磁盘外置），200 条 ≈ 1.6MB，距 64MB 硬闸有充分余量。
+ * 治理原则：上限只防无界增长，超限必须显式报错（用户可删除旧线），永不静默截断。 */
+const MAX_SESSIONS = 200
 let win = null
 let settingsWin = null
 
@@ -131,7 +135,7 @@ function imageSource(value) {
 
 function externalizeSessions(input) {
   if (!Array.isArray(input)) throw new Error('会话数据格式不正确')
-  if (input.length > MAX_SESSIONS) throw new Error('会话数量超过上限（50）')
+  if (input.length > MAX_SESSIONS) throw new Error('世界线数量超过上限（' + MAX_SESSIONS + '）——请先删除不需要的旧世界线再保存')
   const sessions = JSON.parse(JSON.stringify(input))
   const assets = new Set()
   let imageCount = 0
@@ -604,8 +608,9 @@ ipcMain.handle('sessions:load', async () => {
       const fromDb = db.load()
       if (fromDb) {
         const doc = fromDb.doc
-        const stored = Array.isArray(doc) ? doc : doc && doc.sessions
-        if (!Array.isArray(stored) || stored.length > MAX_SESSIONS) throw new Error('会话库格式不正确')
+        let stored = Array.isArray(doc) ? doc : doc && doc.sessions
+        if (!Array.isArray(stored)) throw new Error('会话库格式不正确')
+        if (stored.length > MAX_SESSIONS) stored = stored.slice().sort((a, b) => Number((b && b.updatedAt) || 0) - Number((a && a.updatedAt) || 0)).slice(0, MAX_SESSIONS) // 超限库（异常现场）：照常载入，按 updatedAt 截旧保新——拒载会让渲染层回退空数据
         return { ok: true, exists: true, sessions: hydrateSessions(stored), storage: 'sqlite' }
       }
       // 2) 一次性迁移：主存为空且旧 JSON 存在 → 导入主存（JSON 镜像保留不删）
@@ -613,8 +618,9 @@ ipcMain.handle('sessions:load', async () => {
       if (fs.existsSync(file)) {
         const raw = readTextFileLimited(file, MAX_SESSIONS_JSON_BYTES, '会话文件')
         const doc = JSON.parse(raw)
-        const stored = Array.isArray(doc) ? doc : doc.sessions
-        if (!Array.isArray(stored) || stored.length > MAX_SESSIONS) throw new Error('会话文件格式不正确')
+        let stored = Array.isArray(doc) ? doc : doc.sessions
+        if (!Array.isArray(stored)) throw new Error('会话文件格式不正确')
+        if (stored.length > MAX_SESSIONS) stored = stored.slice().sort((a, b) => Number((b && b.updatedAt) || 0) - Number((a && a.updatedAt) || 0)).slice(0, MAX_SESSIONS) // 超限库：照常载入，按 updatedAt 截旧保新
         db.importDoc(Array.isArray(doc) ? { v: 1, sessions: stored } : doc)
         return { ok: true, exists: true, sessions: hydrateSessions(stored), storage: 'migrated' }
       }
@@ -625,8 +631,9 @@ ipcMain.handle('sessions:load', async () => {
     if (!fs.existsSync(file)) return { ok: true, exists: false, sessions: [], storage: 'file' }
     const raw = readTextFileLimited(file, MAX_SESSIONS_JSON_BYTES, '会话文件')
     const doc = JSON.parse(raw)
-    const stored = Array.isArray(doc) ? doc : doc.sessions
-    if (!Array.isArray(stored) || stored.length > MAX_SESSIONS) throw new Error('会话文件格式不正确')
+    let stored = Array.isArray(doc) ? doc : doc.sessions
+    if (!Array.isArray(stored)) throw new Error('会话文件格式不正确')
+    if (stored.length > MAX_SESSIONS) stored = stored.slice().sort((a, b) => Number((b && b.updatedAt) || 0) - Number((a && a.updatedAt) || 0)).slice(0, MAX_SESSIONS) // 超限库：照常载入，按 updatedAt 截旧保新
     return { ok: true, exists: true, sessions: hydrateSessions(stored), storage: 'file' }
   } catch (e) {
     return { ok: false, error: String((e && e.message) || e) }

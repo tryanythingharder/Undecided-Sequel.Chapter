@@ -254,7 +254,9 @@
    *    shared/sessions-client.js 是唯一实现处；此处只绑定本方案的可变状态与提示回调，
    *    归属修复/迁移逻辑的改动不再需要双边人工同步。 ---- */
   const sessionsLib = SessionsClient.createSessionsPersistence({ getSessions: () => sessions }, {
-    api, warnSaveFail, onSaved: () => { saveFailWarned = false }
+    api, warnSaveFail, onSaved: () => { saveFailWarned = false },
+    // P2 数据丢失治理：超 200 条时裁掉最旧的并明确告知（此前 50 条静默截断无任何提示）
+    onOverLimit: (total, dropped) => toast('世界线已达 ' + total + ' 条上限，最早的 ' + dropped + ' 条不再保存——请删除一些旧世界线', 'err', 8000)
   })
   sessionsLib.bindAutoFlush() // 页面隐藏/关闭强制冲刷（规范八：不丢尾部消息）
   async function loadSessions() {
@@ -1214,12 +1216,12 @@ const Illust = window.IllustPanel.createIllustPanel({
     choiceEl.innerHTML = ''
     multiSel.clear()
     // 输入占位随上下文切换（P1：占位文案须与当前可用操作一致）
-    $('input').placeholder = '自由描述你的行动…（Enter 发送 · Shift+Enter 换行）'
+    $('input').placeholder = '随心输入…（Enter 发送 · Shift+Enter 换行）'
     if (lastAssistantIdx >= 0 && !busy) {
       const choices = parseChoices(all[lastAssistantIdx].content)
       if (choices.length > 0) {
         choiceMode = true
-        $('input').placeholder = '点选上方选项直接行动，或在此自由描述…（Enter 发送）'
+        $('input').placeholder = '点选上方选项直接行动，或随心输入…（Enter 发送）'
         // 一次性 IF 发现提示（R7 P1-1）：首次出现选项时展示；点 ✕ 或用过 IF 后永不再现
         if (!localStorage.getItem('sixworlds.ifhint-seen.v1')) {
           const ifh = document.createElement('div')
@@ -1329,7 +1331,7 @@ const Illust = window.IllustPanel.createIllustPanel({
     const quoteChoices = (!choiceMode && lastMsg && !isErr) ? extractQuoteChoices(lastMsg.content) : []
     if (quoteChoices.length >= 2) {
       choiceMode = true
-      $('input').placeholder = '点选上方选项直接行动，或在此自由描述…（Enter 发送）'
+      $('input').placeholder = '点选上方选项直接行动，或随心输入…（Enter 发送）'
       const head = document.createElement('div')
       head.className = 'choices-head'
       const title = document.createElement('span')
@@ -1363,7 +1365,7 @@ const Illust = window.IllustPanel.createIllustPanel({
         !(window.api && window.api.isTest)
       if (allowGenericFallback) {
         choiceMode = true
-        $('input').placeholder = '点选上方选项直接行动，或在此自由描述…（Enter 发送）'
+        $('input').placeholder = '点选上方选项直接行动，或随心输入…（Enter 发送）'
         const head = document.createElement('div')
         head.className = 'choices-head'
         const title = document.createElement('span')
@@ -1484,6 +1486,8 @@ const sendSt = {
     enginePrep, patchRetryPrompt, protocolText: () => EngineFlow.protocolText(),
     // R86：流式选项渐进渲染——【你需要决定】一出现即可点选（点击经排队发送，不等 JSON 尾巴）
     onStreamChoices: (shownText) => renderStreamingChoices(shownText),
+    // Codex 化输入框：token 计费小字常显——主回复/补账计账后刷新底栏
+    onTokensUpdated: () => renderTokenMeter(),
   })
   const send = SendOrch.send
   const appendStream = (piece) => SendOrch.appendStream(piece)
@@ -1494,6 +1498,7 @@ const sendSt = {
     enginePrep, patchRetryPrompt, protocolText: () => EngineFlow.protocolText(),
     seedProtocolText: (t) => EngineFlow.seedProtocolText(t),
     refreshPendingBanner,
+    onTokensUpdated: () => renderTokenMeter(), // 待补录流计账后同步底栏小字
   })
   // 中途取消当前生成
   function stopGeneration() {
@@ -1573,20 +1578,23 @@ const sendSt = {
     else if (r && r.error) toast('保存失败：' + r.error, 'err')
   }
 
-  // 发送按钮在 busy 时变为 STOP；标题栏同步忙碌指示（Codex 式状态徽标）
-  const ICON_SEND = '<svg class="ic ic-sm" viewBox="0 0 16 16"><path d="M3.5 8.5 8 13h4.5M12.5 13H8M12.5 13V8.5"/></svg>'
-  const ICON_STOP = '<svg class="ic ic-sm" viewBox="0 0 16 16"><rect x="4" y="4" width="8" height="8" rx="1"/></svg>'
+  // 发送按钮在 busy 时变为 STOP（Codex 式圆形图标钮）；标题栏同步忙碌指示
+  // 文案藏在 .sr-only 里：读屏与 e2e 断言可读，视觉上 icon-only
+  const ICON_SEND = '<svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 13V3M3.5 7.5 8 3l4.5 4.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>'
+  const ICON_STOP = '<svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><rect x="4.5" y="4.5" width="7" height="7" rx="1.2" fill="currentColor"/></svg>'
   function setSendButtonState(isBusy) {
     const btn = $('btn-send')
     if (btn) {
       if (isBusy) {
-        btn.innerHTML = '停止 ' + ICON_STOP
+        btn.innerHTML = '<span class="sr-only">停止</span>' + ICON_STOP
         btn.classList.add('stop')
         btn.title = '停止生成'
+        btn.setAttribute('aria-label', '停止生成')
       } else {
-        btn.innerHTML = '发送 ' + ICON_SEND
+        btn.innerHTML = '<span class="sr-only">发送</span>' + ICON_SEND
         btn.classList.remove('stop')
         btn.title = '发送'
+        btn.setAttribute('aria-label', '发送')
       }
     }
     // 头部忙碌指示
@@ -1633,65 +1641,121 @@ const sendSt = {
         $('chat-title').appendChild(bc)
       }
     }
-    // 右上角模型芯片：文本模型 + 插图模型（点击查看 token 用量与扣费）
+    // 底栏模型芯片：模型名 + 当前思考档位（点击打开模型面板：清单/滑块/用量明细）
     const chipT = $('chip-text-model')
-    if (chipT) { chipT.textContent = cfg.model; chipT.title = '文本模型：' + cfg.model + ' · 点击查看用量' }
-    const chipI = $('chip-img-model')
-    if (chipI) {
-      if (illustReady()) {
-        chipI.hidden = false
-        // illustModel 可经配置导入进入——拼接前转义，防导入恶意 JSON 注入 HTML（CSP 之外的纵深）
-        chipI.innerHTML = '<svg class="ic ic-sm" viewBox="0 0 16 16"><path d="M8 1.5 14.5 8 8 14.5 1.5 8Z"/><path d="M8 4.5 11.5 8 8 11.5 4.5 8Z"/></svg> ' + escapeHtml(cfg.illustModel) + (cfg.illustAuto ? ' · 自动' : '')
-        chipI.title = '插图模型：' + cfg.illustModel + ' · 点击查看用量'
-      } else {
-        chipI.hidden = true
-      }
+    if (chipT) {
+      const lv = THINK_LABELS[cfg.thinkLevel] || '默认'
+      chipT.textContent = (cfg.model || '—') + ' · ' + lv
+      chipT.title = '文本模型：' + cfg.model + ' · 点击选择模型与思考程度'
     }
+    renderTokenMeter()
     // 窗口标题同步当前世界线（任务栏/Alt+Tab 可辨识）
     document.title = (s && n > 0 && s.title ? s.title : '六面世界')
   }
 
-  // ---- 右上角模型用量面板（点模型芯片展开） ----
+  // ---- 模型面板（点模型芯片展开）：只留模型清单 + 思考程度滑块；用量/扣费等统一在输入框下方小字 ----
+  const THINK_ORDER = ['default', 'low', 'medium', 'high']
+  const THINK_LABELS = { default: '默认', low: '浅', medium: '中', high: '深' }
   function renderModelPop() {
     const pop = $('model-pop')
     if (!pop) return
-    const s = curSession()
-    let allTok = 0, allCost = 0, allImgs = 0
-    for (const x of sessions) {
-      if (x.tokens) { allTok += x.tokens.total || 0; allCost += x.tokens.cost || 0 }
-      allImgs += x.messages.filter((m) => m.illust).length
-    }
     const provider = PRESETS[cfg.preset] ? PRESETS[cfg.preset].name : cfg.preset
-    const st = (s && s.tokens) ? s.tokens : { prompt: 0, completion: 0, total: 0, cost: 0 }
-    const sessImgs = s ? s.messages.filter((m) => m.illust).length : 0
-    const row = (k, v) => {
-      const d = document.createElement('div'); d.className = 'mp-row'
-      const k1 = document.createElement('span'); k1.className = 'mp-k'; k1.textContent = k
-      const v1 = document.createElement('span'); v1.className = 'mp-v'; v1.textContent = v
-      d.appendChild(k1); d.appendChild(v1)
-      return d
-    }
     pop.innerHTML = ''
-    const secT = document.createElement('div'); secT.className = 'mp-sec'; secT.textContent = '文本模型'
-    pop.appendChild(secT)
-    pop.appendChild(row('模型', cfg.model || '—'))
-    pop.appendChild(row('提供商', provider))
-    pop.appendChild(row('本线用量', (st.prompt || 0) + ' 输入 / ' + (st.completion || 0) + ' 输出 / ' + (st.total || 0) + ' tok'))
-    pop.appendChild(row('全部世界线', allTok + ' tok'))
-    const costTxt = (st.cost > 0 || allCost > 0)
-      ? ((st.cost || 0).toFixed(4) + '（累计 ' + allCost.toFixed(4) + '）')
-      : '端点未返回计费信息'
-    pop.appendChild(row('扣费', costTxt))
-    const secI = document.createElement('div'); secI.className = 'mp-sec'; secI.textContent = '插图模型'
-    pop.appendChild(secI)
-    if (illustReady()) {
-      pop.appendChild(row('模型', cfg.illustModel || '—'))
-      pop.appendChild(row('本线插图', sessImgs + ' 张'))
-      pop.appendChild(row('全部插图', allImgs + ' 张'))
-      pop.appendChild(row('扣费', '图像生成通常按张计费，费率见提供商账单'))
-    } else {
-      pop.appendChild(row('状态', '未启用（设置 · 插图模型）'))
+    // 头部：当前模型 + 提供商 + 刷新模型清单（从端点拉取）
+    const head = document.createElement('div'); head.className = 'mp-head'
+    const title = document.createElement('div'); title.className = 'mp-title'
+    const nameEl = document.createElement('div'); nameEl.className = 'mp-model-name'; nameEl.textContent = cfg.model || '—'
+    const provEl = document.createElement('div'); provEl.className = 'mp-provider'; provEl.textContent = provider
+    title.appendChild(nameEl); title.appendChild(provEl)
+    const refresh = document.createElement('button')
+    refresh.className = 'mp-refresh'; refresh.title = '从端点刷新模型清单'; refresh.setAttribute('aria-label', '刷新模型清单')
+    refresh.innerHTML = '<svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9M13.5 1.5v3h-3" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>'
+    refresh.addEventListener('click', async () => {
+      if (refresh.classList.contains('spin')) return
+      refresh.classList.add('spin')
+      try {
+        const r = await api.testEndpoint({ baseUrl: cfg.baseUrl, apiKey: cfg.apiKey })
+        if (r && r.ok && Array.isArray(r.models) && r.models.length) {
+          const list2 = (Array.isArray(cfg.models) ? cfg.models.slice() : []).filter(Boolean)
+          for (const m of r.models) if (!list2.includes(m)) list2.push(m)
+          cfg.models = list2.slice(0, 100)
+          saveStore()
+          try { api.mainChanged({ models: cfg.models }) } catch { /* noop */ }
+          renderModelPop()
+          toast('模型清单已刷新：' + r.models.length + ' 个', 'ok', 2000)
+        } else {
+          toast('刷新失败：' + ((r && r.error) || '端点未返回模型'), 'err', 3200)
+        }
+      } catch (e) {
+        toast('刷新失败：' + (e && e.message ? e.message : e), 'err', 3200)
+      } finally {
+        refresh.classList.remove('spin')
+      }
+    })
+    head.appendChild(title); head.appendChild(refresh)
+    pop.appendChild(head)
+    // 模型清单（cfg.models + 当前模型去重；点击即切换）
+    const list = (Array.isArray(cfg.models) ? cfg.models.slice() : []).filter(Boolean)
+    if (cfg.model && !list.includes(cfg.model)) list.unshift(cfg.model)
+    const listBox = document.createElement('div'); listBox.className = 'mp-list'
+    for (const m of list) {
+      const b = document.createElement('button')
+      b.className = 'mp-model' + (m === cfg.model ? ' on' : '')
+      b.title = m
+      const ck = document.createElement('span'); ck.className = 'ck'; ck.textContent = m === cfg.model ? '✓' : ''
+      const nm = document.createElement('span'); nm.className = 'nm'; nm.textContent = m
+      b.appendChild(ck); b.appendChild(nm)
+      b.addEventListener('click', () => {
+        if (m === cfg.model) return
+        cfg.model = m
+        saveStore()
+        // 反向同步给已打开的设置窗口，避免其旧快照在保存时覆盖
+        try { api.mainChanged({ model: cfg.model }) } catch { /* noop */ }
+        updateTitle()
+        renderModelPop()
+        toast('已切换模型：' + cfg.model, 'ok', 1800)
+      })
+      listBox.appendChild(b)
     }
+    pop.appendChild(listBox)
+    // 思考程度滑块（四档：默认/浅/中/深 → 主进程转 reasoning_effort，不支持时自动回退）
+    const thinkIdx = Math.max(0, THINK_ORDER.indexOf(cfg.thinkLevel || 'default'))
+    const think = document.createElement('div'); think.className = 'mp-think'
+    const th = document.createElement('div'); th.className = 'mp-think-head'
+    const thk = document.createElement('span'); thk.className = 'mp-think-k'; thk.textContent = '思考程度'
+    const thv = document.createElement('span'); thv.className = 'mp-think-v'; thv.textContent = THINK_LABELS[THINK_ORDER[thinkIdx]]
+    th.appendChild(thk); th.appendChild(thv)
+    const sliderWrap = document.createElement('div'); sliderWrap.className = 'mp-slider'
+    const range = document.createElement('input')
+    range.type = 'range'; range.min = '0'; range.max = '3'; range.step = '1'; range.value = String(thinkIdx)
+    range.setAttribute('aria-label', '思考程度')
+    const dots = document.createElement('div'); dots.className = 'mp-dots'
+    const dotEls = []
+    for (let i = 0; i < THINK_ORDER.length; i++) {
+      const d = document.createElement('i')
+      d.style.left = (i * 100 / (THINK_ORDER.length - 1)) + '%'
+      dots.appendChild(d); dotEls.push(d)
+    }
+    const syncSliderUi = (idx) => {
+      range.style.setProperty('--p', (idx * 100 / (THINK_ORDER.length - 1)) + '%')
+      thv.textContent = THINK_LABELS[THINK_ORDER[idx]]
+      dotEls.forEach((d, i) => d.classList.toggle('on', i === idx))
+    }
+    syncSliderUi(thinkIdx)
+    range.addEventListener('input', () => syncSliderUi(Number(range.value))) // 拖动中只更新视觉，松手才提交
+    range.addEventListener('change', () => {
+      const v = THINK_ORDER[Number(range.value)] || 'default'
+      if (v === cfg.thinkLevel) return
+      cfg.thinkLevel = v
+      saveStore()
+      try { api.mainChanged({ thinkLevel: cfg.thinkLevel }) } catch { /* noop */ }
+      updateTitle()
+      toast('思考程度：' + THINK_LABELS[v] + '（提供商不支持时自动回退默认）', 'info', 2200)
+    })
+    sliderWrap.appendChild(range); sliderWrap.appendChild(dots)
+    think.appendChild(th); think.appendChild(sliderWrap)
+    pop.appendChild(think)
+    // 面板只留模型与思考程度；用量/扣费/插图统一走输入框下方小字（renderTokenMeter）
   }
   function toggleModelPop() {
     const pop = $('model-pop')
@@ -1699,45 +1763,34 @@ const sendSt = {
     if (pop.classList.contains('hidden')) { renderModelPop(); cancelHideAnim(pop); pop.classList.remove('hidden') }
     else hideWithAnim(pop, () => pop.classList.add('hidden'))
   }
-  const chipT0 = $('chip-text-model'), chipI0 = $('chip-img-model')
+  const chipT0 = $('chip-text-model'), meter0 = $('token-meter')
   if (chipT0) chipT0.addEventListener('click', (e) => { e.stopPropagation(); toggleModelPop() })
-  if (chipI0) chipI0.addEventListener('click', (e) => { e.stopPropagation(); toggleModelPop() })
+  if (meter0) meter0.addEventListener('click', (e) => { e.stopPropagation(); toggleModelPop() })
 
-  // ---- 对话栏：切换模型 / 思考程度 ----
-  function refreshModelSelect() {
-    const sel = $('sel-model')
-    if (!sel) return
-    const list = (Array.isArray(cfg.models) ? cfg.models.slice() : []).filter(Boolean)
-    if (cfg.model && !list.includes(cfg.model)) list.unshift(cfg.model)
-    sel.innerHTML = ''
-    for (const m of list) {
-      const o = document.createElement('option')
-      o.value = m
-      o.textContent = m.length > 26 ? m.slice(0, 24) + '…' : m
-      o.title = m
-      sel.appendChild(o)
+  // ---- 输入框下方统一小字：本线用量 / 扣费 / 全部世界线 / 插图（面板只留模型与思考程度） ----
+  function renderTokenMeter() {
+    const el = $('token-meter')
+    if (!el) return
+    const s = curSession()
+    const t = s && s.tokens
+    if (!t || !(t.total > 0)) { el.hidden = true; return }
+    let allTok = 0, allCost = 0, allImgs = 0
+    for (const x of sessions) {
+      if (x.tokens) { allTok += x.tokens.total || 0; allCost += x.tokens.cost || 0 }
+      allImgs += x.messages.filter((m) => m.illust).length
     }
-    sel.value = cfg.model || ''
-    sel.hidden = list.length < 2 // 只有一个可选模型时收起下拉
+    const sessImgs = s ? s.messages.filter((m) => m.illust).length : 0
+    const parts = ['本线 ' + (t.prompt || 0) + ' 输入 / ' + (t.completion || 0) + ' 输出 / ' + (t.total || 0) + ' tok']
+    if (t.cost > 0) parts.push('扣费 ' + Number(t.cost).toFixed(4) + (allCost > t.cost ? '（累计 ' + allCost.toFixed(4) + '）' : ''))
+    parts.push('全部世界线 ' + allTok + ' tok')
+    if (illustReady()) parts.push('插图 ' + (cfg.illustModel || '') + ' ' + sessImgs + '/' + allImgs + ' 张')
+    el.hidden = false
+    el.textContent = parts.join(' · ')
+    el.title = '本会话 token 用量与扣费 · 点击打开模型面板' + (t.cost > 0 ? '' : '（端点未返回计费信息，费率见提供商账单）')
   }
-  const selModel = $('sel-model')
-  const selThink = $('sel-think')
-  if (selModel) selModel.addEventListener('change', () => {
-    if (!selModel.value || selModel.value === cfg.model) return
-    cfg.model = selModel.value
-    saveStore()
-    // 反向同步给已打开的设置窗口，避免其旧快照在保存时覆盖
-    try { api.mainChanged({ model: cfg.model }) } catch { /* noop */ }
-    updateTitle()
-    toast('已切换模型：' + cfg.model, 'ok', 1800)
-  })
-  if (selThink) selThink.addEventListener('change', () => {
-    cfg.thinkLevel = selThink.value
-    saveStore()
-    try { api.mainChanged({ thinkLevel: cfg.thinkLevel }) } catch { /* noop */ }
-    const label = { default: '默认', low: '浅', medium: '中', high: '深' }[cfg.thinkLevel] || '默认'
-    toast('思考程度：' + label + '（提供商不支持时自动回退默认）', 'info', 2200)
-  })
+
+  // ---- 模型/思考档位已并入模型面板（renderModelPop）。保留空实现：shared/onboarding.js 的向导拉取模型后仍会调用 ----
+  function refreshModelSelect() { /* Codex 化改造后无独立下拉，模型清单由面板按需渲染 */ }
 
   // ============ Toast 通知 ============
   const Toast = window.ToastPanel.createToast({
@@ -1942,8 +1995,6 @@ const sendSt = {
       if (cfg.palette === 'codex') cfg.palette = 'classic' // 设置窗口保存/重置/导入后的重载同样归一化
       if (sessions.some((s) => s.id === keepCur)) { currentId = keepCur; cfg.currentSessionId = keepCur }
       applyAllAppearance()
-      refreshModelSelect()
-      if (selThink) selThink.value = cfg.thinkLevel || 'default'
       await loadKernel()
       updateTitle()
       renderMessages()
@@ -3837,8 +3888,6 @@ const Onboarding = window.Onboarding.createOnboarding({
     updateTitle()
     await loadKernel()
     renderMessages()
-    refreshModelSelect()
-    if (selThink) selThink.value = cfg.thinkLevel || 'default'
     $('input').focus()
     // 世界之灵桌宠（bloub）：经典 / 原型双方案共用（shared/bloub-pet.js）；失败静默
     try { if (window.BloubPet) window.BloubPet.init() } catch {}

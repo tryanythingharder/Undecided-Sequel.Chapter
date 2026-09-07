@@ -147,6 +147,7 @@ function retrieve(story, opts) {
   const accessLevel = normalizeAccessLevel(opts.accessLevel) // 未知级别 fail-closed 为 PLAYER
   const secretsAllowed = canRead(accessLevel, 'secrets')
   const debugAllowed = canRead(accessLevel, 'debug')
+  let entityByIdLocal = null // 无槽模式（直接调用 retrieve）时的本查询实体索引
 
   /* ---- 查询缓存（规范二十五）：key 含查询/权限/limit，随 state_version 整体失效 ---- */
   const slot = opts._retr && opts._retr.slot
@@ -171,6 +172,16 @@ function retrieve(story, opts) {
   mentioned = _res.mentioned
   nameExactCount = _res.exact
   sceneEids = sceneEntities(story)
+  /* P2 性能债：实体按 id 的 O(1) 索引——entityHit/nameOf 原是 entities.find 线性扫，
+   * 事实/事件/关系逐条调用叠加成 O(记录×实体)。实体量小（几十个），一次建 Map 全程复用。
+   * 挂槽缓存（随版本失效），跨查询零重建。 */
+  if (!slot || !slot.entityById) {
+    const m = new Map()
+    for (const e of story.entities) if (e && e.story_id === story.story_id) m.set(e.entity_id, e)
+    if (slot) slot.entityById = m
+    else entityByIdLocal = m
+  }
+  const entityById = slot ? slot.entityById : entityByIdLocal
 
   /* ---- 语义信号（SQLite + sqlite-vec 派生索引，经 _vec 注入，可选）----
    * 双通道（向量 KNN + FTS5）产出 0~1 语义分；任一异常静默回退为纯词面+实体管线。
@@ -222,7 +233,7 @@ function retrieve(story, opts) {
     const eids = f.entity_ids || []
     let ent = 0
     for (const eid of eids) { ent = Math.max(ent, entBoost(eid)); if (sceneEids.has(eid)) ent = Math.max(ent, 0.25) }
-    const entX = ent + (entityHit(f.entity_ids, story, entityNames) ? 0.5 : 0)
+    const entX = ent + (entityHit(f.entity_ids, entityById, entityNames) ? 0.5 : 0)
     return { rec: f, _hit: hit, _hitOwn: hit, _eids: eids, _ent: entX, score: score(f.importance, turn - f.turn, hit, 0) + entX, reason: 'fact' }
   })
 
@@ -251,7 +262,7 @@ function retrieve(story, opts) {
     const hit = withSem('e|' + e.event_id, lc ? Math.max(overlapLC(qTokens, lc.a), overlapLC(qTokens, lc.b)) : Math.max(textOverlap(qTokens, e.description), textOverlap(qTokens, e.location)))
     let ent = 0
     for (const eid of e.participants || []) { ent = Math.max(ent, entBoost(eid)); if (sceneEids.has(eid)) ent = Math.max(ent, 0.25) }
-    const entX = ent + (entityHit(e.participants, story, entityNames) ? 0.5 : 0)
+    const entX = ent + (entityHit(e.participants, entityById, entityNames) ? 0.5 : 0)
     return { rec: e, _hit: hit, _hitOwn: hit, _eids: e.participants || [], _ent: entX, score: score(e.importance, turn - e.turn, hit, 0) + entX, reason: 'event' }
   })
 
@@ -264,7 +275,7 @@ function retrieve(story, opts) {
   out.relationships = story.relationships
     .filter((r) => r.story_id === story.story_id && r.status === 'ACTIVE')
     .map((r) => {
-      const involves = entityNames.filter((n) => nameOf(story, r.source).toLowerCase() === n || nameOf(story, r.target).toLowerCase() === n).length
+      const involves = entityNames.filter((n) => nameOf(entityById, r.source).toLowerCase() === n || nameOf(entityById, r.target).toLowerCase() === n).length
       const textHit = Math.max(textOverlap(qTokens, r.relation_type + ' ' + (r.description || '')), 0)
       const ent = Math.max(entBoost(r.source), entBoost(r.target))
       return { rec: r, score: 0.8 + (involves ? 1.2 : 0) + Math.abs(r.strength || 0) / 200 + textHit * 1.1 + ent, reason: involves ? 'relationship_scene' : (ent ? 'relationship_entity' : 'relationship') }
@@ -413,17 +424,23 @@ function grpIdField(grp) {
   return map[grp] || 'id'
 }
 
-function entityHit(entityIds, story, entityNames) {
+/* P2 性能债修复：entityId → entity 的 Map 索引（retrieve 内一次构建）替代 entities.find 线性扫。
+ * 原实现逐条记录 × 逐实体的双重遍历在长账本（万级事件）下成为检索热点之一。 */
+function entityHit(entityIds, entityById, entityNames) {
   if (!entityNames.length || !entityIds || !entityIds.length) return false
-  return entityIds.some((id) => { const e = story.entities.find((x) => x.entity_id === id); return e && entityNames.includes(e.name.toLowerCase()) })
+  for (const id of entityIds) {
+    const e = entityById.get(id)
+    if (e && entityNames.includes(String(e.name || '').toLowerCase())) return true
+  }
+  return false
 }
 
 function decisionEntityIds(idx, decisionId) {
   return (idx.decisionsByEntity && idx.decisionsByEntity.get(decisionId)) || []
 }
 
-function nameOf(story, entityId) {
-  const e = story.entities.find((x) => x.entity_id === entityId)
+function nameOf(entityById, entityId) {
+  const e = entityById.get(entityId)
   return e ? e.name : String(entityId || '')
 }
 

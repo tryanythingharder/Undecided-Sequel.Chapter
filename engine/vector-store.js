@@ -159,12 +159,15 @@ function structuralWatermark(story) {
 
 /* 内容指纹：可同步文本的轻量 hash（非加密，只为变化检测）。
  * 结构水位（长度 + maxTurn）每回合几乎必变（+1 event），但内容可能整段未变（例如补录回合只推进
- * 已有账本状态）——指纹与上次一致时跳过全行扫描，长篇下省掉每回合 O(账本行数) 的 SELECT+文本比较。 */
-function contentFingerprint(story) {
+ * 已有账本状态）——指纹与上次一致时跳过全行扫描，长篇下省掉每回合 O(账本行数) 的 SELECT+文本比较。
+ * P2 性能债（实测 15000 事件时每回合 flush+sync 平均 238ms / p95 449ms，commit 的最大单项）：
+ * 单块指纹覆盖全部三类账本，任一行变化都全量重扫 + 全行 SELECT 回查。
+ * 改为分账本（f/e/d 各自）指纹 + 各自结构水位：只重哈希结构变化的那类，
+ * 未变类整类跳过（零 SELECT、零嵌入、零 FTS 写）；变化类只回查该类行。 */
+function ledgerFingerprint(rows) {
   let h = 2166136261
-  const rows = storyTexts(story)
   for (const r of rows) {
-    const s = r.kind + '|' + r.rec_id + '|' + r.turn + '|' + r.importance + '|' + r.text
+    const s = r.rec_id + '|' + r.turn + '|' + r.importance + '|' + r.text
     for (let i = 0; i < s.length; i++) {
       h ^= s.charCodeAt(i)
       h = Math.imul(h, 16777619) >>> 0
@@ -386,6 +389,9 @@ function createVectorStore(dataDir, opts) {
   const setWatermark = (storyId, w) => { db.prepare('INSERT INTO meta(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value').run('wm:' + storyId, w) }
   const fingerprint = (storyId) => { try { const r = db.prepare('SELECT value FROM meta WHERE key=?').get('fp:' + storyId); return r ? r.value : null } catch { return null } }
   const setFingerprint = (storyId, f) => { db.prepare('INSERT INTO meta(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value').run('fp:' + storyId, f) }
+  /* P2 分账本指纹（f/e/d 各自）：kindFp:<kind>:<sid>；老整块 fp:<sid> 仅作迁移判断后清除 */
+  const kindFingerprintOf = (storyId, kind) => { try { const r = db.prepare('SELECT value FROM meta WHERE key=?').get('kindFp:' + kind + ':' + storyId); return r ? r.value : null } catch { return null } }
+  const setKindFingerprint = (storyId, kind, f) => { db.prepare('INSERT INTO meta(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value').run('kindFp:' + kind + ':' + storyId, f) }
 
   /* vec0 的 rowid 不接受绑定参数（扩展侧校验限制），只能内联整数——此处整数全部经本函数消毒 */
   function cidInt(v) {
@@ -431,30 +437,95 @@ function createVectorStore(dataDir, opts) {
       }
     }
     const embedFn = EMBEDDERS[embedderId].fn
-    const wm = structuralWatermark(story)
-    if (watermark(story.story_id) === wm) return
-    /* 内容指纹门：结构水位变了但可同步文本一字未变（补录推进已有账本等场景）——
-     * 直接推进水位并返回，跳过全行扫描；指纹仍需入库（下次结构变化时比对） */
-    const fp = contentFingerprint(story)
-    if (fingerprint(story.story_id) === fp) {
-      db.exec('BEGIN')
-      try { setWatermark(story.story_id, wm); setFingerprint(story.story_id, fp); db.exec('COMMIT') } catch (e) { try { db.exec('ROLLBACK') } catch {}; throw e }
-      return
+    /* ---- P2 分账本增量同步：结构水位/指纹按 f/e/d 各记一份（meta 键 kindFp:<kind>:<sid>）。
+     * 两级快速路径：
+     *  ① 类未变（行数 + updated_at 与上次一致）→ 整类跳过（不 SELECT、不嵌入、不写 FTS）；
+     *  ② 类只增长（行数 > 上次，新增行 turn 全部 > 上次同步的 maxTurn——引擎保证 turn 单调、
+     *     repositories.stamp 必写 updated_at）→ 只 diff 新增行，旧行零接触（长篇稳态主路径：
+     *     实测 15000 事件库从每回合全量 260ms 降至 ~新增行数线性）；
+     *  ③ 其余（删行 / 同行数原地改 / 快照回退）→ 该类全量 diff（正确性兜底，频率低）。
+     * 指纹编码 count:maxTurnSynced:updated_at:hash；老库整块 fp:<sid> 存在 → 首次迁移全量 diff 后转新机制。 */
+    const sid = story.story_id
+    const kindOf = { f: story.facts, e: story.events, d: story.decisions }
+    const rowsByKind = {}
+    for (const k of ['f', 'e', 'd']) {
+      const arr = kindOf[k]
+      if (!Array.isArray(arr)) { rowsByKind[k] = []; continue }
+      const rows = []
+      for (let i = 0; i < arr.length; i++) {
+        const r = arr[i]
+        if (r.story_id !== sid) continue
+        rows.push({
+          kind: k, rec_id: k === 'f' ? r.fact_id : (k === 'e' ? r.event_id : r.decision_id),
+          turn: r.turn || 0, importance: r.importance || 0,
+          text: k === 'f' ? (r.statement || '') + ' ' + (r.key || '') : (k === 'e' ? (r.description || '') + ' ' + (r.location || '') : (r.raw_input || '') + ' ' + (r.normalized_intent || ''))
+        })
+      }
+      rowsByKind[k] = rows
     }
+    const fpOf = (k) => { // count:maxTurnSynced:updated_at:hash
+      const rows = rowsByKind[k]
+      const arr = kindOf[k] || []
+      let maxUA = 0, maxTurn = 0
+      for (let i = 0; i < arr.length; i++) {
+        const u = Number(arr[i].updated_at) || 0; if (u > maxUA) maxUA = u
+      }
+      for (let i = 0; i < rows.length; i++) { if (rows[i].turn > maxTurn) maxTurn = rows[i].turn }
+      return rows.length + ':' + maxTurn + ':' + maxUA + ':' + ledgerFingerprint(rows).split(':')[1]
+    }
+    const fullDiffKinds = [] // 走全量 diff 的类（③）
+    const appendKinds = []   // 只 diff 新增行的类（②）
+    const appendSince = {}   // appendKinds 各自的 turn 水位
+    const kindFp = {}
+    for (const k of ['f', 'e', 'd']) {
+      const rows = rowsByKind[k]
+      const prev = kindFingerprintOf(sid, k)
+      const newFp = fpOf(k)
+      kindFp[k] = newFp
+      if (prev === newFp) continue // ① 类未变
+      const parts = prev === null ? null : String(prev).split(':')
+      if (prev === null) { fullDiffKinds.push(k); continue }
+      const prevCount = Number(parts[0]) || 0
+      const prevMaxTurn = Number(parts[1]) || 0
+      if (rows.length > prevCount) {
+        // ② 候选：新增行必须全部 turn > prevMaxTurn（增长型账本的引擎不变量）
+        const newRows = rows.filter((r) => r.turn > prevMaxTurn)
+        if (newRows.length === rows.length - prevCount) {
+          appendKinds.push(k)
+          appendSince[k] = prevMaxTurn
+          continue
+        }
+      }
+      fullDiffKinds.push(k) // ③ 删行 / 同行数改 / 快照回退 / 非单调异常
+    }
+    const changedKinds = fullDiffKinds.concat(appendKinds)
+    const legacyFp = fingerprint(sid)
+    if (legacyFp !== null) {
+      // 老库迁移：整块指纹存在且任一类无分账本指纹 → 全类视为变化（一次性全量 diff 收敛后转新机制）
+      const anyKindFp = ['f', 'e', 'd'].some((k) => kindFingerprintOf(sid, k) !== null)
+      if (!anyKindFp) {
+        // 三类全部走全量 diff（清空快速路径分组后重灌）
+        fullDiffKinds.length = 0; appendKinds.length = 0
+        for (const k of ['f', 'e', 'd']) { fullDiffKinds.push(k); if (!changedKinds.includes(k)) changedKinds.push(k) }
+      }
+    }
+    if (!changedKinds.length) { if (watermark(sid) === structuralWatermark(story)) return; setWatermark(sid, structuralWatermark(story)); return }
     /* 向量写入：分区表带 story_id 列（TEXT 可绑定；rowid 仍需内联——vec0 主键不接受 REAL 绑定，
      * node:sqlite 把 JS 数字绑定为 real）；旧表（无分区）只写向量。 */
     const insVec = (cid, vec) => partitioned
-      ? db.prepare('INSERT INTO chunks_vec(rowid, story_id, embedding) VALUES (' + cid + ', ?, ?)').run(story.story_id, vec)
+      ? db.prepare('INSERT INTO chunks_vec(rowid, story_id, embedding) VALUES (' + cid + ', ?, ?)').run(sid, vec)
       : db.prepare('INSERT INTO chunks_vec(rowid, embedding) VALUES (' + cid + ', ?)').run(vec)
     /* api-v1 冷同步的行可能只有 chunks/FTS 而无向量行——重同步时据此判断是否补插 */
-    const hasVecRow = (cid, sid) => {
+    const hasVecRow = (cid, s2) => {
       try {
         return partitioned
-          ? !!db.prepare('SELECT 1 FROM chunks_vec WHERE rowid=? AND story_id=?').get(cid, sid)
+          ? !!db.prepare('SELECT 1 FROM chunks_vec WHERE rowid=? AND story_id=?').get(cid, s2)
           : !!db.prepare('SELECT 1 FROM chunks_vec WHERE rowid=?').get(cid)
       } catch { return false }
     }
-    const rows = storyTexts(story)
+    const rows = []
+    for (const k of fullDiffKinds) rows.push(...rowsByKind[k])
+    for (const k of appendKinds) rows.push(...rowsByKind[k].filter((r) => r.turn > appendSince[k])) // ② 只带新增行
     const seen = new Set()
     let misses = 0
     db.exec('BEGIN')
@@ -465,20 +536,20 @@ function createVectorStore(dataDir, opts) {
       for (const r of rows) {
         const key = r.kind + '|' + r.rec_id
         seen.add(key)
-        const cur = getRow.get(story.story_id, r.kind, r.rec_id)
+        const cur = getRow.get(sid, r.kind, r.rec_id)
         /* api-v1：缓存命中用真向量；未热条目不写向量行（维度不符不能占位），FTS 词面通道照常覆盖，
          * 文本入异步补嵌队列——补嵌落地后 resyncAfterWarm 重同步该故事，占位条目转为真向量。 */
         const emb = (embedderId === 'api-v1' && apiCfg) ? embedSync(r.text) : { vec: embedFn(r.text), isPlaceholder: false }
         if (emb.isPlaceholder) {
           // 未热：先落 chunks 行（FTS 通道可用），向量行留空，等补嵌重同步补齐
-          if (!cur) { insChunk.run(story.story_id, r.kind, r.rec_id, r.turn, r.importance, r.text); const cid = cidInt(db.prepare('SELECT last_insert_rowid() AS i').get().i); db.prepare('INSERT INTO chunks_fts(rowid, text) VALUES (?,?)').run(cid, r.text) }
+          if (!cur) { insChunk.run(sid, r.kind, r.rec_id, r.turn, r.importance, r.text); const cid = cidInt(db.prepare('SELECT last_insert_rowid() AS i').get().i); db.prepare('INSERT INTO chunks_fts(rowid, text) VALUES (?,?)').run(cid, r.text) }
           else { updChunk.run(r.turn, r.importance, r.text, cur.cid); if (cur.text !== r.text) { db.prepare("INSERT INTO chunks_fts(chunks_fts, rowid, text) VALUES ('delete', ?, ?)").run(cur.cid, cur.text); db.prepare('INSERT INTO chunks_fts(rowid, text) VALUES (?,?)').run(cur.cid, r.text) } }
           misses++
           continue
         }
         const vecVal = JSON.stringify(Array.from(emb.vec))
         if (!cur) {
-          const info = insChunk.run(story.story_id, r.kind, r.rec_id, r.turn, r.importance, r.text)
+          const info = insChunk.run(sid, r.kind, r.rec_id, r.turn, r.importance, r.text)
           const cid = cidInt(info.lastInsertRowid)
           insVec(cid, vecVal)
           db.prepare('INSERT INTO chunks_fts(rowid, text) VALUES (?,?)').run(cid, r.text)
@@ -487,7 +558,7 @@ function createVectorStore(dataDir, opts) {
           /* 文本变化才重算向量与倒排——hash 系同步路径的常规优化；
            * api-v1 额外处理「行存在但向量行缺失」：冷同步只落了 chunks/FTS，补嵌后的
            * 重同步必须补插向量行（文本未变的老优化路径会永远跳过它）。 */
-          const vecMissing = (embedderId === 'api-v1' && apiCfg) && !hasVecRow(cur.cid, story.story_id)
+          const vecMissing = (embedderId === 'api-v1' && apiCfg) && !hasVecRow(cur.cid, sid)
           if (cur.text !== r.text || vecMissing) {
             const cid = cidInt(cur.cid)
             if (vecMissing || cur.text !== r.text) db.prepare('DELETE FROM chunks_vec WHERE rowid=' + cid).run()
@@ -499,26 +570,30 @@ function createVectorStore(dataDir, opts) {
           }
         }
       }
-      // 清除已消失的记录（补丁回滚/删除）
-      const stale = [...db.prepare('SELECT cid, kind, rec_id, text FROM chunks WHERE story_id=?').iterate(story.story_id)]
-        .filter((c) => !seen.has(c.kind + '|' + c.rec_id))
-      for (const c of stale) {
-        const cid = cidInt(c.cid)
-        db.prepare('DELETE FROM chunks_vec WHERE rowid=' + cid).run()
-        db.prepare("INSERT INTO chunks_fts(chunks_fts, rowid, text) VALUES ('delete', ?, ?)").run(cid, c.text)
-        db.prepare('DELETE FROM chunks WHERE cid=?').run(cid)
+      // 清除已消失的记录（补丁回滚/删除）——只扫全量 diff 的类；append-only 类不可能有消失行
+      const staleStmt = db.prepare('SELECT cid, kind, rec_id, text FROM chunks WHERE story_id=? AND kind=?')
+      for (const k of fullDiffKinds) {
+        for (const c of [...staleStmt.iterate(sid, k)]) {
+          if (seen.has(c.kind + '|' + c.rec_id)) continue
+          const cid = cidInt(c.cid)
+          db.prepare('DELETE FROM chunks_vec WHERE rowid=' + cid).run()
+          db.prepare("INSERT INTO chunks_fts(chunks_fts, rowid, text) VALUES ('delete', ?, ?)").run(cid, c.text)
+          db.prepare('DELETE FROM chunks WHERE cid=?').run(cid)
+        }
       }
       if (misses > 0) {
         // 占位期不写水位：补嵌落地后 resyncAfterWarm 重走本路径（缓存已热），此时才推进水位。
         // 未热条目可能有旧的真向量（文本未变则不重复删除），由重同步按缓存命中统一收敛。
         db.exec('COMMIT')
-        storyTextMap.set(story.story_id, story)
+        storyTextMap.set(sid, story)
         for (const r of rows) if (!cacheHas(r.text)) { missQueue.push({ text: r.text }); if (missQueue.length > 1024) missQueue.splice(0, missQueue.length - 1024) }
         scheduleWarm()
         return
       }
-      setWatermark(story.story_id, wm)
-      setFingerprint(story.story_id, fp)
+      setWatermark(sid, structuralWatermark(story))
+      for (const k of changedKinds) setKindFingerprint(sid, k, kindFp[k])
+      // 迁移完成：清掉老整块指纹，后续完全走分账本机制
+      if (legacyFp !== null) { try { db.prepare('DELETE FROM meta WHERE key=?').run('fp:' + sid) } catch {} }
       db.exec('COMMIT')
     } catch (e) {
       try { db.exec('ROLLBACK') } catch {}
@@ -613,6 +688,7 @@ function createVectorStore(dataDir, opts) {
         db.prepare('DELETE FROM chunks WHERE story_id=?').run(storyId)
         db.prepare('DELETE FROM meta WHERE key=?').run('wm:' + storyId)
         db.prepare('DELETE FROM meta WHERE key=?').run('fp:' + storyId) // 内容指纹一并清：重同步须全量重建，不得被旧指纹短路
+        for (const k of ['f', 'e', 'd']) db.prepare('DELETE FROM meta WHERE key=?').run('kindFp:' + k + ':' + storyId) // P2 分账本指纹同理：不清则重同步被「行数未变」短路
         db.exec('COMMIT')
       } catch (e) {
         try { db.exec('ROLLBACK') } catch {}
