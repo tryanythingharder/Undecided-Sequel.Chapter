@@ -291,15 +291,22 @@ async function main() {
   const title = await win.locator('.session-item.active .session-label-text').textContent().catch(() => '')
   check('session-auto-title', /布耶纳村/.test(title || ''), 'title=' + title)
 
-  // ---- 新功能：token 用量累计（R70 起展示在模型芯片用量面板 #model-pop）----
+  // ---- token 用量累计（Codex 化改版后统一展示在输入框下方小字 #token-meter，面板只留模型与思考程度）----
   // 成本评审回归：补账静默重试的 usage 也计入（此前被漏记 → 账单≈面板 1.4 倍）。
   // 本轮 = 主调用(50/20/70) + 无 patch 触发的补录重试(100/40/140) = 150/60/210。
-  await waitEngineSettled(win) // 等补录结束，usage 累计稳定
-  await win.locator('#chip-text-model').click()
-  const meta1 = await win.locator('#model-pop').textContent()
+  // 慢 runner 上 waitEngineSettled（徽标两轮稳定）可能先于补录 retry 完成返回——
+  // 这里对最终值做确定性轮询（usage 入账后 renderTokenMeter 必更新），而非单次读取。
+  await waitEngineSettled(win)
+  const meta1 = await (async () => {
+    for (let i = 0; i < 60; i++) {
+      const t = await win.locator('#token-meter').textContent().catch(() => '')
+      if (t.includes('210 tok')) return t
+      await new Promise((r) => setTimeout(r, 300))
+    }
+    return await win.locator('#token-meter').textContent().catch(() => '')
+  })()
   check('token-usage-shown', /210 tok/.test(meta1 || ''), 'meta=' + meta1)
   check('retry-usage-counted', (meta1 || '').includes('150 输入 / 60 输出 / 210 tok'), 'meta=' + meta1)
-  await win.locator('#chip-text-model').click()
 
   // ---- 新消息带时间戳（悬停显示）----
   check('msg-time-on-new-messages', (await win.locator('.msg-time').count()) >= 2)

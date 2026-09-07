@@ -1547,17 +1547,19 @@ body.sb-right .layout.workstage > .sidebar { order: 2; border-right: 0; border-l
 .composer-box:focus-within { border-color: var(--accent-dim); box-shadow: 0 0 0 3px var(--accent-glow), 0 18px 42px rgba(0,0,0,.32); }
 .composer textarea { min-height: 58px; max-height: 150px; color: var(--text-primary); font-size: 16px; line-height: 1.5; }
 .composer textarea::placeholder { color: var(--text-faint-v2); }
+/* textarea 不画自己的焦点环：聚焦态由 .composer-box 的边框/光晕表达，否则盒内出现第二个框 */
+.composer textarea:focus-visible { outline: none; }
 /* 底栏：左=灵感星标 · 右=token 小字 + 模型芯片 + 圆形发送 */
 .composer-foot { margin-top: 2px; }
 .composer-right { display: flex; align-items: center; gap: 6px; min-width: 0; flex: none; position: relative; }
 .inspire-btn { width: 34px; min-width: 34px; height: 34px; min-height: 34px; padding: 0; display: grid; place-items: center; border: 0; border-radius: 50%; background: transparent; color: var(--text-muted-v2); }
 .inspire-btn:hover { color: var(--brand-strong-v2); background: rgba(214,164,91,.12); }
 .inspire-btn .ic { width: 18px; height: 18px; fill: currentColor; }
-.token-meter { border: 0; background: transparent; padding: 4px 2px; color: var(--text-faint-v2); font: 11px/1 var(--mono); white-space: nowrap; cursor: pointer; }
+/* token 计费小字：输入框下方单独一行常显（点击查看面板明细） */
+.composer-meta { display: flex; justify-content: center; margin-top: 6px; }
+.token-meter { border: 0; background: transparent; padding: 2px 10px; color: var(--text-faint-v2); font: 11px/1.6 var(--mono); white-space: nowrap; cursor: pointer; border-radius: 8px; }
 .token-meter:hover { color: var(--text-muted-v2); }
 .token-meter[hidden] { display: none; }
-.model-chip { min-height: 32px; border: 1px solid transparent; border-radius: 8px; background: transparent; color: var(--text-muted-v2); }
-.model-chip:hover { color: var(--text-primary); background: var(--surface-raised); }
 /* Codex 式圆形发送/停止按钮（文案仅保留给读屏与 e2e 断言，视觉上 icon-only） */
 .send { width: 36px; min-width: 36px; height: 36px; min-height: 36px; padding: 0; display: grid; place-items: center; border: 0; border-radius: 50%; background: var(--brand-v2); color: #231a0c; font-weight: 700; }
 .send .ic { width: 17px; height: 17px; }
@@ -1568,15 +1570,6 @@ body.sb-right .layout.workstage > .sidebar { order: 2; border-right: 0; border-l
 .send.stop { background: var(--danger); color: #fff; }
 .send.stop:hover { background: var(--danger-btn, var(--danger)); }
 .send.stop .ic { fill: currentColor; }
-/* 模型面板：锚定右下角向上弹出 */
-.model-pop {
-  left: auto; right: 0; bottom: calc(100% + 12px);
-  width: 320px; max-width: calc(100vw - 52px);
-  padding: 6px;
-  border: 1px solid var(--line-v2); border-radius: 16px;
-  background: var(--surface-raised);
-  box-shadow: 0 24px 60px rgba(0,0,0,.45);
-}
 .mp-head { display: flex; align-items: center; gap: 8px; padding: 8px 8px 6px; }
 .mp-title { min-width: 0; flex: 1 1 auto; }
 .mp-model-name { font-size: 13px; font-weight: 600; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -1608,8 +1601,6 @@ body.sb-right .layout.workstage > .sidebar { order: 2; border-right: 0; border-l
 .mp-dots { position: absolute; top: 50%; left: 8px; right: 8px; height: 0; pointer-events: none; }
 .mp-dots i { position: absolute; top: 0; width: 4px; height: 4px; margin: -2px 0 0 -2px; border-radius: 50%; background: var(--line-strong-v2); }
 .mp-dots i.on { background: var(--brand-strong-v2); }
-/* 面板用量区（保留自有 token 计费） */
-.mp-usage { margin-top: 2px; padding: 6px 8px 4px; border-top: 1px solid var(--line-v2); }
 @media (prefers-reduced-motion: reduce) { .mp-refresh.spin .ic { animation: none; } }
 .pending-banner { width: min(100%, 720px); margin: 0 auto 8px; border-radius: 6px; }
 .kernel-hub {
@@ -1909,22 +1900,20 @@ body.layout-immersive .chat-header:hover { opacity: 1; }
 .choices-expand svg { width: 100%; height: 100%; fill: currentColor; display: block; }
 .choices-expand:hover { color: var(--accent); }
 
-/* ---- 右上角模型芯片 + 用量下拉 ---- */
+/* ---- Codex 风格：底栏模型芯片 + 模型面板（清单/思考滑块/用量） ---- */
 .model-chip {
-  border: 1px solid var(--border); background: transparent; color: var(--text-faint);
-  font-family: var(--mono); font-size: 11px; padding: 3px 9px; border-radius: 8px;
-  cursor: pointer; white-space: nowrap; max-width: 220px; overflow: hidden; text-overflow: ellipsis;
-  transition: color .12s, border-color .12s, background .12s;
+  border: 1px solid transparent; background: transparent; color: var(--text-faint);
+  font-family: var(--mono); font-size: 11px; padding: 6px 9px; border-radius: 8px;
+  cursor: pointer; white-space: nowrap; max-width: 260px; overflow: hidden; text-overflow: ellipsis;
+  transition: color .12s, background .12s;
 }
-.model-chip:hover { color: var(--text); border-color: var(--border-strong); }
-.model-chip.img { color: var(--accent-dim); }
-.model-chip.img:hover { color: var(--accent); }
+.model-chip:hover { color: var(--text); background: var(--panel-2); }
 .model-pop {
-  position: absolute; bottom: calc(100% + 10px); left: 0; z-index: 90;
-  width: 300px; max-width: calc(100vw - 52px);
-  background: var(--surface-2); border: 1px solid var(--border-strong); border-radius: 12px;
-  box-shadow: var(--shadow-3);
-  padding: 10px 12px;
+  position: absolute; bottom: calc(100% + 12px); right: 0; z-index: 90;
+  width: 320px; max-width: calc(100vw - 52px);
+  background: var(--surface-raised); border: 1px solid var(--line-v2); border-radius: 16px;
+  box-shadow: 0 24px 60px rgba(0,0,0,.45);
+  padding: 6px;
 }
 .model-pop.hidden { display: none !important; }
 .mp-row { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; padding: 5px 0; font-size: 12px; color: var(--text-dim); }

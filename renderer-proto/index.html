@@ -141,13 +141,16 @@
           <div class="composer-foot">
             <button class="inspire-btn" id="btn-inspire" title="给我一条行动灵感（填入后可编辑再发送）" aria-label="灵感"><svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.2C8.9 5 10.9 7 14.8 8 10.9 9 8.9 11 8 14.8 7.1 11 5.1 9 1.2 8 5.1 7 7.1 5 8 1.2Z"/></svg></button>
             <div class="composer-right">
-              <button class="token-meter" id="token-meter" title="本会话 token 用量与扣费 · 点击查看明细" hidden></button>
               <button class="model-chip" id="chip-text-model" title="当前模型 · 点击选择模型与思考程度"></button>
               <!-- 模型面板（锚定右侧簇上方）：模型清单 + 思考程度滑块 + token 用量明细 -->
               <div class="model-pop hidden" id="model-pop"></div>
               <button class="send" id="btn-send"><span class="sr-only">发送</span><svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 13V3M3.5 7.5 8 3l4.5 4.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
             </div>
           </div>
+        </div>
+        <!-- token 计费小字：输入框下方单独一行（点击查看面板明细） -->
+        <div class="composer-meta">
+          <button class="token-meter" id="token-meter" title="本会话 token 用量与扣费 · 点击查看明细" hidden></button>
         </div>
       </div>
     </main>
