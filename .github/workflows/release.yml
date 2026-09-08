@@ -41,6 +41,13 @@ jobs:
         env:
           CSC_LINK: ${{ secrets.CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+      # 签名闸门：配置了 CSC_LINK 就必须真的签上（防 secret 配错/签名静默跳过仍照常发布），
+      # 未配置则打显式警告不阻断（未签名出包是当前文档化的现状）。自签名证书 Status
+      # 非 Valid 不算失败——闸门只锁「有没有签名」。
+      - run: node scripts-dev/check-windows-signing.cjs
+        shell: pwsh
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
       - run: npm run test:packaged
       - name: 收集桌面产物
         run: |

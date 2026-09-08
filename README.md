@@ -220,10 +220,14 @@ npm run dist   # 打包 NSIS 安装版 + 便携版单文件（产物在 dist/）
 **代码签名现状**：
 
 - **Android**：Release APK 由 CI 用仓库 secrets 中的密钥库真实签名（`apksigner verify` 可验证）。
-- **Windows**：Authenticode 签名需付费证书。仓库已接好注入通道——在 GitHub secrets 配置
-  `CSC_LINK`（证书，base64 的 .pfx 或 .p12）与 `CSC_KEY_PASSWORD` 后，release 构建即自动签名，
-  可用 `Get-AuthenticodeSignature` 确认状态为 `Valid`；未配置时产物未签名（SmartScreen 可能弹未知发布者警告，
-  属正常提示）。自签证书对本应分发的安装包没有意义，故未采用。
+- **Windows**：Authenticode 签名需付费证书。仓库已接好完整链路并经自签名证书端到端验证——
+  在 GitHub secrets 配置 `CSC_LINK`（证书，base64 的 .pfx 或 .p12）与 `CSC_KEY_PASSWORD`
+  后，release 构建即自动签名全部 5 个产物（主程序 / 安装包 / 便携版 / 卸载器 / elevate），
+  并由 `scripts-dev/check-windows-signing.cjs` 闸门断言「配置了证书就必须真的签上」——
+  secret 配错或签名被静默跳过会直接让 Release 失败，不会带病发布；未配置时闸门打显式
+  警告不阻断，产物未签名出包（SmartScreen 可能弹未知发布者警告，属正常提示）。
+  证书选型与采购选项见 [docs/windows-signing-guide.md](docs/windows-signing-guide.md)。
+  自签证书对本应分发的安装包没有意义，故未采用。
 
 ## 项目结构
 
