@@ -32,27 +32,29 @@ function fail(msg) { console.error('FAIL  ' + msg); process.exit(1) }
 
 const configured = !!(process.env.CSC_LINK && process.env.CSC_LINK.trim())
 
+// 版本号随 package.json 变：产物名一律 pattern 兜底（不硬编码版本——硬编码在 bump
+// 后的第一个 tag 上必炸）；正则转义须先转义 '.' 再替换 '*'（顺序反了会把 '.*' 也
+// 转义成「零个或多个点」，永远匹配不到带数字的版本号）
+const fs = require('node:fs')
+const byMtimeDesc = (a, b) => fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs
+const pick = (pattern) => {
+  const re = new RegExp('^' + pattern.replace(/\./g, '\\.').replace(/\*/g, '.*') + '$')
+  const hits = fs.readdirSync(distDir)
+    .filter((n) => re.test(n))
+    .map((n) => path.join(distDir, n))
+    .filter((p) => fs.statSync(p).isFile())
+    .sort(byMtimeDesc)
+  return hits[0] || null
+}
 const targets = [
   { file: path.join(distDir, 'win-unpacked', '六面世界.exe'), label: '主程序（win-unpacked）' },
-  { file: path.join(distDir, 'SixWorlds-Setup-1.5.2.exe'), label: 'NSIS 安装包', pattern: 'SixWorlds-Setup-*.exe' },
-  { file: path.join(distDir, 'SixWorlds-Portable-1.5.2.exe'), label: '便携版', pattern: 'SixWorlds-Portable-*.exe' }
+  { label: 'NSIS 安装包', file: pick('SixWorlds-Setup-*.exe') || '' },
+  { label: '便携版', file: pick('SixWorlds-Portable-*.exe') || '' }
 ]
-
-// 版本号随 package.json 变，pattern 兜底找最新
-const fs = require('node:fs')
-for (const t of targets) {
-  if (!fs.existsSync(t.file) && t.pattern) {
-    const hits = fs.readdirSync(distDir)
-      .filter((n) => new RegExp(t.pattern.replace(/\*/g, '.*').replace(/\./g, '\\.')).test(n))
-      .map((n) => path.join(distDir, n))
-      .filter((p) => fs.statSync(p).isFile())
-      .sort((a, b) => fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs)
-    if (hits.length) t.file = hits[0]
-  }
+if (targets.some((t) => !t.file)) {
+  fail('产物缺失（先跑 npm run dist）: ' + targets.filter((t) => !t.file).map((t) => t.label).join(', ') +
+    '——dist 目录: ' + (fs.existsSync(distDir) ? fs.readdirSync(distDir).join(', ') : '不存在'))
 }
-
-const missing = targets.filter((t) => !fs.existsSync(t.file)).map((t) => t.label)
-if (missing.length) fail('产物缺失（先跑 npm run dist）: ' + missing.join(', '))
 
 const psScript = [
   '[Console]::OutputEncoding = [System.Text.Encoding]::UTF8',
