@@ -35,6 +35,7 @@ contextBridge.exposeInMainWorld('api', {
   enginePendings: (p) => ipcRenderer.invoke('engine:pendings', p),
   engineResolvePending: (p) => ipcRenderer.invoke('engine:resolvePending', p),
   engineDiscardPending: (p) => ipcRenderer.invoke('engine:discardPending', p),
+  engineComicSource: (p) => ipcRenderer.invoke('engine:comicSource', p),
   generateImage: (cfg) => ipcRenderer.invoke('image:generate', cfg),
   readImageDataUrl: (source) => ipcRenderer.invoke('image:readDataUrl', source),
   saveImage: (opts) => ipcRenderer.invoke('image:save', opts),

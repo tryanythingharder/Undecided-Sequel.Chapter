@@ -139,31 +139,40 @@ function externalizeSessions(input) {
   const sessions = JSON.parse(JSON.stringify(input))
   const assets = new Set()
   let imageCount = 0
+  // 图片外置目标收集器：消息插图与漫画分镜共用同一套落盘/去重/闸门
+  // （sig 为 true 时该字段已外置过，需校验文件存在；为 false 时本次外置）
+  const collectImages = (holder, sessionDir, isAsset) => {
+    if (!holder.illust) { delete holder.illustAsset; return }
+    let rel = imageAssetRel(holder.illust)
+    if (!rel) {
+      const img = dataUrlImage(holder.illust)
+      const digest = hashText(img.buffer)
+      rel = sessionDir + '/' + digest + '.' + img.ext
+      const target = path.join(sessionImagesDir(), rel)
+      if (!fs.existsSync(target)) atomicWriteFile(target, img.buffer)
+    } else {
+      resolveImageAsset(rel)
+    }
+    imageCount++
+    if (imageCount > 2000) throw new Error('插图数量超过上限（2000）')
+    assets.add(rel)
+    holder.illustAsset = rel
+    delete holder.illust
+  }
   for (const session of sessions) {
     if (!session || typeof session !== 'object' || !Array.isArray(session.messages)) throw new Error('会话数据不完整')
     if (session.messages.length > 5000) throw new Error('单条世界线消息过多')
     const sessionDir = hashText(session.id || 'unknown').slice(0, 24)
     for (const message of session.messages) {
       if (!message || typeof message !== 'object') continue
-      if (!message.illust) {
-        delete message.illustAsset
-        continue
+      collectImages(message, sessionDir)
+    }
+    // 漫画回放分镜：与消息插图同规则外置（否则会被孤儿清理误删）
+    if (session.comic && Array.isArray(session.comic.panels)) {
+      for (const panel of session.comic.panels) {
+        if (!panel || typeof panel !== 'object') continue
+        collectImages(panel, sessionDir)
       }
-      let rel = imageAssetRel(message.illust)
-      if (!rel) {
-        const img = dataUrlImage(message.illust)
-        const digest = hashText(img.buffer)
-        rel = sessionDir + '/' + digest + '.' + img.ext
-        const target = path.join(sessionImagesDir(), rel)
-        if (!fs.existsSync(target)) atomicWriteFile(target, img.buffer)
-      } else {
-        resolveImageAsset(rel)
-      }
-      imageCount++
-      if (imageCount > 2000) throw new Error('插图数量超过上限（2000）')
-      assets.add(rel)
-      message.illustAsset = rel
-      delete message.illust
     }
   }
   const json = JSON.stringify({ v: 1, sessions })
@@ -175,16 +184,20 @@ function hydrateSessions(stored) {
   const sessions = Array.isArray(stored) ? stored : []
   for (const session of sessions) {
     if (!session || !Array.isArray(session.messages)) continue
-    for (const message of session.messages) {
-      if (!message || !message.illustAsset) continue
+    const hydrateOne = (holder) => {
+      if (!holder || !holder.illustAsset) return
       try {
-        resolveImageAsset(message.illustAsset)
-        message.illust = imageAssetUrl(message.illustAsset)
+        resolveImageAsset(holder.illustAsset)
+        holder.illust = imageAssetUrl(holder.illustAsset)
       } catch {
-        delete message.illust
-        delete message.illustAsset
-        message.illustError = '本地插图文件缺失或损坏'
+        delete holder.illust
+        delete holder.illustAsset
+        holder.illustError = '本地插图文件缺失或损坏'
       }
+    }
+    for (const message of session.messages) hydrateOne(message)
+    if (session.comic && Array.isArray(session.comic.panels)) {
+      for (const panel of session.comic.panels) hydrateOne(panel)
     }
   }
   return sessions
@@ -804,6 +817,8 @@ safeHandle('engine:restore', (p) => {
 })
 safeHandle('engine:logs', (p) => engineFor().turnLogs(p.storyId))
 safeHandle('engine:log', (p) => engineFor().turnLog(p.storyId, p.turnId))
+// 漫画回放素材：范围内事件账本整编（分镜规划的数据源，纯读）；返回值经 safeHandle 包为 {ok, data: source}
+safeHandle('engine:comicSource', (p) => engineFor().comicSource(p.storyId, p.fromTurn, p.toTurn))
 safeHandle('engine:protocol', () => engineFor().protocolPrompt())
 // 被抛弃的叙事留痕（重生成/IF 分歧丢弃上一版）—— 永不静默覆盖，只增不删
 safeHandle('engine:discardTurn', (p) => {
@@ -1586,15 +1601,19 @@ const PET_AGENT_FAKE_PLANS = {
   choice: { recommend: 'B', why: '（测试大脑）B 最能推进主线', alternates: [] },
   auto: { recommend: 'A', why: '（测试大脑）托管选 A', alternates: [] },
   illust: { idx: 0, why: '（测试大脑）开场幕画面感最强', visual: 'a quiet village at dawn' },
-  prompt: { prompt: 'masterpiece, (test brain) scenic view', why: '（测试大脑）优化为通用生图风格' }
+  prompt: { prompt: 'masterpiece, (test brain) scenic view', why: '（测试大脑）优化为通用生图风格' },
+  comic: {
+    cast: [{ name: '主角', look: 'young man with brown hair, mage robe' }],
+    panels: [
+      { turn: 1, title: '开场', narration: '故事从清晨的村庄开始。', participants: ['主角'], sceneLine: '【甲龙历407.03.01｜清晨｜布耶纳村】' },
+      { turn: 2, title: '启程', narration: '主角踏上了旅途。', participants: ['主角'], sceneLine: '【甲龙历407.03.01｜上午｜村口】' }
+    ]
+  }
 }
 ipcMain.handle('pet:agent', async (_evt, p) => {
   try {
     const task = String((p && p.task) || '')
     if (!PET_AGENT_FAKE_PLANS[task]) return { ok: false, error: '未知智能体任务：' + task }
-    if (!p || !Array.isArray(p.choices) || !p.choices.length) {
-      if (task === 'choice' || task === 'auto') return { ok: false, error: '当前没有可分析的选项' }
-    }
     const cloud = p && p.cloud
     if (!cloud || !cloud.baseUrl || !cloud.apiKey || !cloud.model) {
       return { ok: false, error: '智能体需要先在设置里配置模型（本地小模型推不动剧情质量）', needCloud: true }
@@ -1611,7 +1630,7 @@ ipcMain.handle('pet:agent', async (_evt, p) => {
     try { endpoint = new URL(baseUrl + '/chat/completions') } catch { return { ok: false, error: '云端大脑地址不合法' } }
     if (!['http:', 'https:'].includes(endpoint.protocol)) return { ok: false, error: '云端大脑地址仅支持 HTTP / HTTPS' }
     const controller = new AbortController()
-    const kill = setTimeout(() => controller.abort(), 60000)
+    const kill = setTimeout(() => controller.abort(), task === 'comic' ? 180000 : 60000)
     try {
       const res = await fetch(endpoint, {
         method: 'POST',
@@ -1649,7 +1668,7 @@ ipcMain.handle('pet:agent', async (_evt, p) => {
 })
 // 任务化提示词 + JSON 容错提取
 function petAgentSpec(task, p) {
-  const story = String((p && p.story) || '').slice(0, 3000)
+  const story = String((p && p.story) || '').slice(0, task === 'comic' ? 24000 : 3000)
   const choices = (p && p.choices) || []
   const chList = choices.map((c) => c.key + '：' + c.label).join('\n')
   const base = '你是「世界之灵」，六面世界应用里的智能体助手。只输出一个 JSON 对象，不要任何其他文字、不要 markdown 代码块。'
@@ -1669,6 +1688,13 @@ function petAgentSpec(task, p) {
     return {
       system: base + '\n任务：把叙事片段优化为英文文生图提示词（stable diffusion 风格）。字段：{"prompt":"英文提示词（含构图/光影/风格词，逗号分隔）","why":"一两句中文说明优化思路"}。不要出现人名拼写的废字符，用外貌描述代替。',
       user: '【叙事片段】\n' + story + '\n\n优化为约 40 词内的英文生图提示词。'
+    }
+  }
+  if (task === 'comic') {
+    const target = Number(p && p.panelCount) || 16
+    return {
+      system: base + '\n任务：你是漫画分镜师。通读剧情素材，挑出最有戏剧性、最能串起故事的关键幕，并为每位主要角色生成英文外貌描述（发型发色/瞳色/体型/标志性服装），保证跨幕一致。输出字段：{"cast":[{"name":"角色名","look":"英文外貌描述"}],"panels":[{"turn":回合号,"title":"幕标题(≤12字)","narration":"该幕旁白/对白摘录(≤80字)","participants":["在场角色名"],"sceneLine":"【历法｜时段｜地点】"}]}。panels 数量必须接近 ' + target + ' 幕、按 turn 升序、turn 必须取自素材中出现过的回合号；look 为 40 词内英文；不要出现人名拼写的废字符。',
+      user: '【角色档案（cast 素材）】\n' + String((p && p.castText) || '').slice(0, 6000) + '\n\n【按回合分组的剧情素材】\n' + story + '\n\n请按目标 ' + target + ' 幕完成分镜规划。'
     }
   }
   return null
@@ -1709,6 +1735,22 @@ function petAgentExtractPlan(task, text, p) {
     const prompt = String(plan.prompt || '').trim()
     if (prompt.length < 8) return null
     return { prompt: prompt.slice(0, 600), why: String(plan.why || '').slice(0, 160) }
+  }
+  if (task === 'comic') {
+    const cast = (Array.isArray(plan.cast) ? plan.cast : []).map((c) => ({
+      name: String((c && c.name) || '').slice(0, 60),
+      look: String((c && c.look) || '').slice(0, 300)
+    })).filter((c) => c.name && c.look)
+    const panels = (Array.isArray(plan.panels) ? plan.panels : []).map((q) => ({
+      turn: Number(q && q.turn) || 0,
+      title: String((q && q.title) || '').slice(0, 40),
+      narration: String((q && q.narration) || '').slice(0, 160),
+      participants: (Array.isArray(q && q.participants) ? q.participants : []).map(String).slice(0, 8),
+      sceneLine: String((q && q.sceneLine) || '').slice(0, 80)
+    })).filter((q) => q.turn > 0 && q.narration)
+    if (!panels.length || !cast.length) return null
+    panels.sort((a, b) => a.turn - b.turn)
+    return { cast: cast.slice(0, 24), panels: panels.slice(0, 40) }
   }
   return null
 }
@@ -1859,6 +1901,12 @@ ipcMain.handle('dialog:saveFile', async (evt, opts) => {
     const title = String((opts && opts.title) || '保存文件')
     const defaultName = String((opts && opts.defaultName) || 'export.json')
     const content = String((opts && opts.content) || '')
+    // 测试接缝：SIXWORLDS_TEST 下允许用环境变量注入保存路径（自动化无法驱动原生对话框）
+    if (process.env.SIXWORLDS_TEST && process.env.SIXWORLDS_TEST_SAVE_PATH) {
+      const p = process.env.SIXWORLDS_TEST_SAVE_PATH
+      fs.writeFileSync(p, content, 'utf8')
+      return { ok: true, path: p }
+    }
     const res = await dialog.showSaveDialog(windowForEvent(evt), { title, defaultPath: defaultName })
     if (res.canceled || !res.filePath) return { ok: false }
     fs.writeFileSync(res.filePath, content, 'utf8')

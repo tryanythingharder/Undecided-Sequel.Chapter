@@ -8,6 +8,7 @@ const unit = [
   'scripts-dev/test-vector-store.cjs',
   'scripts-dev/test-embedder-api.cjs',
   'scripts-dev/test-sessions-db.cjs',
+  'scripts-dev/test-engine-comic.cjs',
   'scripts-dev/test-patch-reliability.cjs',
   'scripts-dev/test-protocol-position.cjs',
   'scripts-dev/test-access.cjs',

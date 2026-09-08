@@ -2152,8 +2152,7 @@ html[data-theme="light"] .illust { box-shadow: 0 18px 50px rgba(0, 0, 0, .14), 0
 .toast.err { border-color: color-mix(in srgb, var(--danger) 40%, transparent); }
 .toast.leaving { animation: island-out .3s ease-in forwards; }
 /* busy 态（生成中灵动岛）：独立元素 .island-busy（不在 toast 体系内），呼吸光环 + 流光线 */
-.island-busy {
-  position: fixed; top: 46px; left: 50%; z-index: 1200;
+.island-busy {  position: fixed; top: 46px; left: 50%; z-index: 1200;
   transform: translateX(-50%);
   display: flex; align-items: center; gap: 10px;
   background: var(--glass-strong);
@@ -2197,6 +2196,95 @@ html[data-theme="light"] .illust { box-shadow: 0 18px 50px rgba(0, 0, 0, .14), 0
   0%, 100% { box-shadow: var(--shadow-2), 0 0 0 0 var(--accent-glow), inset 0 1px 0 var(--glass-highlight); }
   50%      { box-shadow: var(--shadow-2), 0 0 0 7px transparent, inset 0 1px 0 var(--glass-highlight); }
 }
+
+/* ======== 漫画回放（Comic Replay）：进度岛 + 阅读视图 + 分镜排版 + 规划面板 ========
+ * 进度岛复用 .island-busy 皮肤（同独立 DOM 约定：不进 toast 体系）；阅读视图为
+ * 全屏 modal（图 + 幕标题 + 场景行 + 对白注，← → 翻页）；规划面板复用 confirm 皮肤。 */
+.comic-planner .comic-planner-body { text-align: left; display: flex; flex-direction: column; gap: 10px; }
+.comic-planner-row { display: flex; align-items: center; gap: 10px; font-size: 13px; }
+.comic-planner-row label { flex: none; width: 64px; color: var(--text-dim); }
+.comic-planner-row input, .comic-planner-row select {
+  border: 1px solid var(--border-strong); background: var(--panel); color: var(--text);
+  border-radius: 8px; padding: 6px 10px; font-size: 13px; font-family: var(--sans);
+  min-width: 0;
+}
+.comic-planner-row input[type="number"] { width: 90px; }
+.comic-planner-row input:focus, .comic-planner-row select:focus { outline: none; border-color: var(--accent); }
+.comic-planner-hint { font-size: 11.5px; color: var(--text-dim); }
+.comic-planner-estimate {
+  font-size: 12.5px; color: var(--text-dim);
+  border-top: 1px dashed var(--border-strong); padding-top: 10px; margin-top: 2px;
+}
+.comic-island { top: 92px; }
+.comic-island-btn {
+  flex: none; margin-left: 2px;
+  border: 1px solid var(--border-strong); background: var(--panel); color: var(--text-dim);
+  border-radius: 999px; padding: 3px 14px; font-size: 11.5px; font-family: var(--sans);
+  cursor: pointer; transition: color .15s, border-color .15s;
+}
+.comic-island-btn:hover { color: var(--accent); border-color: var(--accent); }
+
+.comic-view {
+  position: fixed; inset: 0; z-index: 1500;
+  background: rgba(8, 10, 14, .92);
+  -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px);
+  display: flex; align-items: center; justify-content: center;
+  animation: comic-fade .2s ease;
+}
+.comic-view.closing { animation: comic-fade-out .16s ease forwards; }
+@keyframes comic-fade { from { opacity: 0; } }
+@keyframes comic-fade-out { to { opacity: 0; } }
+.comic-stage {
+  display: flex; flex-direction: column; align-items: center; gap: 14px;
+  max-width: min(1100px, 92vw); max-height: 88vh; overflow: hidden;
+}
+.comic-counter { font-size: 12px; color: var(--text-dim); letter-spacing: 1px; font-family: var(--sans); }
+.comic-page {
+  display: flex; flex-direction: column; align-items: center; gap: 12px;
+  max-width: 100%; max-height: calc(88vh - 48px); overflow-y: auto;
+  padding: 4px;
+}
+.comic-img {
+  max-width: min(1040px, 88vw); max-height: 62vh;
+  border-radius: 10px; border: 1px solid rgba(255, 255, 255, .12);
+  box-shadow: 0 18px 60px rgba(0, 0, 0, .5);
+  object-fit: contain;
+}
+.comic-placeholder {
+  width: min(720px, 80vw); padding: 60px 24px; text-align: center;
+  color: var(--text-dim); font-size: 13.5px;
+  border: 1px dashed rgba(255, 255, 255, .18); border-radius: 12px;
+}
+.comic-redraw {
+  margin-top: 10px; border: 1px solid var(--border-strong); background: var(--panel);
+  color: var(--text); border-radius: 999px; padding: 6px 22px; font-size: 12.5px;
+  cursor: pointer; font-family: var(--sans); transition: color .15s, border-color .15s;
+}
+.comic-redraw:hover { color: var(--accent); border-color: var(--accent); }
+.comic-narr { max-width: min(760px, 86vw); text-align: center; }
+.comic-scene { font-size: 11.5px; color: #a08b5f; letter-spacing: 2px; margin-bottom: 6px; font-family: var(--sans); }
+.comic-title { font-size: 17px; color: #f2ede3; margin-bottom: 8px; letter-spacing: 1px; }
+.comic-body { font-size: 14.5px; color: rgba(242, 237, 227, .82); line-height: 1.9; white-space: pre-wrap; }
+.comic-nav {
+  position: absolute; top: 50%; transform: translateY(-50%);
+  width: 44px; height: 44px; border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, .18); background: rgba(255, 255, 255, .08);
+  color: #f2ede3; font-size: 26px; line-height: 1; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: background .15s;
+}
+.comic-nav:hover { background: rgba(255, 255, 255, .18); }
+.comic-nav-prev { left: 18px; }
+.comic-nav-next { right: 18px; }
+.comic-view-close, .comic-view-export {
+  position: absolute; top: 18px;
+  border: 1px solid rgba(255, 255, 255, .18); background: rgba(255, 255, 255, .08);
+  color: #f2ede3; border-radius: 999px; padding: 6px 16px; font-size: 12.5px;
+  cursor: pointer; font-family: var(--sans); transition: background .15s;
+}
+.comic-view-close:hover, .comic-view-export:hover { background: rgba(255, 255, 255, .18); }
+.comic-view-close { right: 18px; }
+.comic-view-export { right: 68px; }
 
 /* ---- R76 入场动画（Mineradio 式启动页：五层舞台 + 字标序列 + 信号线） ---- */
 #splash {

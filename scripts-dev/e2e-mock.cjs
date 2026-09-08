@@ -2,6 +2,7 @@
 // 覆盖：流式对话、选项渲染、自动插图（b64_json）、手动插图（远程 url → data URL）、
 //       多会话（新建/切换/删除/持久化）、插图重生成、大图查看
 const path = require('node:path')
+const fs = require('node:fs')
 const http = require('node:http')
 const { _electron: electron } = require('playwright')
 const electronExecutable = require('electron')
@@ -48,6 +49,19 @@ function startMock() {
       if (req.url.endsWith('/chat/completions')) {
         const user = (() => { try { const p = JSON.parse(body); const u = p.messages.filter((m) => m.role === 'user' && !String(m.content).startsWith('（系统要求')).pop(); return u ? u.content : '' } catch { return '' } })()
         const wantsStream = (() => { try { return JSON.parse(body).stream === true } catch { return false } })()
+        // 漫画分镜师任务（pet:agent comic，非流式）：正文带【按回合分组的剧情素材】时，
+        // 从素材行提取回合号，每回合返回一幕（确定性；续画轮次只包含新回合，便于断言追加）
+        if (user.includes('【按回合分组的剧情素材】')) {
+          const turns = [...new Set([...user.matchAll(/第(\d+)幕/g)].map((m) => Number(m[1])))].sort((a, b) => a - b).slice(0, 40)
+          const panels = turns.map((t) => ({
+            turn: t,
+            title: t === 1 ? '清晨的到访' : (t === 2 ? '走向森林' : '第' + t + '幕·继续旅程'),
+            narration: '第' + t + '幕的叙事摘录。',
+            participants: ['主角'],
+            sceneLine: '【甲龙历407.03.0' + t + '｜清晨｜布耶纳村】'
+          }))
+          return json(200, { choices: [{ message: { role: 'assistant', content: JSON.stringify({ cast: [{ name: '主角', look: 'young man with brown hair, plain village clothes' }], panels }) } }] })
+        }
         const reply = user.includes('【A】')
           ? '【甲龙历 407.03.02｜午后｜村口】你接受了委托，沿着薄雾中的小路向森林走去。\n【A】深入森林 B. 返回村庄报信'
           : '【甲龙历 407.03.01｜清晨｜布耶纳村】薄雾笼罩的清晨，有人敲响了你的家门。一位灰袍旅人向你问路。\n【A】为他指路并闲聊（获得情报）【B】闭门不开 C. 跟随他'
@@ -118,7 +132,10 @@ async function main() {
 
   const app = await electron.launch({
     executablePath: electronExecutable,
-    args: ['.'], cwd: path.join(__dirname, '..'), env: { ...process.env, ELECTRON_DISABLE_SECURITY_WARNINGS: 'true', SIXWORLDS_TEST: '1', SIXWORLDS_UI_SCHEME: process.env.SIXWORLDS_UI_SCHEME || '' }
+    args: ['.'], cwd: path.join(__dirname, '..'), env: {
+      ...process.env, ELECTRON_DISABLE_SECURITY_WARNINGS: 'true', SIXWORLDS_TEST: '1', SIXWORLDS_UI_SCHEME: process.env.SIXWORLDS_UI_SCHEME || '',
+      SIXWORLDS_TEST_SAVE_PATH: path.join(__dirname, 'tmp-comic-export.html')
+    }
   })
   let win = await app.firstWindow()
   await win.waitForTimeout(1500)
@@ -551,6 +568,125 @@ async function main() {
   await win.keyboard.press('Control+g')
   await waitForHidden('#gallery')
   check('shortcut-ctrl-g-closes-gallery', await win.locator('#gallery').evaluate((el) => el.hidden))
+
+  // ---- 漫画回放（Comic Replay）：播种引擎回合 → 规划面板 → AI 分镜 → 逐幕绘制 → 阅读视图 → 导出 ----
+  // mock 聊天回复不含 STATE_PATCH（事件账本为空）——先经 engineCommit 播种 2 个带事件账本的回合
+  await win.click('#btn-gallery')
+  await win.waitForTimeout(300)
+  const curSid = await win.locator('#gallery-session').inputValue()
+  check('comic-session-id-resolvable', !!curSid, 'sid=' + curSid)
+  if (curSid) {
+    const mkRaw = (n, where) => '【甲龙历407.03.0' + n + '｜清晨｜' + where + '】第' + n + '回合的叙事正文。\n<<<STATE_PATCH>>>\n' + JSON.stringify({
+      turn_summary: '第' + n + '幕：主角在' + where,
+      scene: { game_time: '甲龙历407.03.0' + n, location: where, participants: ['主角'], ended: false },
+      entity_changes: [{ op: 'upsert', name: '主角', type: 'character', state: {}, tags: [], summary: '转生少年' }],
+      events: [{ type: 'action', description: '第' + n + '回合的关键事件发生在' + where, importance: 60, participant_names: ['主角'] }]
+    }) + '\n<<<END_PATCH>>>'
+    const seedOnce = async (raw) => {
+      const r = await win.evaluate(async ({ sid, raw }) => (await window.api.engineCommit({ storyId: sid, sessionId: sid, playerInput: '前进', raw })), { sid: curSid, raw })
+      return r && r.ok && r.data && (r.data.committed || r.data.patch_status === 'PATCH_PRESENT' || r.data.ok)
+    }
+    check('comic-seed-turn-1', await seedOnce(mkRaw(1, '布耶纳村')))
+    check('comic-seed-turn-2', await seedOnce(mkRaw(2, '村口')))
+    // 素材 IPC：范围内回合事件可取
+    const src = await win.evaluate(async (sid) => {
+      const r = await window.api.engineComicSource({ storyId: sid, fromTurn: 1, toTurn: 2 })
+      return r && r.ok ? r.data : null
+    }, curSid)
+    check('comic-source-turns', !!(src && src.turns && src.turns.length === 2 && src.turns[0].events.length >= 1), JSON.stringify(src && { n: src.turns && src.turns.length }))
+  }
+
+  // 规划面板：点「生成漫画回放」→ 默认 AI 模式 → 开始
+  await win.click('#btn-gallery-comic')
+  await win.waitForTimeout(400)
+  check('comic-planner-opens', await win.locator('#comic-planner').isVisible().catch(() => false))
+  check('comic-planner-estimates', /预计绘制/.test(await win.locator('.comic-planner-estimate').textContent().catch(() => '')))
+  await win.click('#comic-start')
+  await win.waitForTimeout(300)
+  // AI 分镜规划（mock /chat/completions 的 comic 分支）→ 队列逐幕绘制（mock /images/generations b64）
+  ok = false
+  for (let i = 0; i < 40; i++) {
+    const st = await win.evaluate(async (sid) => {
+      const r = await window.api.loadSessions()
+      const s = r && r.sessions && r.sessions.find((x) => x.id === sid)
+      return s && s.comic ? { n: s.comic.panels.length, done: s.comic.panels.filter((p) => p.illust).length } : null
+    }, curSid).catch(() => null)
+    if (st && st.done >= 2) { ok = true; break }
+    await win.waitForTimeout(400)
+  }
+  check('comic-panels-drawn', ok, '两幕绘制完成')
+  // 进度岛应已收尾离场
+  ok = false
+  for (let i = 0; i < 10; i++) {
+    if (!(await win.locator('#comic-island').count())) { ok = true; break }
+    await win.waitForTimeout(300)
+  }
+  check('comic-island-closed', ok)
+
+  // 阅读视图：打开 → 幕图 → 翻页 → 关闭 → 导出（视图内导出按钮，SIXWORLDS_TEST_SAVE_PATH 接缝落盘）
+  await win.click('#btn-gallery-comic-view')
+  await win.waitForTimeout(300)
+  check('comic-view-opens', await win.locator('#comic-view').isVisible().catch(() => false))
+  check('comic-view-shows-img', (await win.locator('#comic-view .comic-img').count()) === 1)
+  const counterText = await win.locator('#comic-view .comic-counter').textContent().catch(() => '')
+  check('comic-view-counter', /1 \/ 2|2 \/ 2/.test(counterText), 'counter=' + counterText)
+  await win.keyboard.press('ArrowRight')
+  await win.waitForTimeout(200)
+  await win.click('#comic-view .comic-view-export')
+  ok = false
+  for (let i = 0; i < 20; i++) {
+    if (fs.existsSync(path.join(__dirname, 'tmp-comic-export.html'))) { ok = true; break }
+    await win.waitForTimeout(300)
+  }
+  if (ok) {
+    const exported = fs.readFileSync(path.join(__dirname, 'tmp-comic-export.html'), 'utf8')
+    check('comic-export-selfcontained', exported.includes('data:image/png') && /漫画回放/.test(exported), 'len=' + exported.length)
+  } else {
+    check('comic-export-file-written', false, '导出文件未生成')
+  }
+  fs.rmSync(path.join(__dirname, 'tmp-comic-export.html'), { force: true })
+  await win.keyboard.press('Escape')
+  await win.waitForTimeout(300)
+  check('comic-view-closes', !(await win.locator('#comic-view').count()))
+
+  // ---- 续画（增量）：再播种第 3 回合 → 一键续画 → 只追加 1 幕（前 2 幕保留不重画）----
+  const seedExtra = await win.evaluate(async ({ sid }) => {
+    const raw = '【甲龙历407.03.03｜清晨｜森林】第3回合的叙事正文。\n<<<STATE_PATCH>>>\n' + JSON.stringify({
+      turn_summary: '第3幕：主角深入森林',
+      scene: { game_time: '甲龙历407.03.03', location: '森林', participants: ['主角'], ended: false },
+      events: [{ type: 'discovery', description: '在森林深处发现了遗迹', importance: 70, participant_names: ['主角'] }]
+    }) + '\n<<<END_PATCH>>>'
+    const r = await window.api.engineCommit({ storyId: sid, sessionId: sid, playerInput: '继续', raw })
+    return r && r.ok && r.data && (r.data.committed || r.data.ok)
+  }, { sid: curSid }).catch(() => false)
+  check('comic-seed-turn-3', seedExtra)
+  // 已有分镜 → 点生成弹「续画/重画」对话框 → 续画（自动范围 3→3）
+  await win.click('#btn-gallery-comic')
+  await win.waitForTimeout(400)
+  check('comic-resume-dialog-shown', await win.locator('.confirm-mask').isVisible().catch(() => false))
+  await win.click('.confirm-foot .primary') // 续画
+  ok = false
+  for (let i = 0; i < 40; i++) {
+    const st = await win.evaluate(async (sid) => {
+      const r = await window.api.loadSessions()
+      const s = r && r.sessions && r.sessions.find((x) => x.id === sid)
+      return s && s.comic ? { n: s.comic.panels.length, done: s.comic.panels.filter((p) => p.illust).length } : null
+    }, curSid).catch(() => null)
+    if (st && st.n >= 3 && st.done >= 3) { ok = true; break }
+    await win.waitForTimeout(400)
+  }
+  check('comic-resume-appends-only-new', ok, '续画后应有 3 幕全画完')
+  const firstPanelKept = await win.evaluate(async (sid) => {
+    const r = await window.api.loadSessions()
+    const s = r && r.sessions && r.sessions.find((x) => x.id === sid)
+    return s && s.comic ? s.comic.panels[0].title : null
+  }, curSid).catch(() => null)
+  check('comic-resume-keeps-old-panels', firstPanelKept === '清晨的到访', 'first=' + firstPanelKept)
+
+  await win.click('#btn-gallery-close')
+  await waitForHidden('#gallery')
+  check('gallery-closes-after-comic', await win.locator('#gallery').evaluate((el) => el.hidden))
+
   await win.keyboard.press('Control+,')
   const sw3 = await settingsWindow(app)
   check('shortcut-ctrl-comma-opens-settings', !!sw3)

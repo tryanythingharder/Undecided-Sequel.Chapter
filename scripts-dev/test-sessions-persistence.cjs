@@ -70,6 +70,38 @@ async function main() {
   check('reload-from-sqlite', r.ok && r.exists === true && r.storage === 'sqlite' && r.sessions.length === 2
     && r.sessions[0].id === 'sess-test-1' && r.sessions[0].messages[0].content === '开局第 1 回', JSON.stringify(r && { storage: r.storage, n: r.sessions && r.sessions.length }))
 
+  // ---- 2.5 漫画回放分镜的外置/水合（session.comic.panels 与消息插图同管线）----
+  // 1x1 PNG（透明）的 base64 data URL：save 后应外置为 session-data/images 文件，
+  // 消息内只留 asset 引用；load 时水合回 sixworlds-asset:// 协议地址。
+  const PNG_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=='
+  const comicSession = {
+    id: 'sess-test-comic', wsId: 'ws-a', title: '漫画线', updatedAt: 1700000000090, turn: 1,
+    messages: [{ role: 'user', content: '开局' }],
+    comic: {
+      version: 1, createdAt: 1700000000090, updatedAt: 1700000000090,
+      cast: [{ name: '主角', look: 'young man' }],
+      panels: [
+        { idx: 0, turn: 1, title: '开场', narration: '故事开始', participants: ['主角'], sceneLine: '【历｜清晨｜村】', prompt: '', illust: 'data:image/png;base64,' + PNG_B64, illustAt: 1700000000100 },
+        { idx: 1, turn: 2, title: '第二幕', narration: '继续', participants: ['主角'], sceneLine: '', prompt: '', illust: null, illustPending: false, illustError: null }
+      ],
+      progress: { state: 'done', done: 1, failed: 0 }
+    }
+  }
+  const comicSave = await win.evaluate((s) => (window.api.saveSessions(s)), [comicSession])
+  await win.waitForTimeout(600)
+  check('comic-save-ok', !!(comicSave && comicSave.ok), JSON.stringify(comicSave))
+  // 外置后：磁盘上出现图片文件；加载水合回 asset URL；未绘制的 panel 2 不产生文件
+  r = await win.evaluate(() => window.api.loadSessions())
+  const cs = r.sessions && r.sessions.find((x) => x.id === 'sess-test-comic')
+  check('comic-panel-hydrated', !!cs && /^sixworlds-asset:\/\/image\//.test(String(cs.comic.panels[0].illust || '')),
+    JSON.stringify(cs && cs.comic && cs.comic.panels[0] && { illust: String(cs.comic.panels[0].illust || '').slice(0, 40) }))
+  check('comic-panel-structure-kept', !!(cs && cs.comic.cast.length === 1 && cs.comic.panels.length === 2 && cs.comic.panels[1].illust == null),
+    JSON.stringify(cs && cs.comic && { cast: cs.comic.cast.length, panels: cs.comic.panels.length }))
+  // 二次保存（水合后的 asset URL 再落盘）：不产生新文件、引用仍有效（幂等）
+  const comicSave2 = await win.evaluate((s) => (window.api.saveSessions(s)), r.sessions)
+  await win.waitForTimeout(600)
+  check('comic-asset-roundtrip-idempotent', !!(comicSave2 && comicSave2.ok), JSON.stringify(comicSave2))
+
   // ---- 3. clear 清两处 ----
   await win.evaluate(() => window.api.clearSessions())
   await win.waitForTimeout(500)

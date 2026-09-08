@@ -3131,6 +3131,16 @@ const KData = window.KernelData.createKernelData({
   const buildGallerySessionSelect = () => Gallery.buildGallerySessionSelect()
   const renderGallery = () => Gallery.renderGallery()
 
+  // ---- 漫画回放（Comic Replay）：一键从头生成漫画 + 阅读视图 + 导出 ----
+  const Comic = window.ComicPanel.createComicPanel({
+    api, cfg: () => cfg, $,
+    curSession, saveSessions, toast, confirmDialog,
+    stylePrompt: () => Illust.stylePrompt(),
+  })
+  const openComicPlanner = () => Comic.openPlanner()
+  const openComicView = () => Comic.openView()
+  const comicResumePending = () => Comic.resumePending()
+
   // 叙事摘要：去掉【】结构块后截取前 60 字
   function summarize(text) {
     const t = String(text || '').replace(/【[^】]*】/g, ' ').replace(/\s+/g, ' ').trim()
@@ -3186,6 +3196,10 @@ const KData = window.KernelData.createKernelData({
     else if (r && r.error) toast('导出失败：' + r.error, 'err')
   })
   $('gallery-session').addEventListener('change', renderGallery)
+
+  // 漫画回放：一键生成 / 阅读视图
+  $('btn-gallery-comic').addEventListener('click', () => openComicPlanner())
+  $('btn-gallery-comic-view').addEventListener('click', () => openComicView())
 
   // ---- 输入区：自动增高（2–9 行）----
   const inputEl = $('input')
@@ -3752,7 +3766,10 @@ const KData = window.KernelData.createKernelData({
       return
     }
     if (e.key === 'Escape') {
-      if (commandMask && !commandMask.hidden) closeCommandPanel()
+      // 漫画回放阅读视图优先于画廊（视图从画廊打开，Esc 应先关视图本身）
+      const comicView = document.getElementById('comic-view')
+      if (comicView) comicView.dispatchEvent(new CustomEvent('comic-close'))
+      else if (commandMask && !commandMask.hidden) closeCommandPanel()
       else if (themePopEl && !themePopEl.classList.contains('hidden')) closeThemePop()
       else if (!$('gallery').hidden) closeGallery()
       else if (!$('inspector-mask').hidden) closeInspector()
