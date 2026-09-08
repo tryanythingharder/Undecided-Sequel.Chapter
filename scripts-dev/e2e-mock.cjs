@@ -560,6 +560,18 @@ async function main() {
   check('ws-switch-back-name', (await win.locator('#ws-name').textContent()) === '默认世界', 'ws-name=' + (await win.locator('#ws-name').textContent()))
   check('ws-switch-restores-lines', (await win.locator('.session-item').count()) === 2, 'lines=' + (await win.locator('.session-item').count()))
 
+  // ---- 故事进度条：节点点击跳转（rail-panel msgEl getter 桥接回归闸：C1 修复曾静默失效）----
+  // rail 仅在侧栏收起态显示（Codex 式交互）——先收起再点
+  await win.evaluate(() => document.body.classList.add('sb-collapsed'))
+  await win.waitForTimeout(250)
+  await win.evaluate(() => { const m = document.getElementById('messages'); m.scrollTop = m.scrollHeight }) // 先置底
+  await win.waitForTimeout(250)
+  const railBefore = await win.evaluate(() => document.getElementById('messages').scrollTop)
+  await win.locator('#rail-nodes .rail-node').first().click()
+  await win.waitForTimeout(1000) // smooth 滚动落定
+  const railAfter = await win.evaluate(() => document.getElementById('messages').scrollTop)
+  check('rail-node-click-jumps', railAfter < railBefore, 'scrollTop ' + railBefore + ' → ' + railAfter)
+
   // ---- 持久化：reload 后会话与消息仍在 ----
   await win.reload()
   await win.waitForTimeout(1500)

@@ -10,7 +10,7 @@
 
   function createRailPanel(ctx) {
     const $ = ctx.$
-    const msgEl = ctx.msgEl
+    const getMsgEl = ctx.msgEl // () => #messages（可变绑定经 getter 桥接——C1 修复：曾被按值解构，对函数调 querySelector 致节点点击/滚动填充全静默失效）
     const { cancelHideAnim, hideWithAnim } = ctx
 
   function buildProgressRail(messages) {
@@ -40,7 +40,7 @@
       n.addEventListener('mouseenter', () => showRailPop(n, b.m))
       n.addEventListener('mouseleave', hideRailPop)
       n.addEventListener('click', () => {
-        const el = msgEl.querySelector('[data-mi="' + b.i + '"]')
+        const el = getMsgEl().querySelector('[data-mi="' + b.i + '"]')
         if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
       })
       nodesEl.appendChild(n)
@@ -74,8 +74,9 @@
     const fill = $('rail-fill')
     const rail = $('progress-rail')
     if (!fill || !rail) return
-    const frac = msgEl.scrollHeight > msgEl.clientHeight
-      ? msgEl.scrollTop / (msgEl.scrollHeight - msgEl.clientHeight)
+    const me = getMsgEl()
+    const frac = me.scrollHeight > me.clientHeight
+      ? me.scrollTop / (me.scrollHeight - me.clientHeight)
       : 1
     fill.style.height = Math.round(Math.min(1, Math.max(0, frac)) * 100) + '%'
   }
