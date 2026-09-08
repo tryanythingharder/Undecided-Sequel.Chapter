@@ -222,6 +222,16 @@ function createEngine(dataDir, opts) {
     return buildComicSource(story, from, Math.max(from, to), store)
   }
 
+  /* ---- 角色闪卡素材（Holo Card）：character 实体的制卡档案 ----
+   * 纯读函数（不落盘、不建账本）。每个角色 = 实体档案 + 相关 ACTIVE facts（提及该角色）
+   * + 关系网（双向）+ 高重要度事件（参与）+ 近期场景行。玩家不在 entities 时补位。
+   * 输出供 pet:agent 'card' 任务规划卡面文案（称号/招式/一句话/生图提示词）。 */
+  engine.cardSource = (storyId) => {
+    const story = store.getStory(storyId)
+    if (!story) return null
+    return buildCardSource(story)
+  }
+
   engine.protocolPrompt = patchProtocolPrompt
   engine.meta = ENGINE_META
   return engine
@@ -301,4 +311,63 @@ function buildComicSource(story, fromTurn, toTurn, store) {
 }
 
 
-module.exports = { createEngine, ENGINE_VERSION, ENGINE_META, buildComicSource }
+/* 闪卡素材整编（导出供单测）：character 实体制卡档案
+ * 每个角色：档案（name/summary/state/tags）+ 提及该角色的 ACTIVE facts（前 10）
+ * + 关系网（双向，前 8）+ 参与的高重要度事件（前 6）+ 玩家补位。
+ * 压缩原则与 comicSource 一致：只做装配，不调任何外部服务。 */
+function buildCardSource(story) {
+  const byName = (name) => story.entities.filter((e) => e.name === name)
+  const factsOf = (name) => story.facts
+    .filter((f) => f.status === 'ACTIVE' && String(f.statement || '').includes(name))
+    .slice(0, 10)
+    .map((f) => ({ statement: String(f.statement || '').slice(0, 200) }))
+  const relOf = (ent) => story.relationships
+    .filter((r) => r.status === 'ACTIVE' && (r.source === ent.entity_id || r.target === ent.entity_id))
+    .slice(0, 8)
+    .map((r) => ({
+      with: r.source === ent.entity_id ? r.target : r.source,
+      type: r.relation_type || '',
+      strength: r.strength != null ? Number(r.strength) : null
+    }))
+  const evOf = (ent) => story.events
+    .filter((e) => Array.isArray(e.participants) && e.participants.includes(ent.entity_id))
+    .sort((a, b) => (b.importance || 0) - (a.importance || 0))
+    .slice(0, 6)
+    .map((e) => ({ turn: e.turn, description: String(e.description || '').slice(0, 160), importance: e.importance || 0 }))
+  const characters = story.entities
+    .filter((e) => e.type === 'character' && e.status !== 'RETIRED')
+    .slice(0, 60)
+    .map((ent) => ({
+      name: ent.name,
+      summary: String(ent.summary || '').slice(0, 400),
+      state: ent.state && typeof ent.state === 'object' ? JSON.stringify(ent.state).slice(0, 400) : '',
+      tags: Array.isArray(ent.tags) ? ent.tags.slice(0, 10) : [],
+      facts: factsOf(ent.name),
+      relationships: relOf(ent),
+      events: evOf(ent)
+    }))
+  // 玩家角色补位（同名实体已存在时以实体档案为准）
+  if (story.player && story.player.name && !byName(story.player.name).length) {
+    characters.unshift({
+      name: story.player.name,
+      summary: '玩家角色',
+      state: story.player.location ? JSON.stringify({ location: story.player.location }) : '',
+      tags: [], facts: [], relationships: [], events: []
+    })
+  }
+  // 关系里的 entity_id 顺手翻译成名字（渲染层/LLM 直接可读）
+  const nameById = new Map(story.entities.map((e) => [e.entity_id, e.name]))
+  for (const c of characters) {
+    for (const r of c.relationships) {
+      if (r.with && nameById.has(r.with)) r.with = nameById.get(r.with)
+    }
+  }
+  return {
+    story_id: story.story_id,
+    title: story.title,
+    total_turns: story.counters.turn || 0,
+    characters
+  }
+}
+
+module.exports = { createEngine, ENGINE_VERSION, ENGINE_META, buildComicSource, buildCardSource }

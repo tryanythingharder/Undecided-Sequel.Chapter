@@ -80,6 +80,18 @@ async function readResponseBufferLimited(response, maxBytes, label) {
 
 function sessionDataDir() { return path.join(app.getPath('userData'), 'session-data') }
 function sessionImagesDir() { return path.join(sessionDataDir(), 'images') }
+/* 角色闪卡：每张卡一个目录（card-config.json + 四层 PNG + 共享 glb 副本）。
+ * cardId 白名单与引擎 id 同规制；查看器窗口经 ?card=<dir 名> 加载。 */
+function holoCardsDir() { return path.join(app.getPath('userData'), 'holo-cards') }
+const HOLO_CARD_ID_RE = /^card-[a-z0-9-]{1,64}$/
+function holoCardDirOf(cardId) {
+  const id = String(cardId || '')
+  if (!HOLO_CARD_ID_RE.test(id)) throw new Error('非法闪卡编号')
+  const dir = path.join(holoCardsDir(), id)
+  const resolved = path.resolve(dir)
+  if (!resolved.startsWith(path.resolve(holoCardsDir()) + path.sep)) throw new Error('闪卡路径越界')
+  return resolved
+}
 function sessionsFile() { return path.join(sessionDataDir(), 'sessions.json') }
 function secretsFile() { return path.join(app.getPath('userData'), 'secrets.json') }
 
@@ -819,6 +831,8 @@ safeHandle('engine:logs', (p) => engineFor().turnLogs(p.storyId))
 safeHandle('engine:log', (p) => engineFor().turnLog(p.storyId, p.turnId))
 // 漫画回放素材：范围内事件账本整编（分镜规划的数据源，纯读）；返回值经 safeHandle 包为 {ok, data: source}
 safeHandle('engine:comicSource', (p) => engineFor().comicSource(p.storyId, p.fromTurn, p.toTurn))
+// 角色闪卡素材：character 实体制卡档案（纯读，不落盘不建账本）
+safeHandle('engine:cardSource', (p) => engineFor().cardSource(p.storyId))
 safeHandle('engine:protocol', () => engineFor().protocolPrompt())
 // 被抛弃的叙事留痕（重生成/IF 分歧丢弃上一版）—— 永不静默覆盖，只增不删
 safeHandle('engine:discardTurn', (p) => {
@@ -1608,6 +1622,11 @@ const PET_AGENT_FAKE_PLANS = {
       { turn: 1, title: '开场', narration: '故事从清晨的村庄开始。', participants: ['主角'], sceneLine: '【甲龙历407.03.01｜清晨｜布耶纳村】' },
       { turn: 2, title: '启程', narration: '主角踏上了旅途。', participants: ['主角'], sceneLine: '【甲龙历407.03.01｜上午｜村口】' }
     ]
+  },
+  card: {
+    name: '主角', subtitle: '（测试大脑）转生少年', technique: '（测试大脑）初级魔术', tagline: '（测试大脑）一句话概括',
+    rarity: 'SSR', subjectPrompt: 'young man with brown hair, mage robe, full body, plain white background',
+    backgroundPrompt: 'misty fantasy village at dawn', foil: 0.65, why: '（测试大脑）测试卡面规划'
   }
 }
 ipcMain.handle('pet:agent', async (_evt, p) => {
@@ -1697,6 +1716,12 @@ function petAgentSpec(task, p) {
       user: '【角色档案（cast 素材）】\n' + String((p && p.castText) || '').slice(0, 6000) + '\n\n【按回合分组的剧情素材】\n' + story + '\n\n请按目标 ' + target + ' 幕完成分镜规划。'
     }
   }
+  if (task === 'card') {
+    return {
+      system: base + '\n任务：你是收藏卡设计师。基于给定角色的档案与剧情，规划一张收藏卡的全部文案与生图提示词。输出字段：{"name":"角色名","subtitle":"称号(≤10字,概括身份/境界)","technique":"招式或标志性能力名(≤12字)","tagline":"一句话点睛(≤24字,卡面中段)","rarity":"稀有度,从 N/R/SR/SSR/UR 中选一个","subjectPrompt":"主体立绘英文提示词(40词内:发型发色/瞳色/表情/体型/标志性服装/姿态,结尾必须包含 plain white background, solid white background)","backgroundPrompt":"背景英文提示词(30词内:与角色气质相符的场景/氛围/光影,不含人物)","foil":0到1的小数(流光强度建议,主角级0.75,配角0.5左右),"why":"一两句中文设计思路"}。subjectPrompt 与 backgroundPrompt 必须是英文;不要出现人名拼写废字符。',
+      user: '【角色档案】\n' + String((p && p.castText) || '').slice(0, 6000) + '\n\n【该角色相关的剧情素材】\n' + story + '\n\n请为该角色规划收藏卡面。'
+    }
+  }
   return null
 }
 function petAgentExtractPlan(task, text, p) {
@@ -1752,8 +1777,105 @@ function petAgentExtractPlan(task, text, p) {
     panels.sort((a, b) => a.turn - b.turn)
     return { cast: cast.slice(0, 24), panels: panels.slice(0, 40) }
   }
+  if (task === 'card') {
+    const subjectPrompt = String(plan.subjectPrompt || '').trim()
+    const backgroundPrompt = String(plan.backgroundPrompt || '').trim()
+    if (subjectPrompt.length < 8 || backgroundPrompt.length < 8) return null
+    let foil = Number(plan.foil)
+    if (!Number.isFinite(foil)) foil = 0.6
+    foil = Math.min(1, Math.max(0, foil))
+    const rarity = ['N', 'R', 'SR', 'SSR', 'UR'].includes(String(plan.rarity)) ? String(plan.rarity) : 'SR'
+    return {
+      name: String(plan.name || '').slice(0, 40),
+      subtitle: String(plan.subtitle || '').slice(0, 20),
+      technique: String(plan.technique || '').slice(0, 24),
+      tagline: String(plan.tagline || '').slice(0, 48),
+      rarity,
+      subjectPrompt: subjectPrompt.slice(0, 600),
+      backgroundPrompt: backgroundPrompt.slice(0, 400),
+      foil,
+      why: String(plan.why || '').slice(0, 160)
+    }
+  }
   return null
 }
+
+// ---- 角色闪卡（Holo Card）：卡目录落盘 / 读取 / 查看器窗口 ----
+/* 卡目录 = userData/holo-cards/<cardId>/，由渲染层经 card:write 一次性写入
+ * （config + 四层 PNG data URL）；card.glb 从应用内 renderer/holo/ 复制共享副本。
+ * 查看器窗口无 preload（纯静态展示页，零暴露面），安全防线与设置窗对齐：
+ * 导航封堵 + 开窗拒绝 + 外链转系统浏览器。 */
+ipcMain.handle('card:write', (_evt, p) => {
+  try {
+    const cardId = String((p && p.cardId) || '')
+    const dir = holoCardDirOf(cardId)
+    const config = p && p.config
+    if (!config || typeof config !== 'object') return { ok: false, error: '卡配置缺失' }
+    const layers = p && p.layers
+    if (!layers || typeof layers !== 'object') return { ok: false, error: '卡面图层缺失' }
+    const writePng = (key, name) => {
+      const img = dataUrlImage(String(layers[key] || ''))
+      if (img.ext !== 'png') throw new Error(name + ' 必须是 PNG')
+      fs.writeFileSync(path.join(dir, name + '.png'), img.buffer)
+    }
+    fs.mkdirSync(dir, { recursive: true })
+    writePng('subject', 'subject')
+    writePng('background', 'background')
+    writePng('text', 'text')
+    if (layers.lineart) writePng('lineart', 'lineart') // 线稿层可选（查看器有 1×1 白纹兜底）
+    atomicWriteFile(path.join(dir, 'card-config.json'), JSON.stringify(config, null, 2))
+    // 共享静态 glb：不存在时从应用模板复制（打包升级后自动补新）
+    const glbPath = path.join(dir, 'card.glb')
+    if (!fs.existsSync(glbPath)) fs.copyFileSync(path.join(__dirname, 'renderer', 'holo', 'card.glb'), glbPath)
+    return { ok: true, dir }
+  } catch (e) {
+    return { ok: false, error: String((e && e.message) || e) }
+  }
+})
+ipcMain.handle('card:read', (_evt, p) => {
+  try {
+    const dir = holoCardDirOf(p && p.cardId)
+    const file = path.join(dir, 'card-config.json')
+    const config = JSON.parse(readTextFileLimited(file, MAX_CONFIG_BYTES, '卡配置'))
+    return { ok: true, config }
+  } catch (e) {
+    return { ok: false, error: String((e && e.message) || e) }
+  }
+})
+ipcMain.handle('card:delete', (_evt, p) => {
+  try {
+    const dir = holoCardDirOf(p && p.cardId)
+    fs.rmSync(dir, { recursive: true, force: true })
+    return { ok: true }
+  } catch (e) {
+    return { ok: false, error: String((e && e.message) || e) }
+  }
+})
+/* 查看器窗口：一次一卡可多开；e2e 接缝（SIXWORLDS_TEST）不真开窗，直接回 ok。 */
+ipcMain.handle('card:window', (evt, p) => {
+  try {
+    const dir = holoCardDirOf(p && p.cardId)
+    const stat = fs.statSync(path.join(dir, 'card-config.json')) // 校验卡存在
+    if (!stat.isFile()) throw new Error('卡配置不存在')
+    if (process.env.SIXWORLDS_TEST) return { ok: true, dir, testMode: true }
+    const cardWin = new BrowserWindow({
+      width: 980, height: 860, minWidth: 640, minHeight: 520,
+      backgroundColor: '#fafafa', show: false,
+      title: '角色闪卡 · 六面世界',
+      icon: path.join(__dirname, 'build', 'icon.ico'),
+      webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true }
+    })
+    cardWin.loadFile(path.join(__dirname, 'renderer', 'holo', 'index.html'), {
+      query: { card: '/holo-cards/' + path.basename(dir) }
+    })
+    cardWin.once('ready-to-show', () => cardWin.show())
+    cardWin.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+    cardWin.webContents.on('will-navigate', (e, url) => { e.preventDefault() })
+    return { ok: true, dir }
+  } catch (e) {
+    return { ok: false, error: String((e && e.message) || e) }
+  }
+})
 
 // ---- 打开任意 JSON 文件并返回内容（导入配置用）----
 ipcMain.handle('dialog:openFile', async (evt, opts) => {

@@ -36,6 +36,7 @@ contextBridge.exposeInMainWorld('api', {
   engineResolvePending: (p) => ipcRenderer.invoke('engine:resolvePending', p),
   engineDiscardPending: (p) => ipcRenderer.invoke('engine:discardPending', p),
   engineComicSource: (p) => ipcRenderer.invoke('engine:comicSource', p),
+  engineCardSource: (p) => ipcRenderer.invoke('engine:cardSource', p),
   generateImage: (cfg) => ipcRenderer.invoke('image:generate', cfg),
   readImageDataUrl: (source) => ipcRenderer.invoke('image:readDataUrl', source),
   saveImage: (opts) => ipcRenderer.invoke('image:save', opts),
@@ -96,6 +97,11 @@ contextBridge.exposeInMainWorld('api', {
   petChat: (p) => ipcRenderer.invoke('pet:chat', p),
   // 桌宠智能体：结构化决策（推荐选项 / 托管代选 / 插图时机 / 生图提示词优化）
   petAgent: (p) => ipcRenderer.invoke('pet:agent', p),
+  // 角色闪卡（Holo Card）：卡目录落盘（渲染层 canvas 抠图/排版后提交）/ 读取 / 删除 / 打开查看器窗口
+  cardWrite: (p) => ipcRenderer.invoke('card:write', p),
+  cardRead: (p) => ipcRenderer.invoke('card:read', p),
+  cardDelete: (p) => ipcRenderer.invoke('card:delete', p),
+  cardWindow: (p) => ipcRenderer.invoke('card:window', p),
   onPetModelProgress: (cb) => {
     ipcRenderer.on('pet:model-progress', (_e, d) => cb(d))
     return () => ipcRenderer.removeAllListeners('pet:model-progress')
