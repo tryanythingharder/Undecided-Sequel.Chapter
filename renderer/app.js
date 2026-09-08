@@ -580,6 +580,7 @@ const WsPanel = window.WorkspacePanel.createWorkspacePanel({
     newSession, fitInput, loadKernel,
     confirmDialog, promptDialog, toast,
     currentKernelRef,
+    curSession, cancelHideAnim, hideWithAnim,
   })
   const renderWsMenu = () => WsPanel.renderWsMenu()
   const openWsMenu = () => WsPanel.openWsMenu()
@@ -3143,6 +3144,16 @@ const KData = window.KernelData.createKernelData({
     stylePrompt: () => Illust.stylePrompt(),
   })
   const openComicPlanner = () => Comic.openPlanner()
+
+  // ---- 角色闪卡（Holo Card）：选角 → AI 规划 → 2 次生图 → 抠图排版 → 3D 查看器 ----
+  const Holo = window.HoloCard.createHoloCard({
+    api, cfg: () => cfg, $,
+    curSession, saveSessions, toast, confirmDialog,
+    stylePrompt: () => Illust.stylePrompt(),
+    onCardsChanged: () => renderHoloCards()
+  })
+  const renderHoloCards = () => { Holo.renderCardsPanel(); const cnt = (curSession() && curSession().cards && curSession().cards.length) || 0; const el = $('holo-cards-count'); if (el) el.textContent = cnt ? ('· ' + cnt + ' 张') : '' }
+  $('btn-holo-card').addEventListener('click', () => Holo.openPicker())
   const openComicView = () => Comic.openView()
   const comicResumePending = () => Comic.resumePending()
 
@@ -3742,6 +3753,7 @@ const KData = window.KernelData.createKernelData({
     }
   })
   $('btn-gallery').addEventListener('click', () => openGallery())
+  $('btn-gallery').addEventListener('click', () => renderHoloCards())
   $('btn-gallery-close').addEventListener('click', () => closeGallery())
   // R81：pointerdown 即时响应——画廊打开瞬间 head 重绘/大图解码可能吞掉 click，先按先关
   $('btn-gallery-close').addEventListener('pointerdown', () => closeGallery(), { once: false })

@@ -47,7 +47,7 @@ function startMock() {
         res.end(JSON.stringify(obj))
       }
       if (req.url.endsWith('/chat/completions')) {
-        const user = (() => { try { const p = JSON.parse(body); const u = p.messages.filter((m) => m.role === 'user' && !String(m.content).startsWith('（系统要求')).pop(); return u ? u.content : '' } catch { return '' } })()
+        const { user, systemMsg } = (() => { try { const p = JSON.parse(body); const u = p.messages.filter((m) => m.role === 'user' && !String(m.content).startsWith('（系统要求')).pop(); const sys = p.messages.filter((m) => m.role === 'system').map((m) => String(m.content)).join(''); return { user: u ? u.content : '', systemMsg: sys } } catch { return { user: '', systemMsg: '' } } })()
         const wantsStream = (() => { try { return JSON.parse(body).stream === true } catch { return false } })()
         // 漫画分镜师任务（pet:agent comic，非流式）：正文带【按回合分组的剧情素材】时，
         // 从素材行提取回合号，每回合返回一幕（确定性；续画轮次只包含新回合，便于断言追加）
@@ -61,6 +61,16 @@ function startMock() {
             sceneLine: '【甲龙历407.03.0' + t + '｜清晨｜布耶纳村】'
           }))
           return json(200, { choices: [{ message: { role: 'assistant', content: JSON.stringify({ cast: [{ name: '主角', look: 'young man with brown hair, plain village clothes' }], panels }) } }] })
+        }
+        // 角色闪卡设计师任务（pet:agent card，非流式）：system 带任务标识，从素材提取角色名，返回确定性卡面规划
+        if (systemMsg.includes('收藏卡设计师')) {
+          const name = (user.match(/名字：(.+)/) || [])[1] || '主角'
+          return json(200, { choices: [{ message: { role: 'assistant', content: JSON.stringify({
+            name, subtitle: '测试称号', technique: '测试招式', tagline: '测试一句话点睛',
+            rarity: 'SSR',
+            subjectPrompt: 'young man with brown hair, mage robe, plain white background, solid white background',
+            backgroundPrompt: 'misty fantasy village at dawn', foil: 0.7, why: '（测试大脑）卡面设计思路'
+          }) } }] })
         }
         const reply = user.includes('【A】')
           ? '【甲龙历 407.03.02｜午后｜村口】你接受了委托，沿着薄雾中的小路向森林走去。\n【A】深入森林 B. 返回村庄报信'
@@ -523,6 +533,33 @@ async function main() {
   await win.waitForTimeout(300)
   check('switch-back-restores', (await win.locator('.msg.assistant').count()) >= 2)
 
+  // ---- 工作区菜单：打开 / 新建 / 切换（workspace-panel getter 桥接回归闸：C1 修复
+  // "workspaces is not iterable" 曾让菜单/切换/IF 线全灭且 e2e 零断言静默漏过）----
+  await win.click('#btn-ws')
+  await win.waitForTimeout(300)
+  check('ws-menu-opens', await win.locator('#ws-menu').isVisible().catch(() => false))
+  check('ws-menu-shows-current', (await win.locator('#ws-menu-list .ws-menu-item.current').count()) === 1)
+  await win.keyboard.press('Escape')
+  await win.waitForTimeout(250)
+  check('ws-menu-esc-closes', await win.locator('#ws-menu').evaluate((el) => el.classList.contains('hidden')))
+  // 新建工作区（promptDialog 输入名称）→ 自动切换 + 空工作区建一条新世界线
+  await win.click('#btn-ws')
+  await win.waitForTimeout(250)
+  await win.click('#ws-new')
+  await win.waitForTimeout(300)
+  await win.locator('.confirm-input').fill('回归测试工作区')
+  await win.click('.confirm-foot .primary')
+  await win.waitForTimeout(700)
+  check('ws-created-switched', (await win.locator('#ws-name').textContent()) === '回归测试工作区', 'ws-name=' + (await win.locator('#ws-name').textContent()))
+  check('ws-new-gives-empty-line', (await win.locator('.session-item').count()) === 1)
+  // 切回原工作区 → 世界线列表恢复
+  await win.click('#btn-ws')
+  await win.waitForTimeout(250)
+  await win.locator('#ws-menu-list .ws-menu-item').first().click()
+  await win.waitForTimeout(500)
+  check('ws-switch-back-name', (await win.locator('#ws-name').textContent()) === '默认世界', 'ws-name=' + (await win.locator('#ws-name').textContent()))
+  check('ws-switch-restores-lines', (await win.locator('.session-item').count()) === 2, 'lines=' + (await win.locator('.session-item').count()))
+
   // ---- 持久化：reload 后会话与消息仍在 ----
   await win.reload()
   await win.waitForTimeout(1500)
@@ -686,6 +723,71 @@ async function main() {
   await win.click('#btn-gallery-close')
   await waitForHidden('#gallery')
   check('gallery-closes-after-comic', await win.locator('#gallery').evaluate((el) => el.hidden))
+
+  // ---- 角色闪卡（Holo Card）：选角 → AI 规划（mock card 分支）→ 2 次生图 → 抠图排版落盘 → 图鉴 ----
+  await win.click('#btn-gallery')
+  await win.waitForTimeout(300)
+  check('holo-btn-present', (await win.locator('#btn-holo-card').count()) === 1)
+  await win.click('#btn-holo-card')
+  await win.waitForTimeout(400)
+  check('holo-picker-opens', await win.locator('#holo-picker').isVisible().catch(() => false))
+  check('holo-picker-lists-characters', (await win.locator('.holo-picker-item').count()) >= 1)
+  // 选中第一个角色（主角）→ 规划 → 两次生图(1px PNG) → canvas 加工 → 落盘
+  await win.locator('.holo-picker-item').first().click()
+  ok = false
+  for (let i = 0; i < 40; i++) {
+    const st = await win.evaluate(async (sid) => {
+      const r = await window.api.loadSessions()
+      const s = r && r.sessions && r.sessions.find((x) => x.id === sid)
+      return s && s.cards ? s.cards.length : -1
+    }, curSid).catch(() => -1)
+    if (st >= 1) { ok = true; break }
+    await win.waitForTimeout(400)
+  }
+  check('holo-card-created', ok, 'session.cards 应有 1 张')
+  if (ok) {
+    const card = await win.evaluate(async (sid) => {
+      const r = await window.api.loadSessions()
+      const s = r && r.sessions && r.sessions.find((x) => x.id === sid)
+      return s.cards[0]
+    }, curSid)
+    check('holo-card-meta', !!(card && card.cardId && /^card-[a-z0-9-]+$/.test(card.cardId) && card.rarity === 'SSR'), JSON.stringify(card))
+    // 卡目录落盘验证(主进程直查userData:测试档案目录)
+    const dirOk = await win.evaluate(async (cardId) => {
+      const r = await window.api.cardRead({ cardId })
+      return r && r.ok && r.config && r.config.title === '主角' && r.config.assets && r.config.assets.model === './card.glb'
+    }, card.cardId).catch(() => false)
+    check('holo-card-config-written', dirOk)
+    // 1px PNG 主体(纯白)抠图 → 透明占比 100% ≥15% → layered = true
+    check('holo-card-layered-flag', card.layered === true, 'layered=' + card.layered)
+    // 查看器 IPC(e2e 接缝:SIXWORLDS_TEST 不真开窗,返回 ok)
+    const vw = await win.evaluate(async (cardId) => window.api.cardWindow({ cardId }), card.cardId).catch(() => null)
+    check('holo-viewer-ipc-ok', !!(vw && vw.ok))
+    // 删除:确认框 → 卡目录与图鉴记录移除
+    await win.locator('.holo-card-actions button.del').first().click()
+    await win.waitForTimeout(300)
+    const confirmVisible = await win.locator('.confirm-mask').isVisible().catch(() => false)
+    check('holo-delete-confirm-shown', confirmVisible)
+    if (confirmVisible) await win.locator('.confirm-mask .confirm-foot button').last().click()
+    ok = false
+    for (let i = 0; i < 20; i++) {
+      const left = await win.evaluate(async (sid) => {
+        const r = await window.api.loadSessions()
+        const s = r && r.sessions && r.sessions.find((x) => x.id === sid)
+        return s && s.cards ? s.cards.length : 0
+      }, curSid).catch(() => 1)
+      if (left === 0) { ok = true; break }
+      await win.waitForTimeout(300)
+    }
+    check('holo-card-deleted', ok)
+    const rd = await win.evaluate(async (cardId) => {
+      const r = await window.api.cardRead({ cardId })
+      return !(r && r.ok)
+    }, card.cardId).catch(() => true)
+    check('holo-card-dir-removed', rd)
+  }
+  await win.click('#btn-gallery-close')
+  await waitForHidden('#gallery')
 
   await win.keyboard.press('Control+,')
   const sw3 = await settingsWindow(app)
