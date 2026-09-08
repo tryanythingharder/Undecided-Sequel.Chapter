@@ -23,3 +23,7 @@ output/
 
 # ZCode 会话产物（不入库）
 .zcode/
+
+# 原型参考资料（本地素材，不入库）
+docs/prototype/references/
+docs/prototype/十方向对比/
