@@ -82,6 +82,14 @@ t('card:window 无 preload（纯展示页零暴露面）', /contextIsolation: tr
 t('card:window 导航封堵 + 开窗拒绝', /setWindowOpenHandler\(\(\) => \(\{ action: 'deny' \}\)\)/.test(mainSrc))
 t('e2e 接缝（SIXWORLDS_TEST 不真开窗）', /if \(process\.env\.SIXWORLDS_TEST\) return \{ ok: true, dir, testMode: true \}/.test(mainSrc))
 t('glb 共享副本缺失时从应用模板补拷', /renderer', 'holo', 'card\.glb'/.test(mainSrc))
+// 真实模型测试（2026-09-09 沙盒 userData 实测）实锤的 file:// 双死路防回归：
+// ① <script type="module"> 在 file:// 下被 CORS 静默拦截（canvas 永不出现、零报错）；
+// ② fetch('/holo-cards/..') 在 file:// 下解析到盘符根，404。查看器必须走特权协议托管。
+const holoHtmlSrc = fs.readFileSync(path.join(__dirname, '..', 'renderer', 'holo', 'index.html'), 'utf8')
+t('查看器走 sixworlds-asset://holo/viewer 特权协议（禁 loadFile file://）', /loadURL\('sixworlds-asset:\/\/holo\/viewer\?card=' \+ encodeURIComponent/.test(mainSrc))
+t('协议托管查看器静态资源白名单（app.bundle.js/style.css/icons.data.js）', /rel === 'app\.bundle\.js' \|\| rel === 'style\.css' \|\| rel === 'icons\.data\.js'/.test(mainSrc))
+t('协议卡资源路径解析卡目录 + 越界防护', /startsWith\(root \+ path\.sep\)/.test(mainSrc))
+t('holo index.html 不用 type="module"（file:// 死路）', !/<script[^>]+type="module"/.test(holoHtmlSrc) && /<script src="\.\/app\.bundle\.js"><\/script>/.test(holoHtmlSrc))
 const preSrc = fs.readFileSync(path.join(__dirname, '..', 'preload.cjs'), 'utf8')
 t('preload 暴露 cardWrite/cardRead/cardDelete/cardWindow', ['cardWrite', 'cardRead', 'cardDelete', 'cardWindow'].every((k) => preSrc.includes(k)))
 t('preload 暴露 engineCardSource', preSrc.includes('engineCardSource'))

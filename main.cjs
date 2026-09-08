@@ -462,6 +462,42 @@ app.whenReady().then(() => {
   nativeTheme.themeSource = 'system'
   protocol.handle('sixworlds-asset', async (request) => {
     try {
+      const url = new URL(request.url)
+      if (url.hostname === 'holo') {
+        // 闪卡查看器：sixworlds-asset://holo/viewer → renderer/holo/index.html；
+        // sixworlds-asset://holo/card/<cardId>/<file> → userData/holo-cards/<cardId>/<file>。
+        // file:// 直载有双重死路：ES module 被 CORS 拦截 + fetch('/holo-cards/..') 根路径不可达，
+        // 特权协议（standard+secure+supportFetchAPI）让查看器与卡资源同源可 fetch。
+        const rel = decodeURIComponent(url.pathname).replace(/^\/+/, '')
+        let file = null
+        const cardMatch = rel.match(/^card\/(card-[a-z0-9-]{1,64})\/([a-z0-9._-]{1,64})$/i)
+        if (rel === 'viewer') {
+          file = path.join(__dirname, 'renderer', 'holo', 'index.html')
+        } else if (rel === 'app.bundle.js' || rel === 'style.css' || rel === 'icons.data.js') {
+          // 查看器静态资源白名单（页面相对路径解析到协议根：holo/viewer + holo/card/<id>/ 同源）
+          file = path.join(__dirname, 'renderer', 'holo', rel)
+        } else if (cardMatch) {
+          const root = path.resolve(holoCardsDir())
+          const target = path.resolve(root, path.join(cardMatch[1], cardMatch[2]))
+          if (!target.startsWith(root + path.sep)) throw new Error('路径越界')
+          const stat = fs.statSync(target)
+          if (!stat.isFile() || stat.size > MAX_IMAGE_BYTES + 512 * 1024) throw new Error('卡资源无效或过大')
+          file = target
+        }
+        if (!file) return new Response('Not found', { status: 404 })
+        const ext = path.extname(file).toLowerCase()
+        const mime = ext === '.html' ? 'text/html; charset=utf-8'
+          : ext === '.js' ? 'text/javascript; charset=utf-8'
+          : ext === '.css' ? 'text/css; charset=utf-8'
+          : ext === '.json' ? 'application/json; charset=utf-8'
+          : ext === '.glb' ? 'model/gltf-binary'
+          : ext === '.jpg' ? 'image/jpeg' : (ext === '.webp' ? 'image/webp' : 'image/png')
+        const body = fs.readFileSync(file)
+        return new Response(body, {
+          status: 200,
+          headers: { 'Content-Type': mime, 'Content-Length': String(body.length), 'Cache-Control': 'no-store' }
+        })
+      }
       const rel = imageAssetRel(request.url)
       if (!rel) return new Response('Not found', { status: 404 })
       const file = resolveImageAsset(rel)
@@ -1865,9 +1901,9 @@ ipcMain.handle('card:window', (evt, p) => {
       icon: path.join(__dirname, 'build', 'icon.ico'),
       webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true }
     })
-    cardWin.loadFile(path.join(__dirname, 'renderer', 'holo', 'index.html'), {
-      query: { card: '/holo-cards/' + path.basename(dir) }
-    })
+    // 特权协议托管（同源 fetch + ES module）：file:// 直载下 <script type="module"> 被
+    // CORS 拦截、fetch('/holo-cards/..') 根路径不可达——查看器会永远停在「正在装裱作品」。
+    cardWin.loadURL('sixworlds-asset://holo/viewer?card=' + encodeURIComponent('card/' + path.basename(dir)))
     cardWin.once('ready-to-show', () => cardWin.show())
     cardWin.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
     cardWin.webContents.on('will-navigate', (e, url) => { e.preventDefault() })

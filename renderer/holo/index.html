@@ -15,7 +15,6 @@
     <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self'; font-src 'self' data:; img-src 'self' data: blob:; script-src 'self'; connect-src 'self'" />
     <title>角色闪卡 · 六面世界</title>
     <link rel="stylesheet" href="./style.css" />
-    <script type="module" src="./app.bundle.js"></script>
   </head>
   <body>
     <header class="masthead">
@@ -228,6 +227,8 @@
       </dl>
     </dialog>
     <div id="notice" role="status" class="notice" hidden></div>
-    <script type="module" src="./app.bundle.js"></script>
+    <!-- 经典脚本而非 type="module"：bundle 无 import/export，module 在受限协议/file:// 下会被
+         CORS 静默拦截；置于 body 尾部（原 module 自带 defer 语义，经典脚本须自己排到 DOM 就绪后） -->
+    <script src="./app.bundle.js"></script>
   </body>
 </html>
