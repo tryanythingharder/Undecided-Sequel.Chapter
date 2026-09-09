@@ -110,9 +110,10 @@ t('背景提示词=主体配色锚定+漫射光+景深留白（贴合主体而�
 // 2026-09-09 gpt_image_playground 移植：原生透明背景 + revised_prompt 回显
 t('image:generate 透传 background 白名单（transparent/opaque/auto）', /cfg\.background === 'transparent' \|\| cfg\.background === 'opaque' \|\| cfg\.background === 'auto'/.test(mainSrc) && /payload\.background = cfg\.background/.test(mainSrc))
 t('image:generate 回传 revised_prompt（模型内部改写可见）', /item\.revised_prompt/.test(mainSrc) && /revisedPrompt/.test(mainSrc))
-t('闪卡主体=透明优先三段降级（报错/无 alpha → 白底+抠图）', /background: 'transparent'/.test(src) && /hasTransparency/.test(src) && /回落白底\+抠图/.test(src))
-t('透明主体跳过 flood-fill（原生 alpha 直接分层）', /subjMode === 'transparent'/.test(src) && /subjectLayer = subjectCanvas/.test(src))
-t('hasTransparency 抽样阈值 3%（防端点静默忽略参数）', /trans \/ \(W \* H\) >= 0\.03/.test(src))
+t('闪卡主体=透明优先；四周非真透明则抠图（防白卡底）', /background: 'transparent'/.test(src) && /analyzeSubjectBackground/.test(src) && /cutoutSubject/.test(src))
+t('背景判定=四周透明 + 不透明区边界是白色（识别白卡底）', /borderTransparent >= 0\.55/.test(src) && /whiteEdgeRatio < 0\.5/.test(src) && /opaqueEdgeWhite/.test(src))
+t('抠图把近白像素纳入背景（清封闭白卡底）', /nearWhite/.test(src) && />= 240/.test(src) && /cornersOpaque/.test(src))
+t('抠图失败才白底重生成（先抠图省一次生图）', /cut\.layered/.test(src) && /背景分离失败/.test(src))
 t('卡元数据记录 subjectMode 与 revisedPrompt', /subjectMode: subjMode/.test(src) && /revisedPrompt: revised\.subject/.test(src))
 
 /* ---------- 4) glb 产物结构校验（重新生成走 build 脚本则始终成立） ---------- */

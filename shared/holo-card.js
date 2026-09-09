@@ -70,33 +70,63 @@
       return c
     }
 
-    /* ---------- 透明检测：data URL 图像是否真带 alpha 通道（防端点静默忽略 background 参数） ---------- */
-    /* 抽样 64×64 网格查 alpha<250 的像素占比 ≥3% 即认定透明。异步（等 Image 解码），导出供单测。 */
-    function hasTransparency(dataUrl) {
-      if (!dataUrl) return false
+    /* ---------- 主体背景判定：不是「有没有透明像素」，而是「不透明区域的边界是不是白色」 ----------
+     * 图像模型常见输出：透明画布上放一张白底圆角卡（卡外透明、卡内纯白）。只查透明像素
+     * 占比会把这种图误判成「原生 alpha」，白卡底就原样贴在卡面上（用户实测的白色矩形）。
+     * 判别信号（抽样 128×128）：
+     *   ① 边框环透明占比——真透明背景的图四周应基本透明；
+     *   ② 不透明区域边界里近白像素的占比——白卡的边界是白色；角色剪影的边界是角色颜色。
+     * 两者同时成立（四周透明 + 边界是白的）才说明「不透明块 = 白卡/白底」→ 必须抠图；
+     * 真·原生透明（四周透明 + 边界是角色颜色）直接用原图以保留模型给的软边。
+     * 返回 { borderTransparent, whiteEdgeRatio, whiteRatio, nativeAlpha }。 */
+    function analyzeSubjectBackground(dataUrl) {
+      if (!dataUrl) return Promise.resolve({ borderTransparent: 0, whiteEdgeRatio: 1, whiteRatio: 1, nativeAlpha: false })
       return new Promise((resolve) => {
         const img = new Image()
         img.onload = () => {
           try {
-            const W = Math.min(64, img.naturalWidth), H = Math.min(64, img.naturalHeight)
+            const N = 128
             const c = document.createElement('canvas')
-            c.width = W; c.height = H
+            c.width = N; c.height = N
             const d = c.getContext('2d')
-            d.drawImage(img, 0, 0, W, H)
-            const px = d.getImageData(0, 0, W, H).data
-            let trans = 0
-            for (let i = 3; i < px.length; i += 4) if (px[i] < 250) trans++
-            resolve(trans / (W * H) >= 0.03)
-          } catch { resolve(false) }
+            d.drawImage(img, 0, 0, N, N)
+            const px = d.getImageData(0, 0, N, N).data
+            const at = (x, y) => ((y * N + x) * 4 + 3)
+            const nearWhite = (i) => px[i] >= 240 && px[i + 1] >= 240 && px[i + 2] >= 240
+            let border = 0, borderTrans = 0, white = 0, total = 0, opaqueEdge = 0, opaqueEdgeWhite = 0
+            for (let y = 0; y < N; y++) {
+              for (let x = 0; x < N; x++) {
+                const i = (y * N + x) * 4
+                const a = px[i + 3]
+                total++
+                if (a >= 250 && nearWhite(i)) white++
+                if (x < 2 || y < 2 || x >= N - 2 || y >= N - 2) { border++; if (a < 250) borderTrans++ }
+                // 不透明且四邻有透明 → 不透明区域的边界像素
+                if (a >= 250 && (
+                  (x > 0 && px[at(x - 1, y)] < 250) || (x < N - 1 && px[at(x + 1, y)] < 250) ||
+                  (y > 0 && px[at(x, y - 1)] < 250) || (y < N - 1 && px[at(x, y + 1)] < 250)
+                )) { opaqueEdge++; if (nearWhite(i)) opaqueEdgeWhite++ }
+              }
+            }
+            const borderTransparent = border ? borderTrans / border : 0
+            const whiteRatio = total ? white / total : 0
+            const whiteEdgeRatio = opaqueEdge ? opaqueEdgeWhite / opaqueEdge : 1
+            const nativeAlpha = borderTransparent >= 0.55 && whiteEdgeRatio < 0.5
+            resolve({ borderTransparent, whiteEdgeRatio, whiteRatio, nativeAlpha })
+          } catch { resolve({ borderTransparent: 0, whiteEdgeRatio: 1, whiteRatio: 1, nativeAlpha: false }) }
         }
-        img.onerror = () => resolve(false)
+        img.onerror = () => resolve({ borderTransparent: 0, whiteEdgeRatio: 1, whiteRatio: 1, nativeAlpha: false })
         img.src = dataUrl
       })
     }
 
-    /* ---------- 主体层抠图：纯白底立绘 → 透明背景（边缘 flood-fill） ---------- */
-    /* 从四角向内漫水填充近似背景色（容差阈值），命中的像素 alpha=0。
-     * 判定：透明像素占比 ≥ 15% 才采用分层（否则贴满全卡，视差用背景层承载）。
+    /* ---------- 主体层抠图：去掉背景（透明 / 纯白卡底 / 纯色底） ----------
+     * 从四边向内漫水填充「背景像素」，命中的像素 alpha=0。背景像素判定三选一：
+     *   ① 已透明（alpha<250）——透明画布的边缘；
+     *   ② 近白（RGB 均 ≥235）——主体被画在白底/白卡上（含「透明画布 + 白底圆角卡」这种封闭白底）；
+     *   ③ 接近四角采样的底色（仅四角不透明时启用，防深色主体被误当背景吃掉）。
+     * 只清与图像边缘连通的背景：主体内部的白色（衬衫、高光）不与边缘连通，会被保留。
+     * 判定：透明像素占比 ≥15% 才采用分层（否则保留原图贴满，视差用背景层承载）。
      * 返回 { canvas, layered }。导出供单测（test-holo-card 直接断言纯函数）。 */
     function cutoutSubject(imgCanvas) {
       const W = imgCanvas.width, H = imgCanvas.height
@@ -106,21 +136,24 @@
       d.drawImage(imgCanvas, 0, 0)
       const data = d.getImageData(0, 0, W, H)
       const px = data.data
-      // 采样四角 8×8 均值作为背景色估计（坐标 clamp 防小图越界 → NaN 比较恒 false）
-      let br = 0, bg = 0, bb = 0, n = 0
+      // 采样四角 8×8 均值作为底色估计（坐标 clamp 防小图越界 → NaN 比较恒 false）
+      let br = 0, bg = 0, bb = 0, ba = 0, n = 0
       const S = Math.min(8, W, H)
       const sample = (x0, y0) => {
         const xs = Math.max(0, Math.min(W - S, x0))
         const ys = Math.max(0, Math.min(H - S, y0))
         for (let y = ys; y < ys + S; y++) for (let x = xs; x < xs + S; x++) {
           const i = (y * W + x) * 4
-          br += px[i]; bg += px[i + 1]; bb += px[i + 2]; n++
+          br += px[i]; bg += px[i + 1]; bb += px[i + 2]; ba += px[i + 3]; n++
         }
       }
       sample(0, 0); sample(W - S, 0); sample(0, H - S); sample(W - S, H - S)
-      br /= n; bg /= n; bb /= n
-      const TOL = 34 // 亮度容差
-      const isBg = (i) => Math.abs(px[i] - br) <= TOL && Math.abs(px[i + 1] - bg) <= TOL && Math.abs(px[i + 2] - bb) <= TOL
+      br /= n; bg /= n; bb /= n; ba /= n
+      const TOL = 34 // 底色容差
+      const cornersOpaque = ba >= 250 // 四角透明时不启用底色分支，否则深色主体会被误吃
+      const nearWhite = (i) => px[i] >= 240 && px[i + 1] >= 240 && px[i + 2] >= 240
+      const colorNear = (i) => Math.abs(px[i] - br) <= TOL && Math.abs(px[i + 1] - bg) <= TOL && Math.abs(px[i + 2] - bb) <= TOL
+      const isBg = (i) => px[i + 3] < 250 || nearWhite(i) || (cornersOpaque && colorNear(i))
       // 扫描线 flood-fill（栈 + 区段扩展）
       const visited = new Uint8Array(W * H)
       const stack = []
@@ -373,41 +406,50 @@
           return r
         }
         island.update('绘制主体立绘…')
-        // 主体走 gpt-image 原生透明背景（background:'transparent'，模型直接返回带 alpha 的 PNG）。
-        // 三段降级：端点报错 → 白底重试；静默忽略参数（返回不透明白底图）→ 白底重试；都失败 → 报错。
-        // 白底命中后仍有 canvas flood-fill 抠图兜底（cutoutSubject），与旧链路完全一致。
+        // 主体先请求原生透明背景（background:'transparent'）。但返回的图不一定是真透明：
+        // 模型可能在透明画布上画一张白底圆角卡（用户实测白框），端点也可能静默忽略参数。
+        // 因此不看「有没有透明像素」，而是看四周是否真透明（analyzeSubjectBackground）：
+        //   真透明 → 直接用原图（保留模型给的软边质量）；
+        //   否则   → 先对这张图抠图（能吃掉封闭白卡底，零额外生图）；
+        //   抠图也分离不出背景 → 最后兜底：白底提示词重生成一次再抠。
         const revised = {}
         const subjPromptWhite = plan.subjectPrompt + ', full body, standing pose, plain white background, solid white background, no text, no watermark'
         const subjPromptTrans = plan.subjectPrompt + ', full body, standing pose, no text, no watermark'
         let subj = await attempt('主体生成失败', subjPromptTrans, '1024x1024', { background: 'transparent' }).catch((e) => e)
-        let subjMode = 'transparent'
-        if (subj instanceof Error || !hasTransparency(subj instanceof Error ? null : subj.dataUrl)) {
-          const reason = subj instanceof Error ? String(subj.message || subj) : '端点忽略透明参数'
-          island.update('主体透明不受支持，改白底生成…')
-          if (subj && !(subj instanceof Error) && subj.revisedPrompt) revised.subject = subj.revisedPrompt
+        if (subj instanceof Error) {
+          // 端点不支持 background:'transparent' → 白底重试一次
+          island.update('透明背景不受支持，改白底生成…')
+          console.log('[holo] 透明背景请求失败（' + String(subj.message || subj) + '），改白底')
           subj = await attempt('主体生成失败', subjPromptWhite, '1024x1024')
-          subjMode = 'white'
-          console.log('[holo] 透明背景不可用（' + reason + '），回落白底+抠图')
         }
         if (subj.revisedPrompt) revised.subject = subj.revisedPrompt
+        let subjMode, subjectLayer, layered
+        const bgInfo = await analyzeSubjectBackground(subj.dataUrl)
+        if (bgInfo.nativeAlpha) {
+          subjectLayer = await loadToCanvas(subj.dataUrl)
+          layered = true
+          subjMode = 'transparent'
+        } else {
+          island.update('分离主体背景…')
+          let cut = cutoutSubject(await loadToCanvas(subj.dataUrl))
+          if (!cut.layered) {
+            island.update('背景无法分离，改白底重试…')
+            console.log('[holo] 背景分离失败（边框透明占比 ' + bgInfo.borderTransparent.toFixed(2) + '，不透明白占比 ' + bgInfo.whiteRatio.toFixed(2) + '），改白底重生成')
+            subj = await attempt('主体生成失败', subjPromptWhite, '1024x1024')
+            if (subj.revisedPrompt) revised.subject = subj.revisedPrompt
+            cut = cutoutSubject(await loadToCanvas(subj.dataUrl))
+          }
+          subjectLayer = cut.canvas
+          layered = cut.layered
+          subjMode = 'white'
+        }
         island.update('绘制卡面背景…')
         const bg = await attempt('背景生成失败', plan.backgroundPrompt + ', no people, no characters, no text, no watermark', '1024x1536')
         if (bg.revisedPrompt) revised.background = bg.revisedPrompt
         if (Object.keys(revised).length) console.log('[holo] 模型改写提示词：', revised)
 
-        // 4) canvas 加工：主体抠图（等比贴到 1024×1536 画布）+ 文字排版
+        // 4) canvas 加工：主体层已在上一步产出（原图或抠图结果），这里只做画布归一 + 文字排版
         island.update('装裱卡面…')
-        const subjectCanvas = await loadToCanvas(subj.dataUrl)
-        // 原生透明模式（subjMode='transparent'）模型已返回带 alpha 的主体，跳过 flood-fill 抠图；
-        // 白底模式仍走 cutoutSubject（含失败回落整幅）。两路都产出 layered 判定。
-        let subjectLayer, layered
-        if (subjMode === 'transparent') {
-          subjectLayer = subjectCanvas
-          layered = true
-        } else {
-          const cut = cutoutSubject(subjectCanvas)
-          subjectLayer = cut.canvas; layered = cut.layered
-        }
         // 主体层规范画布 1024×1536：立绘等比居中放大（贴满 90% 高度）
         const norm = document.createElement('canvas')
         norm.width = 1024; norm.height = 1536
@@ -652,7 +694,7 @@
       mask.appendChild(body)
     }
 
-    return { openPicker, generateCard, openGalleryView, closeGalleryView, renderGalleryView, cutoutSubject, renderTextLayer }
+    return { openPicker, generateCard, openGalleryView, closeGalleryView, renderGalleryView, analyzeSubjectBackground, cutoutSubject, renderTextLayer }
   }
 
   window.HoloCard = { createHoloCard }
