@@ -57,21 +57,23 @@ function meshes() {
 
   /* 坐标映射（见文件头推导）：卡面立在 XY 平面，厚度沿 Z。
    * 轮廓 (x, y) 直接作为 glTF (x, y)；厚度 pz ∈ [0, -THICK]。
-   * front 面 z=0 法线 +Z（正对相机 (0,0,20)）；UV 与 build_card.py 一致
-   * (u = x/w+0.5, v = y/h+0.5)，浏览器端的 vUv=vec2(uv.x,1-uv.y) 翻转即对应此映射。 */
+   * front 面 z=0 法线 +Z（正对相机 (0,0,20)）。
+   * UV 的 V 必须与 y 反号（v = 0.5 - y/h）：浏览器 shader 里有 Blender Y-up 导出补偿
+   * vUv=vec2(uv.x, 1.0-uv.y)，两翻相抵后卡顶(y=+H/2)才采到纹理顶部(v=1)——正立。
+   * （2026-09-09 真实模型测试实锤：v=y/h+0.5 会让整卡上下颠倒。） */
 
   /* --- 卡身正面（web_front）：三角扇连圆角轮廓 --- */
   {
     const pos = [[0, 0, 0]], uv = [[0.5, 0.5]], idx = []
-    outer.forEach(([x, y]) => { pos.push([x, y, 0]); uv.push([x / CARD_W + 0.5, y / CARD_H + 0.5]) })
+    outer.forEach(([x, y]) => { pos.push([x, y, 0]); uv.push([x / CARD_W + 0.5, 0.5 - y / CARD_H]) })
     // perimeter 在 XY 平面逆时针（数学系）→ 三角扇 (0, i, i+1) 法线 +Z
     for (let i = 1; i <= N; i++) idx.push(0, i, (i % N) + 1)
     out.push({ name: 'card_front', mat: 'web_front', pos, uv, idx })
   }
-  /* --- 卡身背面（web_back）：z = -THICK，法线 -Z；UV 左右镜像（从背后看） --- */
+  /* --- 卡身背面（web_back）：z = -THICK，法线 -Z；UV 左右镜像（从背后看），V 同样反号 --- */
   {
     const pos = [[0, 0, -THICK]], uv = [[0.5, 0.5]], idx = []
-    outer.forEach(([x, y]) => { pos.push([x, y, -THICK]); uv.push([0.5 - x / CARD_W, y / CARD_H + 0.5]) })
+    outer.forEach(([x, y]) => { pos.push([x, y, -THICK]); uv.push([0.5 - x / CARD_W, 0.5 - y / CARD_H]) })
     for (let i = 1; i <= N; i++) idx.push(0, (i % N) + 1, i)
     out.push({ name: 'card_back', mat: 'web_back', pos, uv, idx })
   }
@@ -88,14 +90,14 @@ function meshes() {
     })
     out.push({ name: 'card_side', mat: 'web_edge', pos, uv, idx })
   }
-  /* --- 环带：外圈全息压边 / 内圈古金（build_card.py ring()） --- */
+  /* --- 环带：外圈全息压边 / 内圈古金（build_card.py ring()）--- V 反号与卡面一致（流光对称，无视觉差异，只求语义统一） */
   const ring = (name, w, h, width, mat, z) => {
     const o = perimeter(w, h, CORNER, SEG)
     const inn = perimeter(w - width * 2, h - width * 2, Math.max(CORNER - width, 0.01), SEG)
     const M = o.length
     const pos = [], uv = [], idx = []
-    o.forEach(([x, y]) => { pos.push([x, y, z]); uv.push([x / w + 0.5, y / h + 0.5]) })
-    inn.forEach(([x, y]) => { pos.push([x, y, z]); uv.push([x / w + 0.5, y / h + 0.5]) })
+    o.forEach(([x, y]) => { pos.push([x, y, z]); uv.push([x / w + 0.5, 0.5 - y / h]) })
+    inn.forEach(([x, y]) => { pos.push([x, y, z]); uv.push([x / w + 0.5, 0.5 - y / h]) })
     for (let i = 0; i < M; i++) {
       const j = (i + 1) % M
       idx.push(i, j, j + M, i, j + M, i + M)

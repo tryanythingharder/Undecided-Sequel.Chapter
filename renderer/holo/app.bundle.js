@@ -29002,7 +29002,7 @@ function saveCard() {
       link.download = (config.title || "art-card") + "-" + (flipped ? "back" : "front") + ".png";
       link.href = renderer.domElement.toDataURL("image/png");
       link.click();
-      notice("卡片图片已保存");
+      notice("已发起保存——请在弹出的窗口选择位置");
     } finally {
       Object.assign(camera, bounds);
       camera.updateProjectionMatrix();

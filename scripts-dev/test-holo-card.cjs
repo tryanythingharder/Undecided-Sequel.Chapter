@@ -90,6 +90,9 @@ t('查看器走 sixworlds-asset://holo/viewer 特权协议（禁 loadFile file:/
 t('协议托管查看器静态资源白名单（app.bundle.js/style.css/icons.data.js）', /rel === 'app\.bundle\.js' \|\| rel === 'style\.css' \|\| rel === 'icons\.data\.js'/.test(mainSrc))
 t('协议卡资源路径解析卡目录 + 越界防护', /startsWith\(root \+ path\.sep\)/.test(mainSrc))
 t('holo index.html 不用 type="module"（file:// 死路）', !/<script[^>]+type="module"/.test(holoHtmlSrc) && /<script src="\.\/app\.bundle\.js"><\/script>/.test(holoHtmlSrc))
+// 2026-09-09 交互探针实锤：保存按钮走 <a download>，Electron 无 will-download 处理器时
+// 下载被静默丢弃且 toast 谎报「已保存」。主进程必须接住并转存对话框。
+t('查看器 will-download 转存保存对话框（保存按钮防静默丢弃）', /session\.on\('will-download'/.test(mainSrc) && /showSaveDialogSync\(cardWin/.test(mainSrc))
 const preSrc = fs.readFileSync(path.join(__dirname, '..', 'preload.cjs'), 'utf8')
 t('preload 暴露 cardWrite/cardRead/cardDelete/cardWindow', ['cardWrite', 'cardRead', 'cardDelete', 'cardWindow'].every((k) => preSrc.includes(k)))
 t('preload 暴露 engineCardSource', preSrc.includes('engineCardSource'))
@@ -111,6 +114,21 @@ console.log('===== card.glb 结构 =====')
     const front = json.meshes.find((m) => json.materials[m.primitives[0].material].name === 'web_front')
     const posAcc = json.accessors[front.primitives[0].attributes.POSITION]
     t('front 面尺寸 6.3×9.45（Blender 原版等比）', Math.abs(posAcc.max[0] - 3.15) < 0.01 && Math.abs(posAcc.max[1] - 4.725) < 0.01)
+    // 2026-09-09 真实模型测试实锤防回归：UV 的 V 必须与 y 反号（v=0.5-y/h）。
+    // shader 有 vUv=vec2(uv.x,1-uv.y) 的 Blender Y-up 补偿翻转——若 GLB 也用 v=y/h+0.5，
+    // 双重翻转叠加 → 整卡上下颠倒（卡顶采到纹理底边）。
+    {
+      const uvAcc = json.accessors[front.primitives[0].attributes.TEXCOORD_0]
+      const posView = json.bufferViews[posAcc.bufferView]
+      const uvView = json.bufferViews[uvAcc.bufferView]
+      const binStart = 20 + jsonLen + 8
+      const bin = buf.slice(binStart)
+      const vY = (i) => bin.readFloatLE((posView.byteOffset || 0) + i * 12 + 4)   // position.y
+      const vV = (i) => bin.readFloatLE((uvView.byteOffset || 0) + i * 8 + 4)     // uv.v
+      let corr = 0
+      for (let i = 0; i < posAcc.count; i++) { if (vV(i) < 0.5 === (vY(i) > 0)) corr++ }
+      t('UV 的 V 与 y 反号（防上下颠倒——真实测试实锤）', corr === posAcc.count)
+    }
   }
 }
 

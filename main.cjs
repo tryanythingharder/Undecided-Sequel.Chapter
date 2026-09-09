@@ -1907,6 +1907,20 @@ ipcMain.handle('card:window', (evt, p) => {
     cardWin.once('ready-to-show', () => cardWin.show())
     cardWin.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
     cardWin.webContents.on('will-navigate', (e, url) => { e.preventDefault() })
+    // 保存按钮：查看器用 <a download> 触发下载（模板的浏览器习惯），Electron 里没有
+    // 处理器会被静默丢弃且 toast 谎报「已保存」——接住它，转存用户选定的文件。
+    cardWin.webContents.session.on('will-download', (e, item) => {
+      try {
+        const safeName = String(item.getFilename() || 'holo-card.png').replace(/[\\/:*?"<>|]/g, '_').slice(0, 120)
+        const res = dialog.showSaveDialogSync(cardWin, {
+          title: '保存卡片图片',
+          defaultPath: path.join(app.getPath('pictures') || app.getPath('downloads') || '', safeName),
+          filters: [{ name: 'PNG 图片', extensions: ['png'] }]
+        })
+        if (res) item.setSavePath(res)
+        else item.cancel()
+      } catch { item.cancel() }
+    })
     return { ok: true, dir }
   } catch (e) {
     return { ok: false, error: String((e && e.message) || e) }
