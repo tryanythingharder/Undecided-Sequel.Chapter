@@ -125,6 +125,47 @@
       return { canvas: c, layered }
     }
 
+    /* ---------- 第 5 层：lineart 描边线稿（RuiC 四层图契约，README 效果的关键一层） ----------
+     * shader 里 uHasLine 分量沿主体轮廓叠金色辉光（col += line*subject.a*band*amount*.055），
+     * 没有这层卡片就少了原版 demo 的轮廓光立体感。原版用第 3 次生图画黑线稿（有配准漂移
+     * 且多花一次生图）；这里从已抠图的主体层程序化推导：alpha 边缘 + 亮度 Sobel → 黑线白底，
+     * 与主体像素级配准（同一张图推导，零漂移零费用）。 */
+    function deriveLineart(subjectCanvas, layered) {
+      const W = subjectCanvas.width, H = subjectCanvas.height
+      const c = document.createElement('canvas')
+      c.width = W; c.height = H
+      const d = c.getContext('2d')
+      d.fillStyle = '#fff'
+      d.fillRect(0, 0, W, H)
+      if (!layered) return c // 整幅模式没有干净 alpha 边缘，出纯白（shader uHasLine 会置 0，等价跳过）
+      const src = subjectCanvas.getContext('2d').getImageData(0, 0, W, H)
+      const sp = src.data
+      const lum = (i) => (sp[i] * 0.299 + sp[i + 1] * 0.587 + sp[i + 2] * 0.114) * (sp[i + 3] / 255)
+      const aAt = (x, y) => (x < 0 || x >= W || y < 0 || y >= H) ? 0 : sp[(y * W + x) * 4 + 3]
+      const out = d.getImageData(0, 0, W, H)
+      const op = out.data
+      for (let y = 0; y < H; y++) {
+        for (let x = 0; x < W; x++) {
+          const p = y * W + x, i = p * 4
+          // Sobel 亮度梯度（含 alpha 通道，透明区记 0 → 轮廓线自动出现在主体边缘）
+          const gx = -lum(i - 4 - W * 4) - 2 * lum(i - 4) - lum(i - 4 + W * 4) + lum(i + 4 - W * 4) + 2 * lum(i + 4) + lum(i + 4 + W * 4)
+          const gy = -lum(i - W * 4) - 2 * lum(i - W * 4 + 4) - lum(i - W * 4 + 8) + lum(i + W * 4) + 2 * lum(i + W * 4 + 4) + lum(i + W * 4 + 8)
+          let g = Math.sqrt(gx * gx + gy * gy)
+          // alpha 边缘强化：邻域 alpha 差 > 阈值也视为轮廓（内部细节弱、外轮廓强，层次分明）
+          const aEdge = Math.max(
+            Math.abs(aAt(x, y) - aAt(x + 1, y)), Math.abs(aAt(x, y) - aAt(x, y + 1)),
+            Math.abs(aAt(x, y) - aAt(x - 1, y)), Math.abs(aAt(x, y) - aAt(x, y - 1))
+          )
+          if (aEdge > 60) g = Math.max(g, 120)
+          // 阈值化：g>150 出黑线（真实卡目视标定：外轮廓+主褶皱，密度约 3%，不糊成剪影）
+          op[i] = op[i + 1] = op[i + 2] = g > 150 ? 0 : 255
+          op[i + 3] = 255
+        }
+      }
+      d.putImageData(out, 0, 0)
+      return c
+    }
+
     /* ---------- 生图 → canvas 载入工具 ---------- */
     function loadToCanvas(dataUrl) {
       return new Promise((resolve, reject) => {
@@ -324,6 +365,8 @@
         nd.drawImage(subjectLayer, (1024 - dw) / 2, (1536 - dh) / 2 + 20, dw, dh)
         const textLayer = renderTextLayer(plan, { collection: (s.title || '六面世界') + ' · 典藏' })
         const bgCanvas = await loadToCanvas(bgUrl)
+        // lineart 描边层：从主体层像素推导（与主体严格配准），激活 shader 的轮廓金色辉光
+        const lineLayer = deriveLineart(norm, layered)
 
         // 5) 卡配置 + 落盘（cardId = 时间戳 + 随机，符合 /^card-[a-z0-9-]{1,64}$/）
         const cardId = 'card-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8)
@@ -336,12 +379,16 @@
           edition,
           collection: (s.title || '六面世界') + ' · 全息典藏',
           description: (plan.why || '').slice(0, 120) || ((character.summary || '').slice(0, 120)),
-          assets: {
-            model: './card.glb',
-            subject: './subject.png',
-            background: './background.png',
-            text: './text.png'
-          },
+          assets: (() => {
+            const a = {
+              model: './card.glb',
+              subject: './subject.png',
+              background: './background.png',
+              text: './text.png'
+            }
+            if (layered) a.lineart = './lineart.png' // 整幅模式无干净 alpha，纯白线稿等于关闭 uHasLine
+            return a
+          })(),
           parameters: {
             subjectScale: layered ? 1.25 : 1.0,
             subjectDepth: layered ? 0.28 : 0,
@@ -353,11 +400,15 @@
         const wr = await api.cardWrite({
           cardId,
           config,
-          layers: {
-            subject: canvasToPngUrl(norm),
-            background: canvasToPngUrl(bgCanvas),
-            text: canvasToPngUrl(textLayer)
-          }
+          layers: (() => {
+            const l = {
+              subject: canvasToPngUrl(norm),
+              background: canvasToPngUrl(bgCanvas),
+              text: canvasToPngUrl(textLayer)
+            }
+            if (layered) l.lineart = canvasToPngUrl(lineLayer)
+            return l
+          })()
         })
         if (!wr || !wr.ok) { toast('闪卡落盘失败：' + ((wr && wr.error) || '未知错误'), 'err'); return }
 

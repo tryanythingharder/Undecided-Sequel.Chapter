@@ -68,6 +68,11 @@ t('字体链含 Windows 楷体与 Noto 衬线回退', /KaiTi/.test(src) && /Noto
 t('主体生图提示词强制纯白底（分层抠图前提）', /plain white background, solid white background/.test(src))
 t('背景生图排除人物', /no people, no characters/.test(src))
 t('config 装配：model/subject/background/text 相对路径', /model: '\.\/card\.glb'/.test(src) && /subject: '\.\/subject\.png'/.test(src))
+// README 效果的关键一层（RuiC 四层图契约）：lineart 描边激活 shader uHasLine 轮廓金色辉光。
+// 程序化推导（Sobel+alpha 边缘）与主体像素级配准，省一次生图且无配准漂移。
+t('lineart 描边层：分层时配置 lineart.png（uHasLine=1）', /if \(layered\) a\.lineart = '\.\/lineart\.png'/.test(src) && /if \(layered\) l\.lineart = canvasToPngUrl\(lineLayer\)/.test(src))
+t('lineart 从主体层推导（同图零配准漂移）', /deriveLineart\(norm, layered\)/.test(src) && /function deriveLineart/.test(src))
+t('lineart 黑线白底（shader r 通道语义）+ alpha 边缘轮廓（v2 目视标定阈值）', /g > 150 \? 0 : 255/.test(src) && /aEdge > 60/.test(src))
 t('分层时启用视差参数（1.25/0.28），整幅时贴满（1.0/0）', /subjectScale: layered \? 1\.25 : 1\.0/.test(src) && /subjectDepth: layered \? 0\.28 : 0/.test(src))
 t('foil 数值化防注入', /Number\.isFinite\(Number\(plan\.foil\)\)/.test(src))
 t('生图失败重试一次（与插图管线一致）', /await new Promise\(\(res\) => setTimeout\(res, 800\)\)/.test(src))
