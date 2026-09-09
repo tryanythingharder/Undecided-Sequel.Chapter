@@ -1,7 +1,9 @@
 // 把真实模型产出的精修规划 + 用户画风前缀 + 管线后缀拼成「应用实际发送」的逐字提示词
 const fs = require('fs')
 const path = require('path')
-const plan = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'test-shots', 'refined-plan.json'), 'utf8'))
+// 用法：node realtest-export-prompt.cjs [plan.json]  默认 test-shots/refined-plan.json
+const planFile = process.argv[2] || path.join(__dirname, '..', 'test-shots', 'refined-plan.json')
+const plan = JSON.parse(fs.readFileSync(planFile, 'utf8'))
 
 // 与 shared/illust-panel.js ILLUST_STYLES['ln-original'] 逐字一致（用户配置的画风）
 const STYLE = 'Japanese light novel illustration, faithfully styled after the original Mushoku Tensei: Jobless Reincarnation novel illustrations by Shirotaka: clean refined lineart with delicate watercolor-like coloring, soft luminous lighting, gentle color gradients, subtle paper texture, expressive finely-drawn faces, meticulous medieval-fantasy costumes and magic details, warm slightly nostalgic palette, dreamy fantasy atmosphere, composed like a light-novel frontispiece, single key scene, high quality, no text, no watermark, no logo'

@@ -105,6 +105,8 @@ t('pet:agent card 任务校验（rarity 白名单/foil 截断/prompt 长度下�
 // 2026-09-09 精修立绘升级：规划师要求出画质媒介词+构图词的高完成度提示词（README 观感对齐的关键）
 t('卡面规划=精修立绘级提示词（画质媒介词+构图词+风格统一要求）', /refined digital illustration/.test(mainSrc) && /front-facing full body standing pose/.test(mainSrc) && /共享同一画风媒介词/.test(mainSrc))
 t('精修提示词提取上限放宽（900/700 防长提示词被截断）', /subjectPrompt\.slice\(0, 900\)/.test(mainSrc) && /backgroundPrompt\.slice\(0, 700\)/.test(mainSrc))
+// 2026-09-08 背景贴合度修复：旧规范把背景当独立风景写（refined digital painting + 无配色约束），实测生成夕阳云海壁纸与主体完全不搭
+t('背景提示词=主体配色锚定+漫射光+景深留白（贴合主体而非独立风景）', /主色调必须取自 subjectPrompt/.test(mainSrc) && /禁止直射阳光/.test(mainSrc) && /景深虚化/.test(mainSrc) && /不要用 refined digital painting/.test(mainSrc) && /配色必须以 subjectPrompt/.test(mainSrc))
 
 /* ---------- 4) glb 产物结构校验（重新生成走 build 脚本则始终成立） ---------- */
 console.log('===== card.glb 结构 =====')
