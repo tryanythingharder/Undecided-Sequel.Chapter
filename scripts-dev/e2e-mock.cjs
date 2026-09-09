@@ -607,12 +607,20 @@ async function main() {
   await win.locator('#lightbox').click()
   await win.waitForTimeout(200)
   check('gallery-lightbox-closes', !(await win.locator('#lightbox').isVisible().catch(() => false)))
+  // Esc 作用域：大图打开时按 Esc 只关大图，画廊保留（曾经一次 Esc 把两层都关掉）
+  await win.locator('.gallery-card img').first().click()
+  await win.waitForTimeout(300)
+  await win.keyboard.press('Escape')
+  await win.waitForTimeout(400)
+  check('gallery-esc-scope', !(await win.locator('#lightbox').isVisible().catch(() => false)) && await win.locator('#gallery').isVisible())
   // 切换世界线下拉（应有 2 个会话可选）
   const opts = await win.locator('#gallery-session option').count()
   check('gallery-session-options', opts >= 2, 'opts=' + opts)
   await win.click('#btn-gallery-close')
   await waitForHidden('#gallery')
   check('gallery-closes', await win.locator('#gallery').evaluate((el) => el.hidden))
+  // 焦点还原：关闭后焦点回到顶栏「画廊」按钮（非模态抽屉不做陷阱，但要有进有出）
+  check('gallery-focus-restored', (await win.evaluate(() => document.activeElement && document.activeElement.id)) === 'btn-gallery')
 
   // ---- 快捷键：Ctrl+G 开关画廊、Ctrl+, 打开设置（独立窗口）----
   await win.keyboard.press('Control+g')

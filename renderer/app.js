@@ -382,6 +382,34 @@
     renderSessionList()
   })
 
+  /* 切换当前世界线：草稿保存/恢复、选项区状态重置、工作区 lastSessionId 回写。
+   * 侧栏点选与画廊重绘按钮共用（后者原先自己拼了一套，漏了草稿与多选重置）。 */
+  function activateSession(s) {
+    if (!s || s.id === currentId) return
+    const inputEl2 = $('input')
+    if (currentId) sessionDrafts.set(currentId, inputEl2.value)
+    currentId = s.id
+    // 选项区状态随会话重置：收起/自动收起/多选模式不跨会话残留
+    choicesFoldUser = false
+    choicesAutoFolded = false
+    multiMode = false
+    multiSel.clear()
+    const ws = curWs()
+    if (ws) { ws.lastSessionId = s.id; saveWorkspaces() }
+    saveStore()
+    inputEl2.value = sessionDrafts.get(s.id) || ''
+    fitInput()
+    renderSessionList()
+    renderMessages()
+    updateTitle()
+    // 全局搜索态：切过去后自动打开会话内搜索并定位命中
+    if (sbFilter) {
+      openSearch()
+      searchInput.value = sbFilter
+      runSearch(sbFilter)
+    }
+  }
+
   function renderSessionList() {
     const list = $('session-list')
     list.innerHTML = ''
@@ -486,30 +514,7 @@
       item.addEventListener('click', () => {
         if (justDraggedSession) { justDraggedSession = false; return }
         if (busy) { toast('世界运转中，回合结束后即可切换', 'info', 1800); return } // R56：生成中点选其它线给出反馈（与新建按钮一致，不再静默无响应）
-        if (s.id === currentId) return
-        // 保存当前输入草稿，切换后恢复目标会话草稿
-        const inputEl2 = $('input')
-        if (currentId) sessionDrafts.set(currentId, inputEl2.value)
-        currentId = s.id
-        // 选项区状态随会话重置：收起/自动收起/多选模式不跨会话残留
-        choicesFoldUser = false
-        choicesAutoFolded = false
-        multiMode = false
-        multiSel.clear()
-        const ws = curWs()
-        if (ws) { ws.lastSessionId = s.id; saveWorkspaces() }
-        saveStore()
-        inputEl2.value = sessionDrafts.get(s.id) || ''
-        fitInput()
-        renderSessionList()
-        renderMessages()
-        updateTitle()
-        // 全局搜索态：切过去后自动打开会话内搜索并定位命中
-        if (sbFilter) {
-          openSearch()
-          searchInput.value = sbFilter
-          runSearch(sbFilter)
-        }
+        activateSession(s)
       })
       // 拖拽排序：按下记录，移动超阈值进入拖拽（点击不受影响）
       item.addEventListener('mousedown', (e) => {
@@ -3139,6 +3144,9 @@ const KData = window.KernelData.createKernelData({
     renderSessionList, renderMessages, updateTitle,
     summarize,
     viewIllust, generateIllust, downloadIllust,
+    illustReady: () => Illust.illustReady(),
+    switchToSession: (id) => { const t = sessions.find((x) => x.id === id); if (t) activateSession(t) },
+    focusInput: () => { const el = $('input'); if (el) el.focus() },
     confirmDialog, toast,
     cancelHideAnim, closeModalAnim,
   })
@@ -3199,8 +3207,25 @@ const KData = window.KernelData.createKernelData({
     pop.style.top = Math.round(r.bottom + 6) + 'px'
     pop.style.right = Math.round(window.innerWidth - r.right) + 'px'
     pop.style.left = 'auto'
+    const first = pop.querySelector('.works-item')
+    if (first) first.focus()
   }
-  function closeWorksPop() { const pop = $('works-pop'); if (pop) pop.classList.add('hidden') }
+  function closeWorksPop() {
+    const pop = $('works-pop')
+    if (!pop || pop.classList.contains('hidden')) return
+    const hadFocus = pop.contains(document.activeElement)
+    pop.classList.add('hidden')
+    if (hadFocus) window.A11y && window.A11y.restore($('btn-works'))
+  }
+  // 菜单方向键导航（role=menu 的键盘语义）
+  $('works-pop').addEventListener('keydown', (e) => {
+    const pop = $('works-pop')
+    const items = [...pop.querySelectorAll('.works-item')]
+    if (!items.length) return
+    const i = items.indexOf(document.activeElement)
+    if (e.key === 'ArrowDown') { e.preventDefault(); items[(i + 1 + items.length) % items.length].focus() }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); items[(i - 1 + items.length) % items.length].focus() }
+  })
   function toggleWorksPop() {
     const pop = $('works-pop')
     if (pop && !pop.classList.contains('hidden')) closeWorksPop()
@@ -3849,6 +3874,8 @@ const KData = window.KernelData.createKernelData({
       return
     }
     if (e.key === 'Escape') {
+      // 大图查看器优先：它自己的 Esc 监听负责关闭，这里让行（否则一次 Esc 会连带关掉画廊）
+      if (document.getElementById('lightbox')) return
       // 漫画回放阅读视图优先于画廊（视图从画廊打开，Esc 应只关视图、画廊保留）
       const comicView = document.getElementById('comic-view')
       const holoView = document.getElementById('holo-view')

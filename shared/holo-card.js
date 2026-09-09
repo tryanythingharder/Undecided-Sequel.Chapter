@@ -526,19 +526,33 @@
         mask = document.createElement('div')
         mask.id = 'holo-view'
         mask.className = 'holo-view'
+        mask.setAttribute('role', 'dialog')
+        mask.setAttribute('aria-modal', 'true')
+        mask.setAttribute('aria-label', '角色闪卡图鉴')
         // 点遮罩空白处关闭（内容区点击不冒泡到遮罩）
         mask.addEventListener('click', (e) => { if (e.target === mask) closeGalleryView() })
+        document.addEventListener('keydown', onGalleryViewKey)
         document.body.appendChild(mask)
       }
       mask.classList.remove('closing')
       renderGalleryView()
+      // 全屏模态面板：焦点移入 + Tab 循环（Esc 由全局链走 closeGalleryView）
+      window.A11y && window.A11y.focusFirst(mask)
+    }
+
+    function onGalleryViewKey(e) {
+      const mask = document.getElementById('holo-view')
+      if (!mask || e.key !== 'Tab') return
+      window.A11y && window.A11y.trapTab(mask, e)
     }
 
     function closeGalleryView() {
       const mask = document.getElementById('holo-view')
       if (!mask) return
+      document.removeEventListener('keydown', onGalleryViewKey)
       mask.classList.add('closing')
       setTimeout(() => { const m = document.getElementById('holo-view'); if (m) m.remove() }, 180)
+      window.A11y && window.A11y.restore(document.getElementById('btn-works'))
     }
 
     function renderGalleryView() {

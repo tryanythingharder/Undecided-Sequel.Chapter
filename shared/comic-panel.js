@@ -468,6 +468,9 @@
       const mask = document.createElement('div')
       mask.id = 'comic-view'
       mask.className = 'comic-view'
+      mask.setAttribute('role', 'dialog')
+      mask.setAttribute('aria-modal', 'true')
+      mask.setAttribute('aria-label', '漫画回放阅读器')
       const stage = document.createElement('div')
       stage.className = 'comic-stage'
       mask.appendChild(stage)
@@ -597,7 +600,8 @@
       navNext.addEventListener('click', () => step(1))
       exportBtn.addEventListener('click', () => exportHtml())
       const onKey = (e) => {
-        if (e.key === 'Escape') close()
+        if (e.key === 'Escape') { e.stopImmediatePropagation(); close() }
+        else if (e.key === 'Tab') { window.A11y && window.A11y.trapTab(mask, e) }
         else if (e.key === 'ArrowLeft') step(-1)
         else if (e.key === 'ArrowRight') step(1)
       }
@@ -606,6 +610,7 @@
         setTimeout(() => mask.remove(), 160)
         document.removeEventListener('keydown', onKey)
         mask.removeEventListener('comic-close', close)
+        window.A11y && window.A11y.restore(document.getElementById('btn-works'))
         closeViewFn = null
       }
       closeBtn.addEventListener('click', close)
@@ -620,6 +625,7 @@
       panels.forEach((p, i) => { if (p.illust) lastDone = i })
       viewIdx = Math.max(0, lastDone)
       renderPanel()
+      closeBtn.focus()
     }
 
     function closeView() { if (closeViewFn) closeViewFn() }

@@ -137,6 +137,7 @@
   function viewIllust(dataUrl, list) {
     let mask = document.getElementById('lightbox')
     if (mask) mask.remove()
+    const trigger = document.activeElement // 关闭后把焦点还给打开大图的元素（卡片/插图）
     const imgs = Array.isArray(list) && list.length ? list.filter(Boolean) : [dataUrl]
     let idx = Math.max(0, imgs.indexOf(dataUrl))
     const hasNav = imgs.length > 1
@@ -144,6 +145,9 @@
     mask = document.createElement('div')
     mask.id = 'lightbox'
     mask.className = 'lightbox'
+    mask.setAttribute('role', 'dialog')
+    mask.setAttribute('aria-modal', 'true')
+    mask.setAttribute('aria-label', '插图大图查看器')
     const img = document.createElement('img')
     img.src = imgs[idx]
     img.alt = '场景插图'
@@ -197,18 +201,25 @@
       mask.classList.add('closing')
       setTimeout(() => mask.remove(), 160)
       document.removeEventListener('keydown', onKey)
+      window.A11y && window.A11y.restore(trigger)
     }
     closeBtn.addEventListener('click', close)
     saveBtn.addEventListener('click', (e) => { e.stopPropagation(); downloadIllust(imgs[idx], -1) })
     // 点击任意位置关闭（按钮已阻止冒泡）
     mask.addEventListener('click', close)
     const onKey = (e) => {
-      if (e.key === 'Escape') close()
-      else if (e.key === 'ArrowLeft') step(-1)
+      if (e.key === 'Escape') {
+        // 阻止冒泡到全局 Esc 链：否则一次 Esc 会把画廊一起关掉（大图在画廊之上）
+        e.stopImmediatePropagation()
+        close()
+      } else if (e.key === 'Tab') {
+        window.A11y && window.A11y.trapTab(mask, e)
+      } else if (e.key === 'ArrowLeft') step(-1)
       else if (e.key === 'ArrowRight') step(1)
     }
     document.addEventListener('keydown', onKey)
     document.body.appendChild(mask)
+    window.A11y && window.A11y.focusFirst(mask)
   }
 
 
