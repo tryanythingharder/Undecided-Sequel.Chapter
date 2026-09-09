@@ -17,7 +17,7 @@ function check(name, ok, detail) {
   else { fail++; console.log('FAIL  ' + name + (detail ? '  ' + detail : '')) }
 }
 
-const src = fs.readFileSync(path.join(__dirname, '..', 'shared', 'send-flow.js'), 'utf8')
+const src = fs.readFileSync(path.join(__dirname, '..', 'ui', 'shared', 'send-flow.js'), 'utf8')
 
 // 1) 末位重申注入：位于 msgs.push(...history) 之前、协议书之后
 const pushHistoryIdx = src.indexOf('msgs.push(...history)')

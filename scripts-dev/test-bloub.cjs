@@ -2,7 +2,7 @@
 /*
  * bloub 机器人单元测试：引擎快照确定性 + 挂载层契约（纯 JS，无 DOM 依赖部分）
  * 覆盖：
- *   1. shared/bloub.js 引擎快照——同一状态序列、同一采样时刻，两轮输出逐字节一致
+ *   1. ui/shared/bloub.js 引擎快照——同一状态序列、同一采样时刻，两轮输出逐字节一致
  *      （上游核心承诺：sample(t) 是时间的纯函数；转译不得破坏这一点）
  *   2. 15 个状态各自产出合法 path（M...Z）且眼睛/粒子/弧线数量与状态定义吻合
  *   3. 挂载层脚本可被脚本化加载（IIFE 语义）且导出面存在
@@ -20,7 +20,7 @@ function ok(cond, name) {
 }
 
 // ---- 装载引擎（浏览器 IIFE → vm 沙箱，等价于 <script> 标签加载）----
-const src = fs.readFileSync(path.join(ROOT, 'shared', 'bloub.js'), 'utf8')
+const src = fs.readFileSync(path.join(ROOT, 'ui', 'shared', 'bloub.js'), 'utf8')
 const sandbox = { console, Math, Date }
 sandbox.window = sandbox
 vm.createContext(sandbox)
@@ -103,7 +103,7 @@ ok(diffs === 0, '3000 帧两轮重放零差异（sample(t) 确定性）')
 }
 
 // ---- 4. 挂载层脚本语法 + 导出面（无 DOM 下只验证可解析、IIFE 不立即执行 DOM 操作）----
-const mountSrc = fs.readFileSync(path.join(ROOT, 'shared', 'bloub-mount.js'), 'utf8')
+const mountSrc = fs.readFileSync(path.join(ROOT, 'ui', 'shared', 'bloub-mount.js'), 'utf8')
 new (require('node:vm').Script)(mountSrc) // 语法解析（不执行）
 ok(true, 'bloub-mount.js 语法可解析')
 const probe = { window: {} }
@@ -113,8 +113,8 @@ vm.runInContext(mountSrc.replace(/document\.createElementNS/g, 'undefined && doc
 ok(typeof probe.window.BloubMount === 'object' && typeof probe.window.BloubMount.mount === 'function', 'BloubMount.mount 导出（IIFE 顶层无 DOM 依赖）')
 ok(Array.isArray(probe.window.BloubMount.IDLE_CYCLE) && probe.window.BloubMount.IDLE_CYCLE.length === 8, 'IDLE_CYCLE 为 8 段待机循环')
 
-// ---- 5. 桌宠（renderer-proto/bloub-pet.js）：语法 + 规则问答契约 ----
-const petSrc = fs.readFileSync(path.join(ROOT, 'shared', 'bloub-pet.js'), 'utf8')
+// ---- 5. 桌宠（ui/shared/bloub-pet.js）：语法 + 规则问答契约 ----
+const petSrc = fs.readFileSync(path.join(ROOT, 'ui', 'shared', 'bloub-pet.js'), 'utf8')
 new (require('node:vm').Script)(petSrc)
 ok(true, 'bloub-pet.js 语法可解析')
 const petProbe = { window: {}, localStorage: { getItem: () => null, setItem: () => {} }, console }
@@ -134,8 +134,8 @@ for (const q of QUESTIONS) {
 ok(Pet.ask('量子力学怎么入门') === null, '无关问题返回 null（兜底话术走气泡层）')
 ok(/世界之灵/.test(Pet.systemPrompt), 'systemPrompt 预置人设（本地小模型接入时复用）')
 
-// ---- 6. 回复清洗管线（shared/pet-reply.cjs）：主进程出口统一清洗 ----
-const reply = require(path.join(ROOT, 'shared', 'pet-reply.cjs'))
+// ---- 6. 回复清洗管线（ui/shared/pet-reply.cjs）：主进程出口统一清洗 ----
+const reply = require(path.join(ROOT, 'ui', 'shared', 'pet-reply.cjs'))
 ok(typeof reply.sanitizePetReply === 'function' && typeof reply.timeContextLine === 'function', 'pet-reply 导出 sanitizePetReply/timeContextLine')
 {
   const out = reply.sanitizePetReply('好的。\n\n[点击后显示一个插画]\n\n**加粗**、*斜体*、# 标题都该被清掉。')

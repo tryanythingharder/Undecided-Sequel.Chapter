@@ -348,7 +348,7 @@ function createSettingsWindow() {
       sandbox: true
     }
   })
-  settingsWin.loadFile(path.join(__dirname, 'renderer', 'settings.html'))
+  settingsWin.loadFile(path.join(__dirname, 'ui', 'classic', 'settings.html'))
   settingsWin.once('ready-to-show', () => settingsWin.show())
   // 安全（五岗评审 S2）：设置窗口与主窗口同 preload 同暴露面，防护对齐——
   // 导航封堵（含 file://，防拖放攻击页）+ 开窗拒绝 + 外链转系统浏览器
@@ -425,8 +425,8 @@ function writeUiScheme(scheme) {
 }
 function uiSchemeEntry() {
   return readUiScheme() === 'proto'
-    ? path.join(__dirname, 'renderer-proto', 'index.html')
-    : path.join(__dirname, 'renderer', 'index.html')
+    ? path.join(__dirname, 'ui', 'proto', 'index.html')
+    : path.join(__dirname, 'ui', 'classic', 'index.html')
 }
 
 app.whenReady().then(() => {
@@ -1349,7 +1349,7 @@ async function petModelLoad() {
       const context = await petModel.model.createContext({ contextSize: 2048 })
       const session = new LlamaChatSession({
         contextSequence: context.getSequence(),
-        systemPrompt: require('./shared/pet-model-prompt.cjs'),
+        systemPrompt: require('./ui/shared/pet-model-prompt.cjs'),
         autoDisposeSequence: false
       })
       try { petModel.session?.dispose?.() } catch {}
@@ -1451,7 +1451,7 @@ ipcMain.handle('pet:model-download-cancel', () => {
 // 桌宠大脑路由：优先用户配置的云端大模型（更聪明、知识在线），失败回落本地 0.5B。
 // 云端流式走 pet 自己的 delta 通道（绝不发 chat:delta——那是故事生成管线）。
 async function petCloudChat(text, cloud, emit) {
-  const { sanitizePetReply, timeContextLine } = require('./shared/pet-reply.cjs')
+  const { sanitizePetReply, timeContextLine } = require('./ui/shared/pet-reply.cjs')
   const baseUrl = String((cloud && cloud.baseUrl) || '').trim().replace(/\/+$/, '')
   const apiKey = String((cloud && cloud.apiKey) || '').trim()
   const model = String((cloud && cloud.model) || '').trim()
@@ -1468,7 +1468,7 @@ async function petCloudChat(text, cloud, emit) {
       body: JSON.stringify({
         model,
         messages: [
-          { role: 'system', content: require('./shared/pet-model-prompt.cjs') + '\n' + timeContextLine() },
+          { role: 'system', content: require('./ui/shared/pet-model-prompt.cjs') + '\n' + timeContextLine() },
           { role: 'user', content: text }
         ],
         stream: true
@@ -1510,7 +1510,7 @@ async function petCloudChat(text, cloud, emit) {
 
 ipcMain.handle('pet:chat', async (_evt, p) => {
   try {
-    const { sanitizePetReply, timeContextLine } = require('./shared/pet-reply.cjs')
+    const { sanitizePetReply, timeContextLine } = require('./ui/shared/pet-reply.cjs')
     const text = String((p && p.text) || '').trim().slice(0, 500)
     if (!text) return { ok: false, error: '说了点什么吧' }
     if (petModel.chatBusy) return { ok: false, error: '上一句还没说完呢' }

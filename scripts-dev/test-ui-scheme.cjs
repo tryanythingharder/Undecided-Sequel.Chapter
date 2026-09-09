@@ -26,7 +26,7 @@ async function main() {
   let win = await app.firstWindow()
   await win.waitForTimeout(1600)
   let st = await win.evaluate(() => ({ dock: !!document.querySelector('.command-dock'), island: !!document.querySelector('.dynamic-island'), sidebar: !!document.querySelector('#sidebar'), entry: location.pathname.replace(/\\/g, '/') }))
-  check('default-loads-classic', !st.dock && !st.island && st.sidebar && st.entry.includes('/renderer/index.html'), JSON.stringify(st))
+  check('default-loads-classic', !st.dock && !st.island && st.sidebar && st.entry.includes('/ui/classic/index.html'), JSON.stringify(st))
   check('preload-exposes-ui-scheme', await win.evaluate(() => typeof window.api.uiScheme === 'function' && typeof window.api.setUiScheme === 'function'))
   check('initial-scheme-is-classic', (await win.evaluate(() => window.api.uiScheme())) === 'classic')
 
@@ -41,7 +41,7 @@ async function main() {
   await win.waitForTimeout(2200)
   st = await win.evaluate(() => ({ dock: !!document.querySelector('.command-dock'), island: !!document.querySelector('.dynamic-island'), scheme: window.api.uiScheme && null, entry: location.pathname.replace(/\\/g, '/') }))
   st.scheme = await win.evaluate(() => window.api.uiScheme())
-  check('switch-to-proto-reloads-entry', st.dock && st.island && st.scheme === 'proto' && st.entry.includes('/renderer-proto/index.html'), JSON.stringify(st))
+  check('switch-to-proto-reloads-entry', st.dock && st.island && st.scheme === 'proto' && st.entry.includes('/ui/proto/index.html'), JSON.stringify(st))
 
   // ---- 4. 原型方案主题抽屉可切回经典 ----
   await win.click('#btn-theme')
@@ -51,7 +51,7 @@ async function main() {
   await win.click('[data-ui-scheme="classic"]')
   await win.waitForTimeout(2200)
   st = await win.evaluate(() => ({ dock: !!document.querySelector('.command-dock'), sidebar: !!document.querySelector('#sidebar'), entry: location.pathname.replace(/\\/g, '/') }))
-  check('switch-back-to-classic', !st.dock && st.sidebar && st.entry.includes('/renderer/index.html'), JSON.stringify(st))
+  check('switch-back-to-classic', !st.dock && st.sidebar && st.entry.includes('/ui/classic/index.html'), JSON.stringify(st))
 
   // ---- 5. 持久化：切到原型后重启直接进入原型方案 ----
   await win.click('#btn-theme')
@@ -65,7 +65,7 @@ async function main() {
   win = await app.firstWindow()
   await win.waitForTimeout(1600)
   st = await win.evaluate(() => ({ dock: !!document.querySelector('.command-dock'), entry: location.pathname.replace(/\\/g, '/') }))
-  check('restart-persists-proto', st.dock && st.entry.includes('/renderer-proto/index.html'), JSON.stringify(st))
+  check('restart-persists-proto', st.dock && st.entry.includes('/ui/proto/index.html'), JSON.stringify(st))
 
   // ---- 6. 数据共享：经典侧写入的 localStorage 在原型侧可读 ----
   await win.evaluate(() => localStorage.setItem('ui-scheme-probe', 'shared-ok'))

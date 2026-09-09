@@ -93,7 +93,7 @@
 
 - **双界面方案**：主题抽屉顶部「界面方案」一键切换 **经典界面 / 原型工作台**（后者按高保真原型实现：
   内容画布 + 内核设计画布 + 画廊 + 世界菜单 + 设置面板）；切换即时生效，会话 / 世界线 / 设置 / 进度双方案
-  完全共享，重启保持选择。产品逻辑已按绞杀者模式收敛到 `shared/`（十刀全覆盖：选项解析 / 搜索 / 画廊 / 外观 /
+  完全共享，重启保持选择。产品逻辑已按绞杀者模式收敛到 `ui/shared/`（十刀全覆盖：选项解析 / 搜索 / 画廊 / 外观 /
   引擎流程 / toast / 内核数据 / 发送编排 / 插图 / 进度条 / 工作区 / 首启引导），
   双方案仅保留各自的布局与交互皮，CI 测试矩阵双方案各跑一整轮 e2e；
 - **7 套调色板**（经典琥珀 / 羊皮纸 / 林间 / 紫晶 / 海渊 / 蔷薇 / 高对比）× **明暗三态**（跟随系统 / 深 / 浅）；
@@ -209,7 +209,7 @@ npm run dist   # 打包 NSIS 安装版 + 便携版单文件（产物在 dist/）
 ```
 
 - 国内网络慢可先设镜像：`$env:ELECTRON_MIRROR='https://npmmirror.com/mirrors/electron/'`
-- 打包只含运行必需文件（main / preload / 双内核 / engine / renderer），不含 node_modules 与开发脚本。
+- 打包只含运行必需文件（main / preload / 双内核 / engine / ui），不含 node_modules 与开发脚本。
 - 打 git tag（如 `v1.5.0`）并推送，会触发 [.github/workflows/release.yml](.github/workflows/release.yml)
   自动出 Release：桌面端跑完测试后打包上传 `SixWorlds-Setup-*.exe` 与 `SixWorlds-Portable-*.exe`，
   Android 端用仓库 secrets 中的密钥签名后上传 `SixWorlds-Android-*.apk`。全部产物构建自同一份 tag 代码。
@@ -231,14 +231,10 @@ npm run dist   # 打包 NSIS 安装版 + 便携版单文件（产物在 dist/）
 ├── main.cjs              # Electron 主进程：窗口/置顶/HTTP 桥(SSE 流式)/插图桥/状态引擎 IPC/单实例锁
 ├── preload.cjs           # contextBridge 安全桥，暴露极窄 IPC API
 ├── engine/               # 故事状态引擎（内核无关）：九大账本 / 检索(sqlite-vec 语义索引) / Context / 快照 / Pending
-├── renderer/
-│   ├── index.html        # 主界面 DOM
-│   ├── settings.html     # 设置独立窗口
-│   ├── app.js            # 界面逻辑（会话/选项解析/IF 线/画廊/主题/搜索/引擎桥…）
-│   ├── settings.js       # 设置窗口逻辑（双窗口实时同步）
-│   └── styles.css        # 全部样式（CSS 变量驱动 7 调色板 × 明暗）
-├── renderer-proto/       # 原型工作台方案（与 renderer/ 共享数据与设置，主题抽屉可切换）
-├── shared/               # 双方案共享层（绞杀者迁移十刀：choices / search / gallery / appearance / engine-flow / toast / kernel-data / send-flow / illust / rail / workspace / onboarding + 会话持久化 / bloub 桌宠引擎）
+├── ui/
+│   ├── classic/          # 经典界面：index.html / settings.html / app.js / styles.css
+│   ├── proto/            # 原型工作台方案（与 classic/ 共享数据与设置，主题抽屉可切换）
+│   └── shared/           # 双方案共享层（choices / search / gallery / appearance / engine-flow / toast / kernel-data / send-flow / illust / rail / workspace / onboarding + 会话持久化 / bloub 桌宠引擎）
 ├── sessions-db.cjs       # 会话 SQLite 主存（sessions.json 保留为兼容镜像）
 ├── kernel.md             # 内核《六面世界：人生模拟器》
 ├── kernel-xianxia.md     # 内核《玄寰界：修真人生模拟器》
