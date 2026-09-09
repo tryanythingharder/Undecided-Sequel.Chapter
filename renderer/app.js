@@ -2471,6 +2471,8 @@ const KData = window.KernelData.createKernelData({
       if ($('kernel-hub').hidden) openKernelHub()
       openKernelLayer('source')
     } else if (name === 'gallery') openGallery()
+    else if (name === 'comic') openWorks()
+    else if (name === 'holo') openHoloGallery()
     else if (name === 'settings') openSettings()
     else if (name === 'density') {
       cfg.density = cfg.density === 'compact' ? 'standard' : 'compact'
@@ -3158,12 +3160,61 @@ const KData = window.KernelData.createKernelData({
     api, cfg: () => cfg, $,
     curSession, saveSessions, toast, confirmDialog,
     stylePrompt: () => Illust.stylePrompt(),
-    onCardsChanged: () => renderHoloCards()
+    onCardsChanged: () => { refreshWorksPop(); Holo.renderGalleryView() }
   })
-  const renderHoloCards = () => { Holo.renderCardsPanel(); const cnt = (curSession() && curSession().cards && curSession().cards.length) || 0; const el = $('holo-cards-count'); if (el) el.textContent = cnt ? ('· ' + cnt + ' 张') : '' }
-  $('btn-holo-card').addEventListener('click', () => Holo.openPicker())
   const openComicView = () => Comic.openView()
   const comicResumePending = () => Comic.resumePending()
+  const openHoloGallery = () => Holo.openGalleryView()
+  const closeHoloGallery = () => Holo.closeGalleryView()
+  // ---- 作品菜单（顶栏）：漫画回放 / 角色闪卡 = 两个独立面板的入口 ----
+  // 替代原先挤在画廊工具条里的「生成漫画回放/阅读漫画/生成角色闪卡」三个按钮；
+  // 画廊因此回到纯插图浏览，闪卡图鉴也不再内嵌在画廊里（两者各占一层，互不干扰）。
+  function openWorks() {
+    // 已有分镜直接进阅读器（阅读器内有「继续生成」），否则进生成向导
+    const s = curSession()
+    if (s && s.comic && s.comic.panels && s.comic.panels.length) openComicView()
+    else openComicPlanner()
+  }
+  function refreshWorksPop() {
+    const s = curSession()
+    const comic = s && s.comic
+    const comicSub = $('works-comic-sub')
+    if (comicSub) {
+      comicSub.textContent = (comic && comic.panels && comic.panels.length)
+        ? ('已画 ' + comic.panels.filter((p) => p.illust).length + ' / ' + comic.panels.length + ' 幕')
+        : '还没有分镜'
+    }
+    const holoSub = $('works-holo-sub')
+    if (holoSub) {
+      const n = (s && s.cards && s.cards.length) || 0
+      holoSub.textContent = n ? (n + ' 张') : '还没有闪卡'
+    }
+  }
+  function openWorksPop() {
+    const pop = $('works-pop'); const btn = $('btn-works')
+    if (!pop || !btn) return
+    refreshWorksPop()
+    pop.classList.remove('hidden')
+    const r = btn.getBoundingClientRect()
+    pop.style.top = Math.round(r.bottom + 6) + 'px'
+    pop.style.right = Math.round(window.innerWidth - r.right) + 'px'
+    pop.style.left = 'auto'
+  }
+  function closeWorksPop() { const pop = $('works-pop'); if (pop) pop.classList.add('hidden') }
+  function toggleWorksPop() {
+    const pop = $('works-pop')
+    if (pop && !pop.classList.contains('hidden')) closeWorksPop()
+    else openWorksPop()
+  }
+  $('btn-works').addEventListener('click', (e) => { e.stopPropagation(); toggleWorksPop() })
+  $('works-comic').addEventListener('click', () => { closeWorksPop(); openWorks() })
+  $('works-holo').addEventListener('click', () => { closeWorksPop(); openHoloGallery() })
+  // 点弹层外任意处收起（按钮自身的点击已 stopPropagation，不会误关）
+  document.addEventListener('click', (e) => {
+    const pop = $('works-pop')
+    if (!pop || pop.classList.contains('hidden')) return
+    if (!pop.contains(e.target)) closeWorksPop()
+  })
 
   // 叙事摘要：去掉【】结构块后截取前 60 字
   function summarize(text) {
@@ -3220,10 +3271,6 @@ const KData = window.KernelData.createKernelData({
     else if (r && r.error) toast('导出失败：' + r.error, 'err')
   })
   $('gallery-session').addEventListener('change', renderGallery)
-
-  // 漫画回放：一键生成 / 阅读视图
-  $('btn-gallery-comic').addEventListener('click', () => openComicPlanner())
-  $('btn-gallery-comic-view').addEventListener('click', () => openComicView())
 
   // ---- 输入区：自动增高（2–9 行）----
   const inputEl = $('input')
@@ -3761,7 +3808,6 @@ const KData = window.KernelData.createKernelData({
     }
   })
   $('btn-gallery').addEventListener('click', () => openGallery())
-  $('btn-gallery').addEventListener('click', () => renderHoloCards())
   $('btn-gallery-close').addEventListener('click', () => closeGallery())
   // R81：pointerdown 即时响应——画廊打开瞬间 head 重绘/大图解码可能吞掉 click，先按先关
   $('btn-gallery-close').addEventListener('pointerdown', () => closeGallery(), { once: false })
@@ -3805,7 +3851,11 @@ const KData = window.KernelData.createKernelData({
     if (e.key === 'Escape') {
       // 漫画回放阅读视图优先于画廊（视图从画廊打开，Esc 应只关视图、画廊保留）
       const comicView = document.getElementById('comic-view')
+      const holoView = document.getElementById('holo-view')
+      const worksPopEl = $('works-pop')
       if (comicView) comicView.dispatchEvent(new CustomEvent('comic-close'))
+      else if (holoView) closeHoloGallery()
+      else if (worksPopEl && !worksPopEl.classList.contains('hidden')) closeWorksPop()
       else if (commandMask && !commandMask.hidden) closeCommandPanel()
       else if (themePopEl && !themePopEl.classList.contains('hidden')) closeThemePop()
       else if (!$('gallery').hidden) closeGallery()
@@ -3842,6 +3892,14 @@ const KData = window.KernelData.createKernelData({
       if ($('kernel-hub').hidden) openKernelHub()
       if ($('kernel-hub').classList.contains('library-open')) closeKernelLayer()
       else openKernelLayer('library')
+    } else if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'm' || e.key === 'M')) {
+      // Ctrl+Shift+M 漫画回放（有分镜进阅读器，否则进生成向导）
+      e.preventDefault()
+      openWorks()
+    } else if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'h' || e.key === 'H')) {
+      // Ctrl+Shift+H 角色闪卡图鉴（独立面板）
+      e.preventDefault()
+      openHoloGallery()
     } else if ((e.ctrlKey || e.metaKey) && (e.key === '.' || e.key === '>')) {
       // Ctrl+. 打开/关闭源码焦点层
       e.preventDefault()

@@ -462,7 +462,7 @@
     function openView() {
       const s = curSession()
       if (!s || !s.comic || !s.comic.panels.length) {
-        toast('还没有漫画分镜——先在画廊点「生成漫画回放」', 'info')
+        toast('还没有漫画分镜——从顶栏「作品」菜单开始生成漫画回放', 'info')
         return
       }
       const mask = document.createElement('div')
@@ -471,6 +471,20 @@
       const stage = document.createElement('div')
       stage.className = 'comic-stage'
       mask.appendChild(stage)
+      // 分幕列表侧栏：独立阅读视图里直接跳到任意一幕（原来只能 ← → 逐页翻，找特定一幕很费劲）
+      const sidebar = document.createElement('div')
+      sidebar.className = 'comic-sidebar'
+      const sbHead = document.createElement('div')
+      sbHead.className = 'comic-sidebar-head'
+      sbHead.textContent = '分幕'
+      const sbCount = document.createElement('span')
+      sbCount.className = 'comic-sidebar-count'
+      sbHead.appendChild(sbCount)
+      const list = document.createElement('div')
+      list.className = 'comic-list'
+      sidebar.appendChild(sbHead); sidebar.appendChild(list)
+      mask.classList.add('has-list')
+      mask.appendChild(sidebar)
       const navPrev = document.createElement('button')
       navPrev.className = 'comic-nav comic-nav-prev'
       navPrev.innerHTML = '‹'
@@ -490,13 +504,43 @@
       exportBtn.textContent = '导出 HTML'
       exportBtn.title = '导出为自包含漫画 HTML'
       mask.appendChild(exportBtn)
+      const contBtn = document.createElement('button')
+      contBtn.className = 'comic-view-continue'
+      contBtn.textContent = '继续生成'
+      contBtn.title = '回到生成向导（续画 / 重新规划）'
+      mask.appendChild(contBtn)
       document.body.appendChild(mask)
 
       const panels = s.comic.panels
+      // 列表行只建一次，renderPanel 只更新高亮与状态字（避免每次翻页重建 DOM）
+      const listRows = panels.map((p, i) => {
+        const row = document.createElement('button')
+        row.type = 'button'
+        row.className = 'comic-list-row'
+        const idxEl = document.createElement('span')
+        idxEl.className = 'comic-list-idx'
+        idxEl.textContent = String(i + 1)
+        const titleEl = document.createElement('span')
+        titleEl.className = 'comic-list-title'
+        titleEl.textContent = p.title || ('第 ' + p.turn + ' 回合')
+        titleEl.title = titleEl.textContent
+        const stEl = document.createElement('span')
+        stEl.className = 'comic-list-state'
+        row.appendChild(idxEl); row.appendChild(titleEl); row.appendChild(stEl)
+        row.addEventListener('click', () => { viewIdx = i; renderPanel() })
+        list.appendChild(row)
+        return { row, stEl }
+      })
+      const stateOf = (p) => p.illust ? '✓' : (p.illustError ? '!' : (p.illustPending ? '…' : '—'))
       const renderPanel = () => {
         const p = panels[viewIdx]
         if (!p) return
         stage.innerHTML = ''
+        sbCount.textContent = (viewIdx + 1) + ' / ' + panels.length
+        listRows.forEach((r, i) => {
+          r.row.classList.toggle('on', i === viewIdx)
+          r.stEl.textContent = stateOf(panels[i])
+        })
         const page = document.createElement('div')
         page.className = 'comic-page'
         const counter = document.createElement('div')
@@ -509,7 +553,7 @@
         if (!p.illust) {
           const ph = document.createElement('div')
           ph.className = 'comic-placeholder'
-          ph.textContent = p.illustError ? ('生成失败：' + p.illustError) : (p.illustPending ? '绘制中…' : '未绘制（回到画廊继续生成）')
+          ph.textContent = p.illustError ? ('生成失败：' + p.illustError) : (p.illustPending ? '绘制中…' : '未绘制（用「继续生成」补画）')
           if (p.illustError || !p.illustPending) {
             const rb = document.createElement('button')
             rb.className = 'comic-redraw'
@@ -567,6 +611,8 @@
       closeBtn.addEventListener('click', close)
       mask.addEventListener('comic-close', close) // 全局 Esc 链经此事件先关视图（不连带关画廊）
       mask.addEventListener('click', (e) => { if (e.target === mask) close() })
+      // 继续生成：关阅读视图 → 回生成向导（已有分镜时向导自己会问续画/重画）
+      contBtn.addEventListener('click', () => { close(); openPlanner() })
       document.addEventListener('keydown', onKey)
       closeViewFn = close
       // 从最新已画幕开始读

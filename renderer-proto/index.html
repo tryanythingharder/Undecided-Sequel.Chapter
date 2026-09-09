@@ -5,6 +5,7 @@
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: sixworlds-asset:;">
   <title>六面世界</title>
   <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="../shared/works.css" />
 </head>
 <body>
   <!-- Shared icon symbols used by the V2 command surface. -->
@@ -47,6 +48,7 @@
     </div>
     <div class="titlebar-actions top-actions">
       <button id="btn-gallery" class="tb-btn icon-button" title="画廊（本次重生 · 插图集）" aria-label="打开画廊"><svg class="ic" viewBox="0 0 16 16"><rect x="2.5" y="3" width="11" height="10" rx="1"/><circle cx="5.5" cy="6" r="1"/><path d="m3 11 3.2-3 2.4 2 1.6-1.5 2.8 2.5"/></svg><span class="tb-label">画廊</span></button>
+      <button id="btn-works" class="tb-btn icon-button" title="作品（漫画回放 / 角色闪卡）" aria-label="打开作品菜单"><svg class="ic" viewBox="0 0 16 16"><rect x="2" y="2.5" width="5.5" height="5.5" rx="1"/><rect x="8.5" y="2.5" width="5.5" height="5.5" rx="1"/><rect x="2" y="8.5" width="5.5" height="5.5" rx="1"/><rect x="8.5" y="8.5" width="5.5" height="5.5" rx="1"/></svg><span class="tb-label">作品</span></button>
       <button id="btn-pin" class="tb-btn icon-button" title="置顶显示" aria-label="置顶显示"><svg class="ic" viewBox="0 0 16 16"><path d="m6 2 4 4-2 2 3 3-1 1-3-3-2 2-4-4 2-2-1-1 2-2 1 1Z"/></svg><span class="tb-label">置顶</span></button>
       <button id="btn-theme" class="tb-btn icon-button" title="切换主题" aria-label="切换主题"><svg class="ic" viewBox="0 0 16 16"><circle cx="8" cy="8" r="2.5"/><path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.4 3.4l1.4 1.4M11.2 11.2l1.4 1.4M12.6 3.4l-1.4 1.4M4.8 11.2l-1.4 1.4"/></svg><span class="tb-label">主题</span></button>
       <button id="btn-command" class="tb-btn icon-button" title="命令面板（Ctrl+P）" aria-label="打开命令面板"><svg class="ic" viewBox="0 0 16 16"><path d="M6 3v10a2.5 2.5 0 1 1-2.5-2.5h9A2.5 2.5 0 1 1 10 13V3a2.5 2.5 0 1 1 2.5 2.5h-9A2.5 2.5 0 1 1 6 3Z"/></svg><span class="tb-label">命令</span></button>
@@ -55,6 +57,18 @@
       <button id="btn-close" class="tb-btn tb-win tb-close" title="关闭"><svg class="ic" viewBox="0 0 16 16"><path d="M4 4l8 8M12 4l-8 8"/></svg></button>
     </div>
   </header>
+
+  <!-- ============ 作品菜单（漫画回放 / 角色闪卡：独立面板，不再挤在画廊抽屉里） ============ -->
+  <div class="works-pop hidden" id="works-pop" role="menu" aria-label="作品">
+    <button type="button" class="works-item" id="works-comic" role="menuitem">
+      <span class="works-item-name">漫画回放</span>
+      <small class="works-item-sub" id="works-comic-sub"></small>
+    </button>
+    <button type="button" class="works-item" id="works-holo" role="menuitem">
+      <span class="works-item-name">角色闪卡</span>
+      <small class="works-item-sub" id="works-holo-sub"></small>
+    </button>
+  </div>
 
   <div class="dynamic-island" id="dynamic-island" role="status" aria-live="polite" aria-atomic="true">
     <span class="island-mark"><svg class="ic"><use href="#i-check"/></svg></span>
@@ -323,6 +337,8 @@
         <button type="button" role="option" data-command="library"><span><svg class="ic ic-sm" viewBox="0 0 16 16"><path d="M3 3.5h4v4H3zM9 3.5h4v4H9zM3 9.5h4v4H3zM9 9.5h4v4H9z"/></svg>打开内核库</span><kbd>Ctrl Shift L</kbd></button>
         <button type="button" role="option" data-command="source"><span><svg class="ic ic-sm" viewBox="0 0 16 16"><path d="m5 4-3 4 3 4M11 4l3 4-3 4M9.5 2.5 6.5 13.5"/></svg>检查当前内核源码</span><kbd>Ctrl .</kbd></button>
         <button type="button" role="option" data-command="gallery"><span><svg class="ic ic-sm" viewBox="0 0 16 16"><rect x="2.5" y="3" width="11" height="10" rx="1"/><circle cx="5.5" cy="6" r="1"/><path d="m3 11 3.2-3 2.4 2 1.6-1.5 2.8 2.5"/></svg>打开画廊</span><kbd>Ctrl G</kbd></button>
+        <button type="button" role="option" data-command="comic"><span><svg class="ic ic-sm" viewBox="0 0 16 16"><rect x="2" y="3" width="12" height="10" rx="1"/><path d="M5 13v2M11 13v2M5.5 6h5M5.5 9h3"/></svg>漫画回放</span><kbd>Ctrl Shift M</kbd></button>
+        <button type="button" role="option" data-command="holo"><span><svg class="ic ic-sm" viewBox="0 0 16 16"><rect x="3" y="2.5" width="10" height="11" rx="1.5"/><path d="M6 5.5h4M6 8h4M6 10.5h2"/></svg>角色闪卡</span><kbd>Ctrl Shift H</kbd></button>
         <button type="button" role="option" data-command="settings"><span><svg class="ic ic-sm" viewBox="0 0 16 16"><path d="M8 2.5v2M8 11.5v2M2.5 8h2M11.5 8h2M4.1 4.1l1.4 1.4M10.5 10.5l1.4 1.4M11.9 4.1l-1.4 1.4M5.5 10.5l-1.4 1.4"/><circle cx="8" cy="8" r="2.4"/></svg>打开设置</span><kbd>Ctrl ,</kbd></button>
         <button type="button" role="option" data-command="density"><span><svg class="ic ic-sm" viewBox="0 0 16 16"><path d="M3 4.5h10M3 8h10M3 11.5h10"/><circle cx="6" cy="4.5" r="1"/><circle cx="10" cy="8" r="1"/><circle cx="7" cy="11.5" r="1"/></svg>切换信息密度</span><small id="command-density-label">舒适</small></button>
       </div>
@@ -342,13 +358,6 @@
       <select id="gallery-session" class="gallery-select"></select>
       <button class="ghost gallery-saveall" id="btn-gallery-saveall" title="把这条世界线的全部插图保存到文件夹">保存全部插图</button>
       <button class="ghost gallery-saveall" id="btn-gallery-export" title="把这条世界线导出为单个自包含 HTML（文字 + 插图）">导出为故事存档</button>
-      <button class="ghost gallery-saveall" id="btn-gallery-comic" title="从开头（或上次画到的地方）一键生成漫画回放：分镜规划 → 逐幕绘制 → 翻页阅读">生成漫画回放</button>
-      <button class="ghost gallery-saveall" id="btn-gallery-comic-view" title="打开漫画回放阅读视图（← → 翻页）">阅读漫画</button>
-      <button class="ghost gallery-saveall" id="btn-holo-card" title="把世界线里的角色制成 3D 全息收藏卡（可拖转、随视角流光、翻面）">生成角色闪卡</button>
-    </div>
-    <div class="holo-cards-panel" id="holo-cards-panel">
-      <div class="holo-cards-head">闪卡图鉴 <span id="holo-cards-count"></span></div>
-      <div class="holo-cards-body" id="holo-cards-body"></div>
     </div>
     <div class="gallery-body" id="gallery-body"></div>
   </div>
@@ -477,7 +486,7 @@
         <div class="set-group">
           <h3>更多</h3>
           <div class="guide-row"><span class="guide-num">8</span><span>左侧会话栏：<strong>拖动右缘伸缩</strong>、拖到最窄或按 <kbd>Ctrl</kbd><kbd>B</kbd> 收起；收起后左侧出现<strong>故事进度条</strong>，悬停节点可预览该幕（有插图的节点显示图片小窗），点击跳转到那一幕。选项按钮在向上翻阅历史时会<strong>自动收起</strong>（点输入框上方浮现的小箭头，或回到置底自动展开）</span></div>
-          <div class="guide-row"><span class="guide-num">9</span><span><kbd>Ctrl</kbd><kbd>N</kbd> 新建世界线 · <kbd>Ctrl</kbd><kbd>G</kbd> 打开<strong>画廊</strong>查看全部插图 · <kbd>Ctrl</kbd><kbd>F</kbd> 搜索当前世界线 · <kbd>Ctrl</kbd><kbd>,</kbd> 设置（模型/插图/外观）· <kbd>Ctrl</kbd><kbd>K</kbd> 内核设计 · <kbd>Ctrl</kbd><kbd>Shift</kbd><kbd>L</kbd> 内核库 · <kbd>Ctrl</kbd><kbd>.</kbd> 源码 · <kbd>Ctrl</kbd><kbd>P</kbd> 命令面板 · 输入框为空时按 <kbd>↑</kbd> 召回上一条行动 · <kbd>Ctrl</kbd><kbd>/</kbd> 快捷键表</span></div>
+          <div class="guide-row"><span class="guide-num">9</span><span><kbd>Ctrl</kbd><kbd>N</kbd> 新建世界线 · <kbd>Ctrl</kbd><kbd>G</kbd> 打开<strong>画廊</strong>查看全部插图 · <kbd>Ctrl</kbd><kbd>Shift</kbd><kbd>M</kbd> 漫画回放 · <kbd>Ctrl</kbd><kbd>Shift</kbd><kbd>H</kbd> 角色闪卡 · <kbd>Ctrl</kbd><kbd>F</kbd> 搜索当前世界线 · <kbd>Ctrl</kbd><kbd>,</kbd> 设置（模型/插图/外观）· <kbd>Ctrl</kbd><kbd>K</kbd> 内核设计 · <kbd>Ctrl</kbd><kbd>Shift</kbd><kbd>L</kbd> 内核库 · <kbd>Ctrl</kbd><kbd>.</kbd> 源码 · <kbd>Ctrl</kbd><kbd>P</kbd> 命令面板 · 输入框为空时按 <kbd>↑</kbd> 召回上一条行动 · <kbd>Ctrl</kbd><kbd>/</kbd> 快捷键表</span></div>
           <div class="guide-row"><span class="guide-num">10</span><span>世界拥有<strong>结构化长期记忆</strong>：重要决定、承诺、事实、伏笔会被引擎记住并持续影响剧情（关掉应用也不会忘）。按 <kbd>Ctrl</kbd><kbd>Alt</kbd><kbd>I</kbd> 打开<strong>状态检查器</strong>查看世界记忆、创建/恢复快照、检视每回合记录</span></div>
         </div>
         </div>

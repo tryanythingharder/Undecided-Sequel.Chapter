@@ -185,11 +185,13 @@ async function main() {
   // 主窗截图（生成前）
   await win.screenshot({ path: path.join(SHOTS, 'realtest-1-main.png') }).catch(() => {})
 
-  // ---- 画廊 → 闪卡 ----
-  await win.click('#btn-gallery').catch((e) => mark('gallery-open', false, e.message))
-  await win.waitForTimeout(600)
-  mark('gallery-open', await win.locator('#gallery:not([hidden])').isVisible().catch(() => false) || await win.locator('#gallery').isVisible().catch(() => false))
-  await win.click('#btn-holo-card').catch((e) => mark('holo-picker-open', false, e.message))
+  // ---- 顶栏「作品」→ 角色闪卡图鉴 → 生成新闪卡 ----
+  await win.click('#btn-works').catch((e) => mark('works-open', false, e.message))
+  await win.waitForTimeout(300)
+  await win.click('#works-holo').catch((e) => mark('holo-view-open', false, e.message))
+  await win.waitForTimeout(700)
+  mark('holo-view-open', await win.locator('#holo-view').isVisible().catch(() => false))
+  await win.click('#holo-view .holo-view-generate').catch((e) => mark('holo-picker-open', false, e.message))
   await win.waitForTimeout(800)
   const pickerVisible = await win.locator('#holo-picker').isVisible().catch(() => false)
   mark('holo-picker-open', pickerVisible)

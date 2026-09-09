@@ -649,8 +649,14 @@ async function main() {
     check('comic-source-turns', !!(src && src.turns && src.turns.length === 2 && src.turns[0].events.length >= 1), JSON.stringify(src && { n: src.turns && src.turns.length }))
   }
 
-  // 规划面板：点「生成漫画回放」→ 默认 AI 模式 → 开始
-  await win.click('#btn-gallery-comic')
+  // 规划面板：作品菜单 →「漫画回放」（无分镜时进生成向导）→ 默认 AI 模式 → 开始
+  await win.click('#btn-gallery-close')
+  await waitForHidden('#gallery')
+  await win.click('#btn-works')
+  await win.waitForTimeout(250)
+  check('works-menu-opens', await win.locator('#works-pop').isVisible().catch(() => false))
+  check('works-menu-comic-sub', /还没有分镜/.test(await win.locator('#works-comic-sub').textContent().catch(() => '')))
+  await win.click('#works-comic')
   await win.waitForTimeout(400)
   check('comic-planner-opens', await win.locator('#comic-planner').isVisible().catch(() => false))
   check('comic-planner-estimates', /预计绘制/.test(await win.locator('.comic-planner-estimate').textContent().catch(() => '')))
@@ -676,10 +682,16 @@ async function main() {
   }
   check('comic-island-closed', ok)
 
-  // 阅读视图：打开 → 幕图 → 翻页 → 关闭 → 导出（视图内导出按钮，SIXWORLDS_TEST_SAVE_PATH 接缝落盘）
-  await win.click('#btn-gallery-comic-view')
-  await win.waitForTimeout(300)
+  // 阅读视图：作品菜单 →「漫画回放」（已有分镜直接进阅读器）→ 幕图 → 分幕侧栏 → 翻页 → 关闭 → 导出
+  await win.click('#btn-works')
+  await win.waitForTimeout(250)
+  await win.click('#works-comic')
+  await win.waitForTimeout(400)
   check('comic-view-opens', await win.locator('#comic-view').isVisible().catch(() => false))
+  check('comic-sidebar-shown', await win.locator('#comic-view .comic-sidebar').isVisible().catch(() => false))
+  const comicRows = await win.locator('#comic-view .comic-list-row').count()
+  check('comic-sidebar-rows', comicRows === 2, 'rows=' + comicRows)
+  check('comic-sidebar-states-done', (await win.locator('#comic-view .comic-list-state').allTextContents()).join('') === '✓✓')
   check('comic-view-shows-img', (await win.locator('#comic-view .comic-img').count()) === 1)
   const counterText = await win.locator('#comic-view .comic-counter').textContent().catch(() => '')
   check('comic-view-counter', /1 \/ 2|2 \/ 2/.test(counterText), 'counter=' + counterText)
@@ -713,9 +725,13 @@ async function main() {
     return r && r.ok && r.data && (r.data.committed || r.data.ok)
   }, { sid: curSid }).catch(() => false)
   check('comic-seed-turn-3', seedExtra)
-  // 已有分镜 → 点生成弹「续画/重画」对话框 → 续画（自动范围 3→3）
-  await win.click('#btn-gallery-comic')
-  await win.waitForTimeout(400)
+  // 已有分镜 → 作品菜单进阅读器 → 点「继续生成」→ 弹「续画/重画」对话框 → 续画（自动范围 3→3）
+  await win.click('#btn-works')
+  await win.waitForTimeout(250)
+  await win.click('#works-comic')
+  await win.waitForSelector('#comic-view .comic-view-continue', { timeout: 6000 })
+  await win.click('#comic-view .comic-view-continue')
+  await win.waitForTimeout(500)
   check('comic-resume-dialog-shown', await win.locator('.confirm-mask').isVisible().catch(() => false))
   await win.click('.confirm-foot .primary') // 续画
   ok = false
@@ -735,16 +751,18 @@ async function main() {
     return s && s.comic ? s.comic.panels[0].title : null
   }, curSid).catch(() => null)
   check('comic-resume-keeps-old-panels', firstPanelKept === '清晨的到访', 'first=' + firstPanelKept)
+  // 画廊保持关闭：漫画入口已从画廊工具条迁到顶栏「作品」菜单（画廊不再被漫画流程牵连）
+  check('gallery-stays-closed-after-comic', await win.locator('#gallery').evaluate((el) => el.hidden))
 
-  await win.click('#btn-gallery-close')
-  await waitForHidden('#gallery')
-  check('gallery-closes-after-comic', await win.locator('#gallery').evaluate((el) => el.hidden))
-
-  // ---- 角色闪卡（Holo Card）：选角 → AI 规划（mock card 分支）→ 2 次生图 → 抠图排版落盘 → 图鉴 ----
-  await win.click('#btn-gallery')
-  await win.waitForTimeout(300)
-  check('holo-btn-present', (await win.locator('#btn-holo-card').count()) === 1)
-  await win.click('#btn-holo-card')
+  // ---- 角色闪卡（Holo Card）：作品菜单 → 图鉴面板 → 选角 → AI 规划 → 2 次生图 → 抠图排版落盘 → 图鉴 ----
+  check('works-btn-present', (await win.locator('#btn-works').count()) === 1)
+  await win.click('#btn-works')
+  await win.waitForTimeout(250)
+  await win.click('#works-holo')
+  await win.waitForSelector('#holo-view', { timeout: 6000 })
+  check('holo-view-opens', await win.locator('#holo-view').isVisible().catch(() => false))
+  check('holo-view-empty-state', await win.locator('.holo-view-empty').isVisible().catch(() => false))
+  await win.click('#holo-view .holo-view-generate')
   await win.waitForTimeout(400)
   check('holo-picker-opens', await win.locator('#holo-picker').isVisible().catch(() => false))
   check('holo-picker-lists-characters', (await win.locator('.holo-picker-item').count()) >= 1)
@@ -779,6 +797,13 @@ async function main() {
     // 查看器 IPC(e2e 接缝:SIXWORLDS_TEST 不真开窗,返回 ok)
     const vw = await win.evaluate(async (cardId) => window.api.cardWindow({ cardId }), card.cardId).catch(() => null)
     check('holo-viewer-ipc-ok', !!(vw && vw.ok))
+    // 重新打开图鉴面板：卡片墙应渲染出 1 张卡（含 sixworlds-asset 预览图）
+    await win.click('#btn-works')
+    await win.waitForTimeout(250)
+    await win.click('#works-holo')
+    await win.waitForSelector('.holo-card-item', { timeout: 6000 })
+    check('holo-wall-shows-card', (await win.locator('.holo-card-item').count()) === 1)
+    check('holo-wall-preview-src', /^sixworlds-asset:\/\/holo\/card\//.test(await win.locator('.holo-card-img').first().getAttribute('src').catch(() => '')))
     // 删除:确认框 → 卡目录与图鉴记录移除
     await win.locator('.holo-card-actions button.del').first().click()
     await win.waitForTimeout(300)
@@ -802,8 +827,10 @@ async function main() {
     }, card.cardId).catch(() => true)
     check('holo-card-dir-removed', rd)
   }
-  await win.click('#btn-gallery-close')
-  await waitForHidden('#gallery')
+  // 关掉图鉴面板（Esc 由全局链关闭 holo-view），避免遮挡后续设置窗口操作
+  await win.keyboard.press('Escape')
+  await win.waitForTimeout(400)
+  check('holo-view-closes', !(await win.locator('#holo-view').count()))
 
   await win.keyboard.press('Control+,')
   const sw3 = await settingsWindow(app)

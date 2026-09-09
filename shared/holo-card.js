@@ -490,69 +490,155 @@
       }
     }
 
-    /* ---------- 画廊内闪卡区（渲染当前会话的卡列表） ---------- */
-    function renderCardsPanel() {
-      const s = curSession()
-      const body = $('holo-cards-body')
-      if (!body) return
-      body.innerHTML = ''
-      const cards = (s && s.cards) || []
-      if (!cards.length) {
-        const e = document.createElement('div')
-        e.className = 'gallery-empty'
-        e.textContent = '这条世界线还没有闪卡。点「生成角色闪卡」，把角色制成 3D 全息收藏卡。'
-        body.appendChild(e)
-        return
-      }
-      for (const card of cards.slice().reverse()) {
-        const item = document.createElement('div')
-        item.className = 'holo-card-item'
-        const info = document.createElement('div')
-        info.className = 'holo-card-info'
-        const nm = document.createElement('div')
-        nm.className = 'holo-card-name'
-        nm.textContent = card.name + ' · ' + (card.rarity || 'SR')
-        const sub = document.createElement('div')
-        sub.className = 'holo-card-sub'
-        sub.textContent = (card.subtitle || '') + ' · ' + new Date(card.createdAt || Date.now()).toLocaleDateString('zh-CN')
-        info.appendChild(nm); info.appendChild(sub)
-        const acts = document.createElement('div')
-        acts.className = 'holo-card-actions'
-        const viewBtn = document.createElement('button')
-        viewBtn.textContent = '查看'
-        viewBtn.title = '在 3D 全息查看器中打开'
-        viewBtn.addEventListener('click', async () => {
-          const r = await api.cardWindow({ cardId: card.cardId })
-          if (!r || !r.ok) toast('打开失败：' + ((r && r.error) || '未知错误'), 'err')
-        })
-        const delBtn = document.createElement('button')
-        delBtn.textContent = '删除'
-        delBtn.className = 'del'
-        delBtn.addEventListener('click', async () => {
-          const ok = await confirmDialog({
-            title: '删除这张闪卡？',
-            body: '将删除卡面文件与图鉴记录（不影响对话与角色数据）。',
-            danger: true,
-            okText: '删除'
-          })
-          if (!ok) return
-          const r = await api.cardDelete({ cardId: card.cardId })
-          if (r && r.ok) {
-            s.cards = (s.cards || []).filter((c) => c.cardId !== card.cardId)
-            saveSessions()
-            renderCardsPanel()
-            toast('已删除闪卡', 'info')
-          } else {
-            toast('删除失败：' + ((r && r.error) || '未知错误'), 'err')
-          }
-        })
-        acts.appendChild(viewBtn); acts.appendChild(delBtn)
-        item.appendChild(info); item.appendChild(acts)
-        body.appendChild(item)
-      }
+    /* ---------- 独立图鉴面板（全屏浮层）：卡片墙 + 查看/删除/生成 ----------
+     * 从画廊抽屉里拆出来（原 #holo-cards-body 内嵌列表）：画廊只做插图浏览，
+     * 闪卡收藏独立成层，入口在顶栏「作品」菜单。卡面预览直接用查看器同源的
+     * sixworlds-asset://holo/card/<id>/background.png（协议白名单已放行），零新 IPC。 */
+    function cardPreviewUrl(cardId) {
+      return 'sixworlds-asset://holo/card/' + encodeURIComponent(cardId) + '/background.png'
     }
 
-    return { openPicker, generateCard, renderCardsPanel, cutoutSubject, renderTextLayer }
+    async function openCard(cardId) {
+      const r = await api.cardWindow({ cardId })
+      if (!r || !r.ok) toast('打开失败：' + ((r && r.error) || '未知错误'), 'err')
+    }
+
+    async function deleteCard(card) {
+      const ok = await confirmDialog({
+        title: '删除这张闪卡？',
+        body: '将删除卡面文件与图鉴记录（不影响对话与角色数据）。',
+        danger: true,
+        okText: '删除'
+      })
+      if (!ok) return
+      const r = await api.cardDelete({ cardId: card.cardId })
+      if (!(r && r.ok)) { toast('删除失败：' + ((r && r.error) || '未知错误'), 'err'); return }
+      const s = curSession()
+      if (s) { s.cards = (s.cards || []).filter((c) => c.cardId !== card.cardId); saveSessions() }
+      renderGalleryView()
+      toast('已删除闪卡', 'info')
+      if (typeof ctx.onCardsChanged === 'function') ctx.onCardsChanged()
+    }
+
+    function openGalleryView() {
+      let mask = document.getElementById('holo-view')
+      if (!mask) {
+        mask = document.createElement('div')
+        mask.id = 'holo-view'
+        mask.className = 'holo-view'
+        // 点遮罩空白处关闭（内容区点击不冒泡到遮罩）
+        mask.addEventListener('click', (e) => { if (e.target === mask) closeGalleryView() })
+        document.body.appendChild(mask)
+      }
+      mask.classList.remove('closing')
+      renderGalleryView()
+    }
+
+    function closeGalleryView() {
+      const mask = document.getElementById('holo-view')
+      if (!mask) return
+      mask.classList.add('closing')
+      setTimeout(() => { const m = document.getElementById('holo-view'); if (m) m.remove() }, 180)
+    }
+
+    function renderGalleryView() {
+      const mask = document.getElementById('holo-view')
+      if (!mask) return
+      const s = curSession()
+      const cards = (s && s.cards) ? s.cards.slice().reverse() : []
+      mask.innerHTML = ''
+
+      const head = document.createElement('div')
+      head.className = 'holo-view-head'
+      const titleWrap = document.createElement('div')
+      titleWrap.className = 'holo-view-title-wrap'
+      const title = document.createElement('div')
+      title.className = 'holo-view-title'
+      title.textContent = '角色闪卡'
+      const sub = document.createElement('div')
+      sub.className = 'holo-view-sub'
+      sub.textContent = s ? (s.title + ' · ' + cards.length + ' 张') : '暂无世界线'
+      titleWrap.appendChild(title); titleWrap.appendChild(sub)
+      const headActs = document.createElement('div')
+      headActs.className = 'holo-view-actions'
+      const genBtn = document.createElement('button')
+      genBtn.className = 'primary holo-view-generate'
+      genBtn.textContent = '生成新闪卡'
+      genBtn.addEventListener('click', () => { closeGalleryView(); openPicker() })
+      const closeBtn = document.createElement('button')
+      closeBtn.className = 'holo-view-close'
+      closeBtn.title = '关闭（Esc）'
+      closeBtn.innerHTML = '×'
+      closeBtn.addEventListener('click', closeGalleryView)
+      headActs.appendChild(genBtn); headActs.appendChild(closeBtn)
+      head.appendChild(titleWrap); head.appendChild(headActs)
+      mask.appendChild(head)
+
+      const body = document.createElement('div')
+      body.className = 'holo-view-body'
+      if (!cards.length) {
+        const empty = document.createElement('div')
+        empty.className = 'holo-view-empty'
+        const msg = document.createElement('div')
+        msg.textContent = '这条世界线还没有闪卡。'
+        const hint = document.createElement('div')
+        hint.className = 'holo-view-empty-hint'
+        hint.textContent = '把世界线里的角色制成 3D 全息收藏卡（每张卡消耗 2 次生图）'
+        const go = document.createElement('button')
+        go.className = 'primary'
+        go.textContent = '选择角色生成第一张'
+        go.addEventListener('click', () => { closeGalleryView(); openPicker() })
+        empty.appendChild(msg); empty.appendChild(hint); empty.appendChild(go)
+        body.appendChild(empty)
+      } else {
+        const wall = document.createElement('div')
+        wall.className = 'holo-wall'
+        for (const card of cards) {
+          const item = document.createElement('div')
+          item.className = 'holo-card-item'
+          const face = document.createElement('div')
+          face.className = 'holo-card-face'
+          face.title = '点击在 3D 全息查看器中打开'
+          const img = document.createElement('img')
+          img.className = 'holo-card-img'
+          img.src = cardPreviewUrl(card.cardId)
+          img.alt = card.name + ' 的闪卡'
+          img.loading = 'lazy'
+          img.decoding = 'async'
+          const rarity = document.createElement('span')
+          rarity.className = 'holo-card-rarity'
+          rarity.textContent = card.rarity || 'SR'
+          face.appendChild(img); face.appendChild(rarity)
+          face.addEventListener('click', () => openCard(card.cardId))
+          const info = document.createElement('div')
+          info.className = 'holo-card-info'
+          const nm = document.createElement('div')
+          nm.className = 'holo-card-name'
+          nm.textContent = card.name
+          const sb = document.createElement('div')
+          sb.className = 'holo-card-sub'
+          sb.textContent = (card.subtitle ? card.subtitle + ' · ' : '') + new Date(card.createdAt || Date.now()).toLocaleDateString('zh-CN')
+          info.appendChild(nm); info.appendChild(sb)
+          const acts = document.createElement('div')
+          acts.className = 'holo-card-actions'
+          const viewBtn = document.createElement('button')
+          viewBtn.textContent = '查看'
+          viewBtn.title = '在 3D 全息查看器中打开'
+          viewBtn.addEventListener('click', () => openCard(card.cardId))
+          const delBtn = document.createElement('button')
+          delBtn.textContent = '删除'
+          delBtn.className = 'del'
+          delBtn.addEventListener('click', () => deleteCard(card))
+          acts.appendChild(viewBtn); acts.appendChild(delBtn)
+          item.appendChild(face); item.appendChild(info); item.appendChild(acts)
+          wall.appendChild(item)
+        }
+        body.appendChild(wall)
+      }
+      mask.appendChild(body)
+    }
+
+    return { openPicker, generateCard, openGalleryView, closeGalleryView, renderGalleryView, cutoutSubject, renderTextLayer }
   }
 
   window.HoloCard = { createHoloCard }
