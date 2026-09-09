@@ -107,6 +107,13 @@ t('卡面规划=精修立绘级提示词（画质媒介词+构图词+风格统�
 t('精修提示词提取上限放宽（900/700 防长提示词被截断）', /subjectPrompt\.slice\(0, 900\)/.test(mainSrc) && /backgroundPrompt\.slice\(0, 700\)/.test(mainSrc))
 // 2026-09-08 背景贴合度修复：旧规范把背景当独立风景写（refined digital painting + 无配色约束），实测生成夕阳云海壁纸与主体完全不搭
 t('背景提示词=主体配色锚定+漫射光+景深留白（贴合主体而非独立风景）', /主色调必须取自 subjectPrompt/.test(mainSrc) && /禁止直射阳光/.test(mainSrc) && /景深虚化/.test(mainSrc) && /不要用 refined digital painting/.test(mainSrc) && /配色必须以 subjectPrompt/.test(mainSrc))
+// 2026-09-09 gpt_image_playground 移植：原生透明背景 + revised_prompt 回显
+t('image:generate 透传 background 白名单（transparent/opaque/auto）', /cfg\.background === 'transparent' \|\| cfg\.background === 'opaque' \|\| cfg\.background === 'auto'/.test(mainSrc) && /payload\.background = cfg\.background/.test(mainSrc))
+t('image:generate 回传 revised_prompt（模型内部改写可见）', /item\.revised_prompt/.test(mainSrc) && /revisedPrompt/.test(mainSrc))
+t('闪卡主体=透明优先三段降级（报错/无 alpha → 白底+抠图）', /background: 'transparent'/.test(src) && /hasTransparency/.test(src) && /回落白底\+抠图/.test(src))
+t('透明主体跳过 flood-fill（原生 alpha 直接分层）', /subjMode === 'transparent'/.test(src) && /subjectLayer = subjectCanvas/.test(src))
+t('hasTransparency 抽样阈值 3%（防端点静默忽略参数）', /trans \/ \(W \* H\) >= 0\.03/.test(src))
+t('卡元数据记录 subjectMode 与 revisedPrompt', /subjectMode: subjMode/.test(src) && /revisedPrompt: revised\.subject/.test(src))
 
 /* ---------- 4) glb 产物结构校验（重新生成走 build 脚本则始终成立） ---------- */
 console.log('===== card.glb 结构 =====')

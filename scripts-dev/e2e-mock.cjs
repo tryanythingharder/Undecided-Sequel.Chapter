@@ -100,11 +100,12 @@ function startMock() {
         return json(200, { choices: [{ message: { role: 'assistant', content: reply } }], usage })
       }
       if (req.url.endsWith('/images/generations')) {
+        // revised_prompt：gpt-image 系真实行为（内部改写提示词）——e2e 校验透传链路
         if (imageMode === 'b64') {
-          return json(200, { data: [{ b64_json: PNG_1PX }] })
+          return json(200, { data: [{ b64_json: PNG_1PX, revised_prompt: '(mock revised) scene as requested' }] })
         }
         const port = server.address().port
-        return json(200, { data: [{ url: 'http://127.0.0.1:' + port + '/img.png' }] })
+        return json(200, { data: [{ url: 'http://127.0.0.1:' + port + '/img.png', revised_prompt: '(mock revised) scene as requested' }] })
       }
       if (req.url === '/img.png') {
         const buf = Buffer.from(PNG_1PX, 'base64')
@@ -313,6 +314,9 @@ async function main() {
   }
   const src = ok ? await win.locator('.illust img').first().getAttribute('src') : ''
   check('auto-illust-b64', ok && src.startsWith('data:image/'), src ? src.slice(0, 30) : 'no img')
+  // gpt-image 改写提示词回显：mock 端点带 revised_prompt → 插图下方应出现提示条
+  const revisedCount = await win.locator('.illust-revised').count()
+  check('illust-revised-shown', revisedCount >= 1, 'revised=' + revisedCount)
 
   // ---- 会话标题自动生成 ----
   const title = await win.locator('.session-item.active .session-label-text').textContent().catch(() => '')

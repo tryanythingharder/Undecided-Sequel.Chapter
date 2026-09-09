@@ -511,6 +511,11 @@ button { font-family: var(--sans); cursor: pointer; }
   max-width: 560px; margin: 10px 0 4px;
 }
 .illust-pending .dots::after { content: "…"; animation: blink 1.2s infinite; }
+.illust-revised {
+  font-family: var(--mono); font-size: 11px; color: var(--text-faint);
+  padding: 2px 0 6px; max-width: 560px; user-select: text;
+  border-top: 1px dashed var(--border);
+}
 .illust-error {
   font-family: var(--mono); font-size: 11px; color: var(--danger);
   padding: 4px 0; max-width: 560px; user-select: text;

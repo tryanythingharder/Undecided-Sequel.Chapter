@@ -103,6 +103,9 @@
         s.tokens = s.tokens || { prompt: 0, completion: 0, total: 0 }
         s.tokens.cost = (s.tokens.cost || 0) + imgCost
       }
+      // gpt-image 系会内部改写提示词，revisedPrompt 即模型实际作画依据——存下来，
+      // 插图下方以「模型改写」提示条展示（排查「图与提示词不符」的关键线索）
+      msg.illustRevised = (r.revisedPrompt && String(r.revisedPrompt).slice(0, 400)) || ''
       saveSessions()
       renderMessages()
     } else {

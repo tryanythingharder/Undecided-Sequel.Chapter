@@ -97,6 +97,47 @@ async function main() {
   await win.locator('#btn-gallery').waitFor({ state: 'visible', timeout: 20000 }).catch(() => {})
   await win.waitForTimeout(2500)
 
+  // ---- 环境注入生图端点（PROBE_BASE/PROBE_KEY/PROBE_MODEL）：把沙盒的生图配置切到验证目标 ----
+  // 密钥只进 DPAPI secrets（先读回现值再合并，避免把文本模型密钥清空），不进 localStorage、不打印。
+  // 注入后 reload 一次窗口：运行时 cfg 在 boot 时已做密钥快照，必须重跑 hydrateSecrets 才能读到新值。
+  if (process.env.PROBE_BASE) {
+    const injected = await win.evaluate(async ([base, key, model]) => {
+      const raw = localStorage.getItem('sixworlds.codex.state.v3')
+      const c = raw ? JSON.parse(raw) : {}
+      c.illustBaseUrl = base
+      c.illustModel = model || c.illustModel || ''
+      localStorage.setItem('sixworlds.codex.state.v3', JSON.stringify(c))
+      // 合并式保存：illust 密钥换成注入值，apiKey（文本模型）保留 DPAPI 现值
+      let cur = { apiKey: '', illustApiKey: '' }
+      const sec = await window.api.loadSecrets()
+      if (sec && sec.ok && sec.secrets) cur = sec.secrets
+      await window.api.saveSecrets({ apiKey: cur.apiKey || '', illustApiKey: key || cur.illustApiKey || '' })
+      return { illustBaseUrl: c.illustBaseUrl, illustModel: c.illustModel, keptTextKey: !!(cur.apiKey && cur.apiKey.length > 8) }
+    }, [process.env.PROBE_BASE, process.env.PROBE_KEY || '', process.env.PROBE_MODEL || '']).catch((e) => ({ err: String(e) }))
+    mark('endpoint-injected', !injected.err && injected.keptTextKey, JSON.stringify(injected))
+    await win.reload()
+    await win.waitForTimeout(4000).catch(() => {})
+    for (let i = 0; i < 5; i++) {
+      const alive = await win.evaluate(() => true).catch(() => false)
+      if (alive) break
+      const ws = app.windows(); win = ws[ws.length - 1]
+      await win.waitForTimeout(1500).catch(() => {})
+    }
+    await win.locator('#splash').waitFor({ state: 'attached', timeout: 5000 }).catch(() => null)
+    await win.keyboard.press('Enter').catch(() => {})
+    await win.locator('#splash').waitFor({ state: 'detached', timeout: 9000 }).catch(() => null)
+    await win.locator('#btn-gallery').waitFor({ state: 'visible', timeout: 20000 }).catch(() => {})
+    await win.waitForTimeout(2500)
+    // reload 后确认注入生效（运行时 cfg 已带新密钥：以一次真实 loadSecrets + localStorage 双检）
+    const verify = await win.evaluate(async () => {
+      let c = {}
+      try { c = JSON.parse(localStorage.getItem('sixworlds.codex.state.v3') || '{}') } catch {}
+      const sec = await window.api.loadSecrets()
+      return { illustBaseUrl: c.illustBaseUrl || '', illustModel: c.illustModel || '', hasIllustKey: !!(sec && sec.ok && sec.secrets && sec.secrets.illustApiKey && sec.secrets.illustApiKey.length > 8) }
+    }).catch(() => null)
+    mark('endpoint-verified', !!(verify && verify.illustBaseUrl === process.env.PROBE_BASE && verify.hasIllustKey), JSON.stringify(verify))
+  }
+
   // ---- 确认真实配置已生效（不打印密钥） ----
   const cfgInfo = await win.evaluate(() => {
     const raw = localStorage.getItem('sixworlds.codex.state.v3')
@@ -218,7 +259,7 @@ async function main() {
     return s && s.cards ? s.cards[s.cards.length - 1] : null
   }, TARGET_SESSION).catch(() => null)
   if (cardMeta && cardMeta.cardId) {
-    mark('card-meta', /^[a-z0-9-]+$/.test(cardMeta.cardId), JSON.stringify({ name: cardMeta.name, rarity: cardMeta.rarity, layered: cardMeta.layered }))
+    mark('card-meta', /^[a-z0-9-]+$/.test(cardMeta.cardId), JSON.stringify({ name: cardMeta.name, rarity: cardMeta.rarity, layered: cardMeta.layered, subjectMode: cardMeta.subjectMode, revised: (cardMeta.revisedPrompt || '').slice(0, 60) }))
     // ---- 读取卡目录产物（主进程 API） ----
     const cardRead = await win.evaluate(async (cid) => {
       const r = await window.api.cardRead({ cardId: cid })

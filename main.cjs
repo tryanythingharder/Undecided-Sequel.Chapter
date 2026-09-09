@@ -1256,7 +1256,10 @@ ipcMain.handle('image:generate', async (_evt, cfg) => {
     }
     // 清晰度（quality）：default 不传（沿用端点默认值，即现有行为），standard/high 透传给支持的端点
     const quality = String(cfg.quality || 'default')
-    if (quality === 'standard' || quality === 'high' || quality === 'low') payload.quality = quality
+    if (quality === 'standard' || quality === 'high' || quality === 'low' || quality === 'medium' || quality === 'auto') payload.quality = quality
+    // 透明背景：gpt-image 系列 Images API 原生参数（transparent=直接返回带 alpha 的 PNG）。
+    // 端点不支持时会 4xx 报错或静默忽略，由调用方按「无透明像素→回落白底」降级（见 holo-card.js）
+    if (cfg.background === 'transparent' || cfg.background === 'opaque' || cfg.background === 'auto') payload.background = cfg.background
     // 额外参数（response_format 等），按需透传
     if (cfg.extra && typeof cfg.extra === 'object') Object.assign(payload, cfg.extra)
     const controller = new AbortController()
@@ -1292,6 +1295,8 @@ ipcMain.handle('image:generate', async (_evt, cfg) => {
     const billing = {}
     if (usage) billing.usage = usage
     if (cost != null) billing.cost = cost
+    // gpt-image 系列会内部改写提示词，revised_prompt 即模型实际作画依据——回传给调用方展示（排查「图与提示词不符」）
+    if (typeof item.revised_prompt === 'string' && item.revised_prompt.trim()) billing.revisedPrompt = item.revised_prompt.trim().slice(0, 2000)
     if (item.b64_json) {
       let mime = 'image/png'
       if (model.includes('jpeg') || model.includes('Kolors')) mime = 'image/jpeg'

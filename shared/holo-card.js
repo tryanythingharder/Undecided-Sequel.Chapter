@@ -70,6 +70,30 @@
       return c
     }
 
+    /* ---------- 透明检测：data URL 图像是否真带 alpha 通道（防端点静默忽略 background 参数） ---------- */
+    /* 抽样 64×64 网格查 alpha<250 的像素占比 ≥3% 即认定透明。异步（等 Image 解码），导出供单测。 */
+    function hasTransparency(dataUrl) {
+      if (!dataUrl) return false
+      return new Promise((resolve) => {
+        const img = new Image()
+        img.onload = () => {
+          try {
+            const W = Math.min(64, img.naturalWidth), H = Math.min(64, img.naturalHeight)
+            const c = document.createElement('canvas')
+            c.width = W; c.height = H
+            const d = c.getContext('2d')
+            d.drawImage(img, 0, 0, W, H)
+            const px = d.getImageData(0, 0, W, H).data
+            let trans = 0
+            for (let i = 3; i < px.length; i += 4) if (px[i] < 250) trans++
+            resolve(trans / (W * H) >= 0.03)
+          } catch { resolve(false) }
+        }
+        img.onerror = () => resolve(false)
+        img.src = dataUrl
+      })
+    }
+
     /* ---------- 主体层抠图：纯白底立绘 → 透明背景（边缘 flood-fill） ---------- */
     /* 从四角向内漫水填充近似背景色（容差阈值），命中的像素 alpha=0。
      * 判定：透明像素占比 ≥ 15% 才采用分层（否则贴满全卡，视差用背景层承载）。
@@ -320,13 +344,14 @@
         }
         const plan = pr.plan
         const style = ctx.stylePrompt ? ctx.stylePrompt() : ''
-        const gen = (prompt, size) => api.generateImage({
+        const gen = (prompt, size, opts) => api.generateImage({
           baseUrl: cfg().illustBaseUrl,
           apiKey: cfg().illustApiKey || cfg().apiKey,
           model: cfg().illustModel,
           prompt: style ? (style + '. ' + prompt) : prompt,
           size: size || cfg().illustSize,
           quality: cfg().illustQuality || 'default',
+          background: (opts && opts.background) || '',
           negative: cfg().illustNegative,
           seedLock: cfg().illustSeedLock,
           seed: cfg().illustSeed,
@@ -339,23 +364,50 @@
             s.tokens.cost = (s.tokens.cost || 0) + cost
           }
         }
-        // 2) 主体立绘（纯白底） + 3) 背景（两次生图，失败各重试一次）
-        const attempt = async (label, prompt, size) => {
-          let r = await gen(prompt, size)
-          if (!r || !r.ok) { await new Promise((res) => setTimeout(res, 800)); r = await gen(prompt, size) }
+        // 2) 主体立绘（透明优先，降级白底） + 3) 背景（两次生图，失败各重试一次）
+        const attempt = async (label, prompt, size, opts) => {
+          let r = await gen(prompt, size, opts)
+          if (!r || !r.ok) { await new Promise((res) => setTimeout(res, 800)); r = await gen(prompt, size, opts) }
           if (!r || !r.ok) throw new Error(label + '：' + ((r && r.error) || '未知错误'))
           addCost(r)
-          return r.dataUrl
+          return r
         }
         island.update('绘制主体立绘…')
-        const subjectUrl = await attempt('主体生成失败', plan.subjectPrompt + ', full body, standing pose, plain white background, solid white background, no text, no watermark', '1024x1024')
+        // 主体走 gpt-image 原生透明背景（background:'transparent'，模型直接返回带 alpha 的 PNG）。
+        // 三段降级：端点报错 → 白底重试；静默忽略参数（返回不透明白底图）→ 白底重试；都失败 → 报错。
+        // 白底命中后仍有 canvas flood-fill 抠图兜底（cutoutSubject），与旧链路完全一致。
+        const revised = {}
+        const subjPromptWhite = plan.subjectPrompt + ', full body, standing pose, plain white background, solid white background, no text, no watermark'
+        const subjPromptTrans = plan.subjectPrompt + ', full body, standing pose, no text, no watermark'
+        let subj = await attempt('主体生成失败', subjPromptTrans, '1024x1024', { background: 'transparent' }).catch((e) => e)
+        let subjMode = 'transparent'
+        if (subj instanceof Error || !hasTransparency(subj instanceof Error ? null : subj.dataUrl)) {
+          const reason = subj instanceof Error ? String(subj.message || subj) : '端点忽略透明参数'
+          island.update('主体透明不受支持，改白底生成…')
+          if (subj && !(subj instanceof Error) && subj.revisedPrompt) revised.subject = subj.revisedPrompt
+          subj = await attempt('主体生成失败', subjPromptWhite, '1024x1024')
+          subjMode = 'white'
+          console.log('[holo] 透明背景不可用（' + reason + '），回落白底+抠图')
+        }
+        if (subj.revisedPrompt) revised.subject = subj.revisedPrompt
         island.update('绘制卡面背景…')
-        const bgUrl = await attempt('背景生成失败', plan.backgroundPrompt + ', no people, no characters, no text, no watermark', '1024x1536')
+        const bg = await attempt('背景生成失败', plan.backgroundPrompt + ', no people, no characters, no text, no watermark', '1024x1536')
+        if (bg.revisedPrompt) revised.background = bg.revisedPrompt
+        if (Object.keys(revised).length) console.log('[holo] 模型改写提示词：', revised)
 
         // 4) canvas 加工：主体抠图（等比贴到 1024×1536 画布）+ 文字排版
         island.update('装裱卡面…')
-        const subjectCanvas = await loadToCanvas(subjectUrl)
-        const { canvas: subjectLayer, layered } = cutoutSubject(subjectCanvas)
+        const subjectCanvas = await loadToCanvas(subj.dataUrl)
+        // 原生透明模式（subjMode='transparent'）模型已返回带 alpha 的主体，跳过 flood-fill 抠图；
+        // 白底模式仍走 cutoutSubject（含失败回落整幅）。两路都产出 layered 判定。
+        let subjectLayer, layered
+        if (subjMode === 'transparent') {
+          subjectLayer = subjectCanvas
+          layered = true
+        } else {
+          const cut = cutoutSubject(subjectCanvas)
+          subjectLayer = cut.canvas; layered = cut.layered
+        }
         // 主体层规范画布 1024×1536：立绘等比居中放大（贴满 90% 高度）
         const norm = document.createElement('canvas')
         norm.width = 1024; norm.height = 1536
@@ -364,7 +416,7 @@
         const dw = subjectLayer.width * scale, dh = subjectLayer.height * scale
         nd.drawImage(subjectLayer, (1024 - dw) / 2, (1536 - dh) / 2 + 20, dw, dh)
         const textLayer = renderTextLayer(plan, { collection: (s.title || '六面世界') + ' · 典藏' })
-        const bgCanvas = await loadToCanvas(bgUrl)
+        const bgCanvas = await loadToCanvas(bg.dataUrl)
         // lineart 描边层：从主体层像素推导（与主体严格配准），激活 shader 的轮廓金色辉光
         const lineLayer = deriveLineart(norm, layered)
 
@@ -420,6 +472,8 @@
           rarity: plan.rarity || 'SR',
           subtitle: plan.subtitle || '',
           layered,
+          subjectMode: subjMode, // transparent=模型原生 alpha（边缘质量最优）｜white=白底+canvas 抠图
+          revisedPrompt: revised.subject || '', // 模型实际作画的提示词（gpt-image 系会内部改写）
           createdAt: Date.now()
         })
         saveSessions()

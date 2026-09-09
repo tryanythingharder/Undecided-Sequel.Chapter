@@ -1061,6 +1061,14 @@ const Illust = window.IllustPanel.createIllustPanel({
             if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); img.click() }
           })
           il.appendChild(img)
+          // 模型改写提示（gpt-image 系会内部改写提示词）：插图与预期不符时看这条
+          if (m.illustRevised) {
+            const rev = document.createElement('div')
+            rev.className = 'illust-revised'
+            rev.textContent = '模型改写了提示词 → ' + m.illustRevised.slice(0, 160) + (m.illustRevised.length > 160 ? '…' : '')
+            rev.title = m.illustRevised
+            il.appendChild(rev)
+          }
         } else if (m.illustPending) {
           il.className = 'illust-pending'
           il.innerHTML = '<span class="dots">正在绘制这一幕的插图</span>'
