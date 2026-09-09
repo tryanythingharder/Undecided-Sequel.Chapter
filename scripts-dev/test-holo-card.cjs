@@ -102,6 +102,9 @@ const preSrc = fs.readFileSync(path.join(__dirname, '..', 'preload.cjs'), 'utf8'
 t('preload 暴露 cardWrite/cardRead/cardDelete/cardWindow', ['cardWrite', 'cardRead', 'cardDelete', 'cardWindow'].every((k) => preSrc.includes(k)))
 t('preload 暴露 engineCardSource', preSrc.includes('engineCardSource'))
 t('pet:agent card 任务校验（rarity 白名单/foil 截断/prompt 长度下限）', /'N', 'R', 'SR', 'SSR', 'UR'/.test(mainSrc) && /foil = Math\.min\(1, Math\.max\(0, foil\)\)/.test(mainSrc))
+// 2026-09-09 精修立绘升级：规划师要求出画质媒介词+构图词的高完成度提示词（README 观感对齐的关键）
+t('卡面规划=精修立绘级提示词（画质媒介词+构图词+风格统一要求）', /refined digital illustration/.test(mainSrc) && /front-facing full body standing pose/.test(mainSrc) && /共享同一画风媒介词/.test(mainSrc))
+t('精修提示词提取上限放宽（900/700 防长提示词被截断）', /subjectPrompt\.slice\(0, 900\)/.test(mainSrc) && /backgroundPrompt\.slice\(0, 700\)/.test(mainSrc))
 
 /* ---------- 4) glb 产物结构校验（重新生成走 build 脚本则始终成立） ---------- */
 console.log('===== card.glb 结构 =====')

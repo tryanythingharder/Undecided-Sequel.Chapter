@@ -1685,7 +1685,8 @@ ipcMain.handle('pet:agent', async (_evt, p) => {
     try { endpoint = new URL(baseUrl + '/chat/completions') } catch { return { ok: false, error: '云端大脑地址不合法' } }
     if (!['http:', 'https:'].includes(endpoint.protocol)) return { ok: false, error: '云端大脑地址仅支持 HTTP / HTTPS' }
     const controller = new AbortController()
-    const kill = setTimeout(() => controller.abort(), task === 'comic' ? 180000 : 60000)
+    // card 与 comic 同档 180s：精修立绘级 JSON（70-90 词主体提示词）实测逼近 60s 旧上限，deepseek-v4-pro 直接超时
+    const kill = setTimeout(() => controller.abort(), (task === 'comic' || task === 'card') ? 180000 : 60000)
     try {
       const res = await fetch(endpoint, {
         method: 'POST',
@@ -1754,7 +1755,7 @@ function petAgentSpec(task, p) {
   }
   if (task === 'card') {
     return {
-      system: base + '\n任务：你是收藏卡设计师。基于给定角色的档案与剧情，规划一张收藏卡的全部文案与生图提示词。输出字段：{"name":"角色名","subtitle":"称号(≤10字,概括身份/境界)","technique":"招式或标志性能力名(≤12字)","tagline":"一句话点睛(≤24字,卡面中段)","rarity":"稀有度,从 N/R/SR/SSR/UR 中选一个","subjectPrompt":"主体立绘英文提示词(40词内:发型发色/瞳色/表情/体型/标志性服装/姿态,结尾必须包含 plain white background, solid white background)","backgroundPrompt":"背景英文提示词(30词内:与角色气质相符的场景/氛围/光影,不含人物)","foil":0到1的小数(流光强度建议,主角级0.75,配角0.5左右),"why":"一两句中文设计思路"}。subjectPrompt 与 backgroundPrompt 必须是英文;不要出现人名拼写废字符。',
+      system: base + '\n任务：你是收藏卡设计师。基于给定角色的档案与剧情，规划一张收藏卡的全部文案与生图提示词。输出字段：{"name":"角色名","subtitle":"称号(≤10字,概括身份/境界)","technique":"招式或标志性能力名(≤12字)","tagline":"一句话点睛(≤24字,卡面中段)","rarity":"稀有度,从 N/R/SR/SSR/UR 中选一个","subjectPrompt":"主体立绘英文提示词(70-90词,精修立绘级:开头放画质媒介词 refined digital illustration, clean lineart, detailed face shading, soft rim lighting;再写发型发色/瞳色/表情神态/年龄感体型;再写标志性服装的织物质感/磨损/配饰细节;再写 front-facing full body standing pose;结尾必须包含 plain white background, solid white background)","backgroundPrompt":"背景英文提示词(50-70词:与角色气质相符的场景/时代/天气/氛围,加入 depth of field, atmospheric lighting 与 refined digital painting 画质词,不含人物)","foil":0到1的小数(流光强度建议,主角级0.75,配角0.5左右),"why":"一两句中文设计思路"}。subjectPrompt 与 backgroundPrompt 必须是英文,两条要共享同一画风媒介词保持风格统一;不要出现人名拼写废字符。',
       user: '【角色档案】\n' + String((p && p.castText) || '').slice(0, 6000) + '\n\n【该角色相关的剧情素材】\n' + story + '\n\n请为该角色规划收藏卡面。'
     }
   }
@@ -1827,8 +1828,8 @@ function petAgentExtractPlan(task, text, p) {
       technique: String(plan.technique || '').slice(0, 24),
       tagline: String(plan.tagline || '').slice(0, 48),
       rarity,
-      subjectPrompt: subjectPrompt.slice(0, 600),
-      backgroundPrompt: backgroundPrompt.slice(0, 400),
+      subjectPrompt: subjectPrompt.slice(0, 900),
+      backgroundPrompt: backgroundPrompt.slice(0, 700),
       foil,
       why: String(plan.why || '').slice(0, 160)
     }
