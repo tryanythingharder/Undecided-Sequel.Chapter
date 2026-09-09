@@ -2762,3 +2762,8 @@ html[data-theme="light"] .kernel-hub {
 
 /* R86 流式选项渐进渲染：可先点选提示（choices-head 内） */
 .stream-choices-hint { font-family: var(--mono); font-size: 10px; color: var(--accent); letter-spacing: 1px; }
+
+/* 方案D「通用阅读」磁贴：三态面板示意（左细轨+右内容） */
+.scheme-tile i.d-scheme { flex-direction: row; gap: 3px; padding: 3px; }
+.scheme-tile i.d-scheme b { width: 18%; height: 100%; }
+.scheme-tile i.d-scheme em { flex: 1; height: 100%; }

@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: sixworlds-asset:;">
-  <title>六面世界</title>
+  <title>六面世界 · 通用阅读</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
@@ -28,8 +28,8 @@
       <span class="sigil"><svg class="ic" viewBox="0 0 16 16"><path d="M8 1.5 14.5 8 8 14.5 1.5 8Z"/><path d="M8 4.5 11.5 8 8 11.5 4.5 8Z"/></svg></span>
       <span class="titlebar-name">六面世界</span>
       <nav class="area-switch" role="tablist" aria-label="工作区域">
-        <button id="btn-content-area" class="area-switch-btn active" role="tab" aria-selected="true" aria-controls="content-view" type="button">内容</button>
-        <button id="btn-kernel-hub" class="area-switch-btn" role="tab" aria-selected="false" aria-controls="kernel-hub" type="button" title="内核设计（Ctrl+K）">内核设计</button>
+        <button id="btn-content-area" class="area-switch-btn active" role="tab" aria-selected="true" aria-controls="content-view" type="button">故事</button>
+        <button id="btn-kernel-hub" class="area-switch-btn" role="tab" aria-selected="false" aria-controls="kernel-hub" type="button" title="内核设计（Ctrl+K）">内核</button>
       </nav>
     </div>
     <div class="titlebar-actions">
@@ -45,8 +45,19 @@
   </header>
 
   <div class="layout">
+    <!-- 方案D 细轨条：仅未停靠（rail 态）显示；点击图标展开浮层面板 -->
+    <aside class="rail-strip" id="rail-strip" aria-label="面板细轨">
+      <button class="rb" id="r-lines" title="世界线面板（点击展开）"><i>线</i></button>
+      <button class="rb" id="r-search" title="搜索世界线（点击展开并聚焦）"><i>搜</i></button>
+      <button class="rb" id="r-gallery" title="画廊（Ctrl+G）"><i>画</i></button>
+      <div class="rgap"></div>
+      <button class="rb" id="r-kernel" title="内核设计（Ctrl+K）"><i>核</i></button>
+      <button class="rb" id="r-settings" title="主题与外观（Ctrl+,）"><i>设</i></button>
+    </aside>
     <aside class="sidebar" id="sidebar">
       <button id="btn-ws" class="ws-btn" title="切换/管理工作区"><span class="ws-icon"><svg class="ic" viewBox="0 0 16 16"><path d="M8 1.5 14.5 8 8 14.5 1.5 8Z"/><path d="M8 4.5 11.5 8 8 11.5 4.5 8Z"/></svg></span><span id="ws-name">默认世界</span><span class="ws-caret"><svg class="ic ic-sm" viewBox="0 0 16 16"><path d="M4 6l4 4 4-4"/></svg></span></button>
+      <!-- 方案D 图钉：停靠=面板内联占位常驻；取消停靠=悬停细轨即浮层，不再占布局 -->
+      <button id="btn-sb-pin" class="pin-btn on" title="取消停靠：面板改为悬停浮层，不再占布局" aria-label="停靠开关"><svg viewBox="0 0 16 16"><circle cx="8" cy="5" r="2.6"/><path d="M8 7.6V13M5.6 13h4.8"/></svg></button>
       <div id="ws-menu" class="ws-menu hidden">
         <div id="ws-menu-list" class="ws-menu-list"></div>
         <div class="ws-menu-sep"></div>
@@ -422,9 +433,17 @@
         <div class="appearance-grid cols-2">
           <button class="appearance-tile scheme-tile" data-ui-scheme="classic" title="当前经典界面"><i><b></b><em></em></i><span>经典界面</span></button>
           <button class="appearance-tile scheme-tile" data-ui-scheme="proto" title="原型工作台方案"><i class="proto"><b></b><em></em></i><span>原型工作台</span></button>
-          <button class="appearance-tile scheme-tile" data-ui-scheme="d" title="方案D · 通用阅读（三态面板）"><i class="d-scheme"><b></b><em></em></i><span>通用阅读</span></button>
+          <button class="appearance-tile scheme-tile" data-ui-scheme="d" title="方案D · 通用阅读（当前）"><i class="d-scheme"><b></b><em></em></i><span>通用阅读</span></button>
         </div>
-        <div class="scheme-hint">切换立即生效；会话、世界线与设置在两套界面间完全共享。</div>
+        <div class="scheme-hint">切换立即生效；会话、世界线与设置在各界面间完全共享。</div>
+      </section>
+      <section class="theme-section" data-group="sb">
+        <div class="theme-section-title">侧栏停靠（方案D）</div>
+        <div class="appearance-grid cols-2">
+          <button class="appearance-tile" data-sb="dock" title="面板内联占位常驻"><i><b></b></i><span>停靠展开</span></button>
+          <button class="appearance-tile" data-sb="rail" title="收为细轨；悬停细轨即浮层展开，永不占布局"><i><b></b></i><span>细轨浮层</span></button>
+        </div>
+        <div class="scheme-hint">图钉快捷开关在面板头部；细轨态悬停 150ms 自动浮出，移开 250ms 收回。</div>
       </section>
       <section class="theme-section">
         <div class="theme-section-title">主题</div>

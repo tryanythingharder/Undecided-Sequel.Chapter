@@ -91,11 +91,12 @@
 
 ### 外观与主题
 
-- **双界面方案**：主题抽屉顶部「界面方案」一键切换 **经典界面 / 原型工作台**（后者按高保真原型实现：
-  内容画布 + 内核设计画布 + 画廊 + 世界菜单 + 设置面板）；切换即时生效，会话 / 世界线 / 设置 / 进度双方案
-  完全共享，重启保持选择。产品逻辑已按绞杀者模式收敛到 `ui/shared/`（十刀全覆盖：选项解析 / 搜索 / 画廊 / 外观 /
+- **多界面方案**：主题抽屉顶部「界面方案」一键切换 **经典界面 / 原型工作台 / 通用阅读（方案D）**（原型工作台按高保真原型实现：
+  内容画布 + 内核设计画布 + 画廊 + 世界菜单 + 设置面板；通用阅读以阅读优先重构：顶栏胶囊分段 故事⇄内核、左侧面板三态
+  停靠/细轨/悬停浮层，图钉为停靠唯一开关，取消停靠后面板只以浮层出现永远不占布局）；切换即时生效，会话 / 世界线 / 设置 / 进度
+  各方案完全共享，重启保持选择。产品逻辑已按绞杀者模式收敛到 `ui/shared/`（十刀全覆盖：选项解析 / 搜索 / 画廊 / 外观 /
   引擎流程 / toast / 内核数据 / 发送编排 / 插图 / 进度条 / 工作区 / 首启引导），
-  双方案仅保留各自的布局与交互皮，CI 测试矩阵双方案各跑一整轮 e2e；
+  各方案仅保留各自的布局与交互皮，CI 测试矩阵各跑一整轮 e2e；
 - **7 套调色板**（经典琥珀 / 羊皮纸 / 林间 / 紫晶 / 海渊 / 蔷薇 / 高对比）× **明暗三态**（跟随系统 / 深 / 浅）；
 - 全部 14 组合关键对比度实测 WCAG AA；
 - 字体（无衬线/衬线）、圆角、密度、阅读列宽、字号（Ctrl+=/-/0）全部可调、即时预览；
@@ -234,7 +235,8 @@ npm run dist   # 打包 NSIS 安装版 + 便携版单文件（产物在 dist/）
 ├── ui/
 │   ├── classic/          # 经典界面：index.html / settings.html / app.js / styles.css
 │   ├── proto/            # 原型工作台方案（与 classic/ 共享数据与设置，主题抽屉可切换）
-│   └── shared/           # 双方案共享层（choices / search / gallery / appearance / engine-flow / toast / kernel-data / send-flow / illust / rail / workspace / onboarding + 会话持久化 / bloub 桌宠引擎）
+│   ├── d/                # 方案D「通用阅读」（自 classic fork + 三态面板/胶囊分段；阅读优先）
+│   └── shared/           # 多方案共享层（choices / search / gallery / appearance / engine-flow / toast / kernel-data / send-flow / illust / rail / workspace / onboarding + 会话持久化 / bloub 桌宠引擎）
 ├── sessions-db.cjs       # 会话 SQLite 主存（sessions.json 保留为兼容镜像）
 ├── kernel.md             # 内核《六面世界：人生模拟器》
 ├── kernel-xianxia.md     # 内核《玄寰界：修真人生模拟器》

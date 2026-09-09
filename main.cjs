@@ -409,11 +409,12 @@ function saveWindowState() {
 }
 let lastNormalBounds = null
 
-// ---- 界面方案（经典 / 原型工作台，持久化到 userData/ui-scheme.json） ----
+// ---- 界面方案（经典 / 原型工作台 / 方案D 通用阅读，持久化到 userData/ui-scheme.json） ----
+const UI_SCHEMES = { classic: 'classic', proto: 'proto', d: 'd' }
 function readUiScheme() {
   try {
     const st = JSON.parse(fs.readFileSync(path.join(app.getPath('userData'), 'ui-scheme.json'), 'utf8'))
-    return st && st.scheme === 'proto' ? 'proto' : 'classic'
+    return st && UI_SCHEMES[st.scheme] || 'classic'
   } catch {}
   return 'classic'
 }
@@ -424,9 +425,8 @@ function writeUiScheme(scheme) {
   } catch {}
 }
 function uiSchemeEntry() {
-  return readUiScheme() === 'proto'
-    ? path.join(__dirname, 'ui', 'proto', 'index.html')
-    : path.join(__dirname, 'ui', 'classic', 'index.html')
+  const s = readUiScheme()
+  return path.join(__dirname, 'ui', s === 'proto' ? 'proto' : s === 'd' ? 'd' : 'classic', 'index.html')
 }
 
 app.whenReady().then(() => {
@@ -557,11 +557,11 @@ ipcMain.handle('embedder:set', (_evt, input) => {
   }
 })
 
-// ---- 界面方案切换（经典 / 原型工作台） ----
+// ---- 界面方案切换（经典 / 原型工作台 / 方案D 通用阅读） ----
 ipcMain.handle('ui-scheme:get', () => readUiScheme())
 
 ipcMain.handle('ui-scheme:set', (evt, scheme) => {
-  const next = scheme === 'proto' ? 'proto' : 'classic'
+  const next = UI_SCHEMES[scheme] || 'classic'
   writeUiScheme(next)
   // 立即把调用窗口切换到对应方案的入口（数据与设置两侧完全共享）
   const target = windowForEvent(evt)
