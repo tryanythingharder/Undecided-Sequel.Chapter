@@ -659,6 +659,13 @@ const Rail = window.RailPanel.createRailPanel({ $, msgEl: () => document.getElem
       pin.title = sbDock ? '取消停靠：面板改为悬停浮层，不再占布局' : '停靠：面板内联占位常驻'
     }
     tryShowRailHint() // 收起瞬间进度条首次可见 → 触发一次性提示
+    // 方案D 状态胶囊：右下角常显面板当前态
+    const pill = $('statepill')
+    if (pill) {
+      pill.textContent = !rail ? '停靠展开'
+        : sbPeeking ? '悬停浮层（Esc 收起）'
+        : '细轨收起（悬停细轨浮层展开）'
+    }
   }
 
   function sbRenderFloat() { applySidebar() }

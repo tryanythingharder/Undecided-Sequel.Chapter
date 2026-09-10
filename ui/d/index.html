@@ -546,7 +546,7 @@
         </div>
         <div class="set-group">
           <h3>更多</h3>
-          <div class="guide-row"><span class="guide-num">8</span><span>左侧会话栏：<strong>拖动右缘伸缩</strong>、拖到最窄或按 <kbd>Ctrl</kbd><kbd>B</kbd> 收起；收起后左侧出现<strong>故事进度条</strong>，悬停节点可预览该幕（有插图的节点显示图片小窗），点击跳转到那一幕。选项按钮在向上翻阅历史时会<strong>自动收起</strong>（点输入框上方浮现的小箭头，或回到置底自动展开）</span></div>
+          <div class="guide-row"><span class="guide-num">8</span><span>左侧面板三态：图钉按钮是<strong>停靠唯一开关</strong>——取消停靠后面板收为左侧<strong>细轨</strong>，悬停细轨即<strong>浮层展开</strong>（永不占布局）；<kbd>Ctrl</kbd><kbd>B</kbd> 在停靠态收为细轨、细轨态开合浮层；重新停靠请在浮层中点图钉</span></div>
           <div class="guide-row"><span class="guide-num">9</span><span><kbd>Ctrl</kbd><kbd>N</kbd> 新建世界线 · <kbd>Ctrl</kbd><kbd>G</kbd> 打开<strong>画廊</strong>查看全部插图 · <kbd>Ctrl</kbd><kbd>F</kbd> 搜索当前世界线 · <kbd>Ctrl</kbd><kbd>,</kbd> 设置（模型/插图/外观）· <kbd>Ctrl</kbd><kbd>K</kbd> 内核设计 · <kbd>Ctrl</kbd><kbd>Shift</kbd><kbd>L</kbd> 内核库 · <kbd>Ctrl</kbd><kbd>.</kbd> 源码 · <kbd>Ctrl</kbd><kbd>P</kbd> 命令面板 · 输入框为空时按 <kbd>↑</kbd> 召回上一条行动 · <kbd>Ctrl</kbd><kbd>/</kbd> 快捷键表</span></div>
           <div class="guide-row"><span class="guide-num">10</span><span>世界拥有<strong>结构化长期记忆</strong>：重要决定、承诺、事实、伏笔会被引擎记住并持续影响剧情（关掉应用也不会忘）。按 <kbd>Ctrl</kbd><kbd>Alt</kbd><kbd>I</kbd> 打开<strong>状态检查器</strong>查看世界记忆、创建/恢复快照、检视每回合记录</span></div>
         </div>
@@ -559,7 +559,7 @@
           <div class="sc-row"><span>召回上一条行动（输入框为空时，连按向上回溯）</span><span class="keys"><kbd>↑</kbd></span></div>
           <div class="sc-row"><span>停止生成（生成中）</span><span class="keys"><kbd>点击「停止」按钮</kbd></span></div>
           <h3>导航</h3>
-          <div class="sc-row"><span>收起 / 展开会话栏</span><span class="keys"><kbd>Ctrl</kbd><kbd>B</kbd></span></div>
+          <div class="sc-row"><span>面板：停靠态收为细轨 / 细轨态开合浮层</span><span class="keys"><kbd>Ctrl</kbd><kbd>B</kbd></span></div>
           <div class="sc-row"><span>新建世界线</span><span class="keys"><kbd>Ctrl</kbd><kbd>N</kbd></span></div>
           <div class="sc-row"><span>搜索当前世界线</span><span class="keys"><kbd>Ctrl</kbd><kbd>F</kbd></span></div>
           <div class="sc-row"><span>打开设置</span><span class="keys"><kbd>Ctrl</kbd><kbd>,</kbd></span></div>
@@ -603,6 +603,9 @@
       </div>
     </div>
   </div>
+
+  <!-- 方案D 状态胶囊：右下角面板状态指示（停靠展开 / 细轨收起 / 悬停浮层） -->
+  <div class="statepill" id="statepill" aria-hidden="true">停靠展开</div>
 
   <script src="../shared/sessions-client.js"></script>
   <script src="../shared/choices.js"></script>
