@@ -884,6 +884,89 @@ async function main() {
   const fs1 = await win.evaluate(() => document.documentElement.getAttribute('data-fontsize'))
   check('fontsize-persisted-after-save', fs1 === 'standard', 'data-fontsize=' + fs1)
 
+  // ---- 字号磁贴（主题弹层可见控件，此前只有 Ctrl+= 键盘循环） ----
+  await win.click('#btn-theme')
+  await win.waitForSelector('#theme-pop:not(.hidden)')
+  const sizeTiles = await win.locator('#theme-pop [data-setting="fontSize"]').count()
+  check('fontsize-tiles-in-popover', sizeTiles === 3, 'tiles=' + sizeTiles)
+  check('fontsize-tile-standard-lit', await win.locator('#theme-pop .size-tile[data-value="standard"]').evaluate((b) => b.classList.contains('on')))
+  await win.click('#theme-pop .size-tile[data-value="large"]')
+  await win.waitForTimeout(150)
+  check('fontsize-tile-large-applies', (await win.evaluate(() => document.documentElement.getAttribute('data-fontsize'))) === 'large')
+  check('fontsize-tile-large-css', (await win.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--font-size').trim())) === '16px')
+  // 点回标准，别污染后续断言（磁贴点击同样走 saveStore，写入 localStorage）
+  await win.click('#theme-pop .size-tile[data-value="standard"]')
+  await win.waitForTimeout(150)
+  await win.keyboard.press('Escape')
+  await win.waitForTimeout(300)
+
+  // ---- 阅读列拖拽手柄：拖动自由调宽 + 持久化 + 自定义指示 + 双击复位 ----
+  await win.waitForSelector('.read-width-handle')
+  const hb = await win.locator('.read-width-handle').boundingBox()
+  check('readwidth-handle-shown', !!hb && hb.width >= 12 && hb.height >= 80 && hb.x > 0 && hb.x + hb.width < 1400, JSON.stringify(hb))
+  // 从默认 720px 向右拖 60px：居中列宽 = 2 × 指针位移 → 840px
+  await win.mouse.move(hb.x + hb.width / 2, hb.y + hb.height / 2)
+  await win.mouse.down()
+  await win.mouse.move(hb.x + hb.width / 2 + 60, hb.y + hb.height / 2, { steps: 6 })
+  await win.mouse.up()
+  await win.waitForTimeout(250)
+  const dragW = await win.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--read-w').trim())
+  check('readwidth-drag-applies', dragW === '840px', '--read-w=' + dragW)
+  const storedW = await win.evaluate(() => { const v = JSON.parse(localStorage.getItem('sixworlds.codex.state.v3') || '{}').readWidth; return v === undefined ? null : (typeof v === 'number' ? v : String(v)) })
+  check('readwidth-drag-persisted', storedW === 840, 'stored=' + storedW)
+  // 自定义态：四个预设磁贴全灭 + 自定义指示磁贴亮起并显示像素
+  await win.click('#btn-theme')
+  await win.waitForSelector('#theme-pop:not(.hidden)')
+  const litPresets = await win.evaluate(() => Array.from(document.querySelectorAll('#theme-pop [data-setting="readWidth"].on')).map((b) => b.dataset.value))
+  check('readwidth-custom-no-preset-lit', litPresets.length === 0, 'lit=' + litPresets.join(','))
+  const indText = await win.locator('#width-custom-ind span').textContent()
+  check('readwidth-custom-indicator-px', indText === '840px', 'ind=' + indText)
+  await win.keyboard.press('Escape')
+  await win.waitForTimeout(300)
+  // 双击复位 → 720px（预设 standard 重新点亮）
+  await win.locator('.read-width-handle').dblclick()
+  await win.waitForTimeout(300)
+  const resetW = await win.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--read-w').trim())
+  check('readwidth-dblclick-reset', resetW === '720px', '--read-w=' + resetW)
+  // 键盘微调：聚焦手柄 → 方向键 ±16px（可访问性路径）
+  await win.locator('.read-width-handle').focus()
+  await win.keyboard.press('ArrowRight')
+  await win.waitForTimeout(900) // 键盘步进提交有 600ms 去抖
+  const keyW = await win.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--read-w').trim())
+  check('readwidth-keyboard-step', keyW === '736px', '--read-w=' + keyW)
+  // 拖拽中 Esc 取消：回到拖前值
+  const hb2 = await win.locator('.read-width-handle').boundingBox()
+  await win.mouse.move(hb2.x + hb2.width / 2, hb2.y + hb2.height / 2)
+  await win.mouse.down()
+  await win.mouse.move(hb2.x + hb2.width / 2 + 40, hb2.y + hb2.height / 2, { steps: 4 })
+  await win.keyboard.press('Escape')
+  await win.waitForTimeout(200)
+  await win.mouse.up()
+  await win.waitForTimeout(250)
+  const escW = await win.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--read-w').trim())
+  check('readwidth-escape-cancels-drag', escW === '736px', '--read-w=' + escW)
+  // 复位收尾，不污染后续断言
+  await win.locator('.read-width-handle').dblclick()
+  await win.waitForTimeout(300)
+
+  // ---- 拖拽产出的自定义宽度要能活着穿过设置窗口：select 显示自定义档、保存不冲掉 ----
+  const hb3 = await win.locator('.read-width-handle').boundingBox()
+  await win.mouse.move(hb3.x + hb3.width / 2, hb3.y + hb3.height / 2)
+  await win.mouse.down()
+  await win.mouse.move(hb3.x + hb3.width / 2 + 50, hb3.y + hb3.height / 2, { steps: 5 })
+  await win.mouse.up()
+  await win.waitForTimeout(300) // 820px
+  await win.keyboard.press('Control+,')
+  const sw6 = await settingsWindow(app)
+  check('settings-shows-custom-width', !!sw6 && (await sw6.locator('#set-readwidth').inputValue()) === 'custom')
+  await sw6.click('#btn-save-settings')
+  await win.waitForTimeout(700)
+  const afterSaveW = await win.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--read-w').trim())
+  check('settings-save-keeps-custom', afterSaveW === '820px', '--read-w=' + afterSaveW)
+  // 收尾：双击复位（最终态回 720 标准，后续会话断言不受影响）
+  await win.locator('.read-width-handle').dblclick()
+  await win.waitForTimeout(300)
+
   // 删除当前会话 → 回到另一条（删除会弹出确认对话框，需点确认）
   await win.locator('.session-item.active .session-del').click()
   await win.waitForTimeout(300)

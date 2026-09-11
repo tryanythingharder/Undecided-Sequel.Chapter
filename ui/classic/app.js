@@ -719,10 +719,21 @@ const Rail = window.RailPanel.createRailPanel({ $, msgEl: () => document.getElem
     if (cfg.theme === 'dark' || cfg.theme === 'light') return cfg.theme
     return darkMQ.matches ? 'dark' : 'light'
   }
-  const Appearance = window.AppearancePanel.createAppearance({ cfg: () => cfg, api, PALETTES, resolvedTheme })
+  const Appearance = window.AppearancePanel.createAppearance({
+    cfg: () => cfg, api, PALETTES, resolvedTheme,
+    // 阅读栏拖拽手柄（createReadWidthHandle）的提交回调：松手/复位后持久化并同步设置窗口
+    onReadWidthSet: (v) => {
+      saveStore()
+      try { api.mainChanged({ readWidth: v }) } catch { /* noop */ }
+      const named = { narrow: '窄（640px）', standard: '默认（720px）', wide: '宽（860px）', xwide: '全宽（980px）' }
+      toast('阅读栏宽度：' + (typeof v === 'number' ? v + 'px' : (named[v] || v)), 'info', 1600)
+    }
+  })
   const applyTheme = (theme) => Appearance.applyTheme(theme)
   const applyAppearance = () => Appearance.applyAppearance()
   const applyReading = () => Appearance.applyReading()
+  // 阅读列右缘拖拽手柄：拖动自由调宽（居中列，指针到中线距离 ×2）；双击/Enter/0 复位
+  Appearance.createReadWidthHandle()
   // 跟随系统时，系统切换明暗要立即反映到界面
   darkMQ.addEventListener('change', () => { if (cfg.theme === 'system') applyTheme('system') })
 
@@ -3731,6 +3742,15 @@ const KData = window.KernelData.createKernelData({
       b.classList.toggle('on', on)
       b.setAttribute('aria-pressed', on ? 'true' : 'false')
     })
+    // 内容宽度自定义指示：readWidth 为数字（拖拽手柄产物）时点亮并显示具体像素
+    const wc = themePopEl.querySelector('#width-custom-ind')
+    if (wc) {
+      const px = Number(cfg.readWidth)
+      const custom = Number.isFinite(px) && !['narrow', 'standard', 'wide', 'xwide'].includes(cfg.readWidth)
+      wc.classList.toggle('on', custom)
+      const span = wc.querySelector('span')
+      if (span) span.textContent = custom ? Math.round(px) + 'px' : '自定义'
+    }
   }
   function setThemeAppearance(setting, value) {
     const payload = {}
@@ -3810,14 +3830,14 @@ const KData = window.KernelData.createKernelData({
   $('btn-theme-reset').addEventListener('click', () => {
     Object.assign(cfg, {
       theme: 'system', palette: 'classic', fontUI: 'sans', radius: 'standard',
-      density: 'standard', layout: 'sidebar', sbSide: 'left', readWidth: 'standard'
+      density: 'standard', layout: 'sidebar', sbSide: 'left', fontSize: 'standard', readWidth: 'standard'
     })
     applyTheme(cfg.theme)
     applyAppearance()
     applyReading()
     applySidebar()
     saveStore()
-    try { api.mainChanged({ theme: cfg.theme, palette: cfg.palette, fontUI: cfg.fontUI, radius: cfg.radius, density: cfg.density, layout: cfg.layout, sbSide: cfg.sbSide, readWidth: cfg.readWidth }) } catch { /* noop */ }
+    try { api.mainChanged({ theme: cfg.theme, palette: cfg.palette, fontUI: cfg.fontUI, radius: cfg.radius, density: cfg.density, layout: cfg.layout, sbSide: cfg.sbSide, fontSize: cfg.fontSize, readWidth: cfg.readWidth }) } catch { /* noop */ }
     buildThemePop()
   })
   // 点击弹层外部：关闭主题弹层 / 模型用量面板

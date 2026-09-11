@@ -492,12 +492,21 @@
         </div>
       </section>
       <section class="theme-section">
+        <div class="theme-section-title">正文字号</div>
+        <div class="appearance-grid cols-3">
+          <button class="appearance-tile size-tile" data-setting="fontSize" data-value="small"><strong style="font-size:12px">字</strong><span>小</span></button>
+          <button class="appearance-tile size-tile" data-setting="fontSize" data-value="standard"><strong style="font-size:15px">字</strong><span>标准</span></button>
+          <button class="appearance-tile size-tile" data-setting="fontSize" data-value="large"><strong style="font-size:19px">字</strong><span>大</span></button>
+        </div>
+      </section>
+      <section class="theme-section">
         <div class="theme-section-title">内容宽度</div>
-        <div class="appearance-grid cols-4">
+        <div class="appearance-grid cols-5">
           <button class="appearance-tile width-tile narrow" data-setting="readWidth" data-value="narrow"><i></i><span>窄</span></button>
           <button class="appearance-tile width-tile" data-setting="readWidth" data-value="standard"><i></i><span>默认</span></button>
           <button class="appearance-tile width-tile wide" data-setting="readWidth" data-value="wide"><i></i><span>宽</span></button>
           <button class="appearance-tile width-tile xwide" data-setting="readWidth" data-value="xwide"><i></i><span>全宽</span></button>
+          <div class="appearance-tile width-custom" id="width-custom-ind" aria-hidden="true"><strong>⟷</strong><span>自定义</span></div>
         </div>
       </section>
       <section class="theme-section">
@@ -571,6 +580,7 @@
           <div class="sc-row"><span>状态检查器（世界记忆/快照/日志）</span><span class="keys"><kbd>Ctrl</kbd><kbd>Alt</kbd><kbd>I</kbd></span></div>
           <div class="sc-row"><span>快捷键面板</span><span class="keys"><kbd>Ctrl</kbd><kbd>/</kbd></span></div>
           <div class="sc-row"><span>字号 放大 / 缩小 / 复位</span><span class="keys"><kbd>Ctrl</kbd><kbd>=</kbd><kbd>Ctrl</kbd><kbd>-</kbd><kbd>Ctrl</kbd><kbd>0</kbd></span></div>
+          <div class="sc-row"><span>阅读栏拖宽 / 复位（拖阅读列右缘把手）</span><span class="keys"><kbd>←</kbd><kbd>→</kbd><kbd>Enter</kbd></span></div>
           <h3>大图查看</h3>
           <div class="sc-row"><span>上一张 / 下一张</span><span class="keys"><kbd>←</kbd><kbd>→</kbd></span></div>
           <div class="sc-row"><span>关闭</span><span class="keys"><kbd>Esc</kbd></span></div>

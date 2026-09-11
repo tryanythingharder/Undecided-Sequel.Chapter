@@ -1658,6 +1658,7 @@ body.layout-immersive .chat-header:hover { opacity: 1; }
 .theme-mode-row, .appearance-grid { display: grid; gap: 8px; }
 .theme-mode-row, .appearance-grid.cols-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .appearance-grid.cols-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.appearance-grid.cols-5 { grid-template-columns: repeat(5, minmax(0, 1fr)); }
 .appearance-grid.cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .appearance-tile {
   position: relative; min-width: 0; min-height: 66px; padding: 7px; border: 1px solid var(--border); border-radius: 8px;
@@ -1713,6 +1714,12 @@ body.layout-immersive .chat-header:hover { opacity: 1; }
 .width-tile:not(.narrow):not(.wide):not(.xwide) i { width: 60%; }
 .width-tile.wide i { width: 78%; }
 .width-tile.xwide i { width: 96%; }
+.size-tile strong { font-weight: 500; color: var(--text); line-height: 1; }
+.width-custom { border-style: dashed; pointer-events: none; opacity: .5; font-family: var(--mono); }
+.width-custom strong { font-size: 15px; color: var(--text-dim); line-height: 1; font-weight: 400; }
+.width-custom.on { opacity: 1; border-color: var(--accent); }
+.width-custom.on strong { color: var(--accent); }
+
 .theme-drawer-foot { min-height: 58px; display: flex; align-items: center; justify-content: flex-end; padding: 10px 20px; border-top: 1px solid var(--border); background: var(--surface-1); flex: none; }
 @media (max-width: 520px) {
   .theme-pop { width: 100vw; }
@@ -3503,3 +3510,21 @@ kbd {
   border: 1px solid var(--accent-dim); border-radius: 999px; padding: 4px 12px;
   pointer-events: none;
 }
+
+/* ---- 阅读栏宽度拖拽把手（shared/appearance.js 创建；三方案共享样式） ---- */
+.read-width-handle {
+  position: absolute; width: 16px; z-index: 8;
+  cursor: col-resize; touch-action: none; outline: none;
+}
+.read-width-handle::before {
+  content: ""; position: absolute; top: 50%; left: 6px; width: 3px; height: 42px;
+  transform: translateY(-50%); border-radius: 3px; background: var(--border-strong);
+  opacity: 0; transition: opacity .16s, height .16s;
+}
+.read-width-handle:hover::before, .read-width-handle:focus-visible::before, .read-width-handle.dragging::before {
+  opacity: 1; height: 76px; background: var(--accent-dim);
+}
+.read-width-handle.dragging::before { background: var(--accent); }
+body.read-width-resizing { cursor: col-resize; }
+body.read-width-resizing .messages { pointer-events: none; }
+@media (max-width: 760px) { .read-width-handle { display: none; } }

@@ -296,7 +296,16 @@
     $('set-layout').value = cfg.layout || 'sidebar'
     $('set-sbside').value = cfg.sbSide || 'left'
     $('set-fontsize').value = cfg.fontSize || 'standard'
-    $('set-readwidth').value = cfg.readWidth || 'standard'
+    // readWidth 为数字（主窗口拖拽手柄产物）时落到 custom 档并在文案里显示具体像素
+    if (Number.isFinite(Number(cfg.readWidth)) && !['narrow', 'standard', 'wide', 'xwide'].includes(cfg.readWidth)) {
+      const opt = $('set-readwidth').querySelector('option[value="custom"]')
+      if (opt) opt.textContent = '自定义（' + Math.round(Number(cfg.readWidth)) + 'px · 阅读列边缘拖拽手柄调整）'
+      $('set-readwidth').value = 'custom'
+    } else {
+      const opt = $('set-readwidth').querySelector('option[value="custom"]')
+      if (opt) opt.textContent = '自定义（阅读列边缘拖拽手柄调整）'
+      $('set-readwidth').value = ['narrow', 'standard', 'wide', 'xwide'].includes(cfg.readWidth) ? cfg.readWidth : 'standard'
+    }
     $('set-pin').checked = cfg.pin
     $('set-skip-splash').checked = !!cfg.skipSplash
     $('set-illust-quality').value = cfg.illustQuality || 'default'
@@ -553,6 +562,27 @@
         if (sel) sel.value = cfg.theme
         applyThemeLocal(cfg.theme)
       }
+      if (data.fontSize !== undefined && data.fontSize !== cfg.fontSize) {
+        cfg.fontSize = data.fontSize
+        const sel = $('set-fontsize')
+        if (sel) sel.value = cfg.fontSize
+      }
+      if (data.readWidth !== undefined && String(data.readWidth) !== String(cfg.readWidth)) {
+        cfg.readWidth = data.readWidth
+        const sel = $('set-readwidth')
+        const named = ['narrow', 'standard', 'wide', 'xwide']
+        if (sel) {
+          if (named.includes(cfg.readWidth)) {
+            const opt = sel.querySelector('option[value="custom"]')
+            if (opt) opt.textContent = '自定义（阅读列边缘拖拽手柄调整）'
+            sel.value = cfg.readWidth
+          } else {
+            const opt = sel.querySelector('option[value="custom"]')
+            if (opt) opt.textContent = '自定义（' + Math.round(Number(cfg.readWidth)) + 'px · 阅读列边缘拖拽手柄调整）'
+            sel.value = 'custom'
+          }
+        }
+      }
       if (modelTouched) renderModelsPick()
     })
   }
@@ -733,7 +763,10 @@
   $('set-sbside').addEventListener('change', (e) => api.settingsChanged({ preview: { sbSide: e.target.value } }))
   $('set-pin').addEventListener('change', (e) => api.settingsChanged({ preview: { pin: e.target.checked } }))
   $('set-fontsize').addEventListener('change', (e) => api.settingsChanged({ preview: { fontSize: e.target.value } }))
-  $('set-readwidth').addEventListener('change', (e) => api.settingsChanged({ preview: { readWidth: e.target.value } }))
+  // custom 档是拖拽手柄产出的只读状态：在下拉里选它不产生预览（没有对应名字档可预览）
+  $('set-readwidth').addEventListener('change', (e) => {
+    if (e.target.value !== 'custom') api.settingsChanged({ preview: { readWidth: e.target.value } })
+  })
 
   // ============ 保存 ============
   $('btn-save-settings').addEventListener('click', () => {
@@ -751,7 +784,11 @@
     cfg.layout = $('set-layout').value
     cfg.sbSide = $('set-sbside').value
     cfg.fontSize = $('set-fontsize').value
-    cfg.readWidth = $('set-readwidth').value
+    // custom 是 UI 占位档：保留主窗口拖拽产出的自定义像素值；无自定义值时回 standard
+    const rwSel = $('set-readwidth').value
+    if (rwSel === 'custom') {
+      if (!Number.isFinite(Number(cfg.readWidth))) cfg.readWidth = 'standard'
+    } else cfg.readWidth = rwSel
     cfg.pin = $('set-pin').checked
     cfg.skipSplash = $('set-skip-splash').checked
     // 模型清单：当前模型必须包含在内（对话栏下拉至少有一个可选项）
