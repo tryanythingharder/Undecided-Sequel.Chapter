@@ -12,26 +12,41 @@
   'use strict'
 
   function createWorkspacePanel(ctx) {
-    const $ = ctx.$
-    const api = ctx.api
-    const workspaces = ctx.workspaces // 可变绑定，经 getter
-    const wsMenu = ctx.wsMenu
-    const { wsOutsideClose, wsEscClose } = ctx
+    // 可变绑定桥接契约（C1 修复）：workspaces/sessions/currentWsId/currentId/busy 均为
+    // getter 函数——调用取值、原地变更；此前被按值解构（迭代函数抛
+    // "workspaces is not iterable"）且 curWs 等十余个标识符未从 ctx 解构（ReferenceError），
+    // 工作区菜单/切换/新建/删除/IF 线全灭且 e2e 无断言静默漏过。
+    const {
+      $, api,
+      workspaces: getWorkspaces,
+      sessions: getSessions,
+      currentWsId: getCurrentWsId, setCurrentWsId: setCurrentWsIdTo,
+      currentId: getCurrentId, setCurrentId: setCurrentIdTo,
+      setSbFilter: setSbFilterTo,
+      busy: isBusy,
+      sessionDrafts,
+      curWs, wsSessions, saveWorkspaces, saveStore, saveSessions,
+      renderWsBtn, renderSessionList, renderMessages, updateTitle,
+      newSession, fitInput, loadKernel,
+      confirmDialog, promptDialog, toast,
+      curSession, cancelHideAnim, hideWithAnim,
+      wsMenu, wsOutsideClose, wsEscClose,
+    } = ctx
 
   function renderWsMenu() {
     const listEl = $('ws-menu-list')
     listEl.innerHTML = ''
-    for (const w of workspaces) {
+    for (const w of getWorkspaces()) {
       const it = document.createElement('div')
-      it.className = 'ws-menu-item' + (w.id === currentWsId ? ' current' : '')
-      const cnt = sessions.filter((s) => s.ws === w.id).length
+      it.className = 'ws-menu-item' + (w.id === getCurrentWsId() ? ' current' : '')
+      const cnt = getSessions().filter((s) => s.ws === w.id).length
       const name = document.createElement('span')
       name.textContent = w.name
       const meta = document.createElement('span')
       meta.className = 'ws-menu-meta'
-      meta.textContent = (w.id === currentWsId ? '✓ ' : '') + cnt + ' 线' + ((w.kernelId || w.kernelPath) ? ' · 专属内核' : '')
+      meta.textContent = (w.id === getCurrentWsId() ? '✓ ' : '') + cnt + ' 线' + ((w.kernelId || w.kernelPath) ? ' · 专属内核' : '')
       it.appendChild(name); it.appendChild(meta)
-      it.addEventListener('click', () => { closeWsMenu(); if (w.id !== currentWsId) switchWorkspace(w.id) })
+      it.addEventListener('click', () => { closeWsMenu(); if (w.id !== getCurrentWsId()) switchWorkspace(w.id) })
       listEl.appendChild(it)
     }
     // 专属内核操作项（有覆盖时显示清除）
@@ -67,26 +82,26 @@
 
 
   async function switchWorkspace(id) {
-    if (busy) { toast('请等当前回合结束', 'info'); return }
-    const target = workspaces.find((w) => w.id === id)
-    if (!target || id === currentWsId) return
+    if (isBusy()) { toast('请等当前回合结束', 'info'); return }
+    const target = getWorkspaces().find((w) => w.id === id)
+    if (!target || id === getCurrentWsId()) return
     // 保存当前输入草稿与离开工作区的最近会话
-    if (currentId) sessionDrafts.set(currentId, $('input').value)
+    if (getCurrentId()) sessionDrafts.set(getCurrentId(), $('input').value)
     const oldWs = curWs()
-    if (oldWs) oldWs.lastSessionId = currentId
-    currentWsId = id
+    if (oldWs) oldWs.lastSessionId = getCurrentId()
+    setCurrentWsIdTo(id)
     // 恢复目标工作区：优先上次会话 → 首条会话 → 新建
     const wsS = wsSessions()
     if (wsS.length) {
-      currentId = wsS.some((s) => s.id === target.lastSessionId) ? target.lastSessionId : wsS[0].id
+      setCurrentIdTo(wsS.some((s) => s.id === target.lastSessionId) ? target.lastSessionId : wsS[0].id)
     } else {
-      currentId = null
+      setCurrentIdTo(null)
     }
     saveWorkspaces()
     saveStore()
-    $('input').value = currentId ? (sessionDrafts.get(currentId) || '') : ''
+    $('input').value = getCurrentId() ? (sessionDrafts.get(getCurrentId()) || '') : ''
     fitInput()
-    sbFilter = ''
+    setSbFilterTo('')
     $('sb-search').value = ''
     renderWsBtn()
     renderSessionList()
@@ -100,13 +115,13 @@
     const name = await promptDialog({
       title: '新建工作区',
       body: '工作区之间完全隔离：各自拥有独立的世界线、搜索与画廊。适合存放不同的世界内核 / 不同的故事。',
-      value: '新世界 ' + (workspaces.length + 1),
+      value: '新世界 ' + (getWorkspaces().length + 1),
       placeholder: '工作区名称',
       okText: '创建'
     })
     if (!name) return
     const w = { id: 'w' + Date.now().toString(36), name, createdAt: Date.now() }
-    workspaces.push(w)
+    getWorkspaces().push(w)
     saveWorkspaces()
     await switchWorkspace(w.id)
     newSession() // 空工作区给一条新世界线
@@ -130,8 +145,8 @@
     const ws = curWs()
     if (!ws) return
     if (busy) { toast('世界运转中，回合结束后再删除', 'info', 1800); return } // R57：生成中禁止删除工作区（防流式写入已删会话）
-    if (workspaces.length <= 1) { toast('至少保留一个工作区', 'info'); return }
-    const cnt = sessions.filter((s) => s.ws === ws.id).length
+    if (getWorkspaces().length <= 1) { toast('至少保留一个工作区', 'info'); return }
+    const cnt = getSessions().filter((s) => s.ws === ws.id).length
     const ok = await confirmDialog({
       title: '删除工作区「' + ws.name + '」？',
       body: '该工作区的 ' + cnt + ' 条世界线及其全部对话、插图将被永久删除，无法恢复。其他工作区不受影响。',
@@ -139,14 +154,21 @@
       okText: '删除工作区'
     })
     if (!ok) return
-    sessions = sessions.filter((s) => s.ws !== ws.id)
+    // 原地变更（getter 桥接约束：重赋值会失联）
+    const sessionArr = getSessions()
+    for (let i = sessionArr.length - 1; i >= 0; i--) {
+      if (sessionArr[i].ws === ws.id) sessionArr.splice(i, 1)
+    }
     // 删除语义立即持久化（防抖窗口内崩溃不复活已删数据）
-    workspaces = workspaces.filter((w) => w.id !== ws.id)
+    const wsArr = getWorkspaces()
+    for (let i = 0; i < wsArr.length; i++) {
+      if (wsArr[i].id === ws.id) { wsArr.splice(i, 1); break }
+    }
     // 删除后切到剩余第一个工作区
-    currentWsId = workspaces[0].id
+    setCurrentWsIdTo(getWorkspaces()[0].id)
     const wsS = wsSessions()
-    currentId = wsS.length ? wsS[0].id : null
-    if (!currentId) newSession()
+    setCurrentIdTo(wsS.length ? wsS[0].id : null)
+    if (!getCurrentId()) newSession()
     saveSessions(true); saveWorkspaces(); saveStore()
     renderWsBtn()
     renderSessionList()
@@ -184,7 +206,7 @@
   function branchFrom(idx) {
     const s = curSession()
     if (!s) return
-    if (busy) return // 生成中不可达（工具栏 !busy 才渲染，app.js:1217）；保留守卫仅作防御
+    if (isBusy()) return // 生成中不可达（工具栏 !busy 才渲染，app.js:1217）；保留守卫仅作防御
     const act = String(s.messages[idx] ? s.messages[idx].content : '').slice(0, 30)
     confirmDialog({
       title: '开辟 IF 线？',
@@ -203,8 +225,8 @@
         updatedAt: now, createdAt: now,
         ifFrom: s.id
       }
-      sessions.unshift(ns)
-      currentId = ns.id
+      getSessions().unshift(ns) // 原地变更（getter 桥接约束）
+      setCurrentIdTo(ns.id)
       saveStore()
       saveSessions()
       // IF 线状态继承（R85）：深拷贝母线引擎账本（实体/伏笔/事实/关系全量），否则 IF 线第一轮

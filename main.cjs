@@ -24,7 +24,11 @@ const MAX_IMAGE_BYTES = 25 * 1024 * 1024
 const MAX_CHAT_RESPONSE_BYTES = 16 * 1024 * 1024
 const MAX_IMAGE_BATCH = 100
 const MAX_SESSIONS_JSON_BYTES = 64 * 1024 * 1024
-const MAX_SESSIONS = 50
+/* 世界线上限（P2 数据丢失治理）：50 → 200。原 50 上限在渲染层是「保存时静默 slice(0,50)」——
+ * 用户建到第 51 条即被无声丢弃（重启后消失），QA 数据丢失风险表 D4 实锤。实测约 8KB/条
+ * （不含插图，插图为磁盘外置），200 条 ≈ 1.6MB，距 64MB 硬闸有充分余量。
+ * 治理原则：上限只防无界增长，超限必须显式报错（用户可删除旧线），永不静默截断。 */
+const MAX_SESSIONS = 200
 let win = null
 let settingsWin = null
 
@@ -76,6 +80,18 @@ async function readResponseBufferLimited(response, maxBytes, label) {
 
 function sessionDataDir() { return path.join(app.getPath('userData'), 'session-data') }
 function sessionImagesDir() { return path.join(sessionDataDir(), 'images') }
+/* 角色闪卡：每张卡一个目录（card-config.json + 四层 PNG + 共享 glb 副本）。
+ * cardId 白名单与引擎 id 同规制；查看器窗口经 ?card=<dir 名> 加载。 */
+function holoCardsDir() { return path.join(app.getPath('userData'), 'holo-cards') }
+const HOLO_CARD_ID_RE = /^card-[a-z0-9-]{1,64}$/
+function holoCardDirOf(cardId) {
+  const id = String(cardId || '')
+  if (!HOLO_CARD_ID_RE.test(id)) throw new Error('非法闪卡编号')
+  const dir = path.join(holoCardsDir(), id)
+  const resolved = path.resolve(dir)
+  if (!resolved.startsWith(path.resolve(holoCardsDir()) + path.sep)) throw new Error('闪卡路径越界')
+  return resolved
+}
 function sessionsFile() { return path.join(sessionDataDir(), 'sessions.json') }
 function secretsFile() { return path.join(app.getPath('userData'), 'secrets.json') }
 
@@ -131,35 +147,44 @@ function imageSource(value) {
 
 function externalizeSessions(input) {
   if (!Array.isArray(input)) throw new Error('会话数据格式不正确')
-  if (input.length > MAX_SESSIONS) throw new Error('会话数量超过上限（50）')
+  if (input.length > MAX_SESSIONS) throw new Error('世界线数量超过上限（' + MAX_SESSIONS + '）——请先删除不需要的旧世界线再保存')
   const sessions = JSON.parse(JSON.stringify(input))
   const assets = new Set()
   let imageCount = 0
+  // 图片外置目标收集器：消息插图与漫画分镜共用同一套落盘/去重/闸门
+  // （sig 为 true 时该字段已外置过，需校验文件存在；为 false 时本次外置）
+  const collectImages = (holder, sessionDir, isAsset) => {
+    if (!holder.illust) { delete holder.illustAsset; return }
+    let rel = imageAssetRel(holder.illust)
+    if (!rel) {
+      const img = dataUrlImage(holder.illust)
+      const digest = hashText(img.buffer)
+      rel = sessionDir + '/' + digest + '.' + img.ext
+      const target = path.join(sessionImagesDir(), rel)
+      if (!fs.existsSync(target)) atomicWriteFile(target, img.buffer)
+    } else {
+      resolveImageAsset(rel)
+    }
+    imageCount++
+    if (imageCount > 2000) throw new Error('插图数量超过上限（2000）')
+    assets.add(rel)
+    holder.illustAsset = rel
+    delete holder.illust
+  }
   for (const session of sessions) {
     if (!session || typeof session !== 'object' || !Array.isArray(session.messages)) throw new Error('会话数据不完整')
     if (session.messages.length > 5000) throw new Error('单条世界线消息过多')
     const sessionDir = hashText(session.id || 'unknown').slice(0, 24)
     for (const message of session.messages) {
       if (!message || typeof message !== 'object') continue
-      if (!message.illust) {
-        delete message.illustAsset
-        continue
+      collectImages(message, sessionDir)
+    }
+    // 漫画回放分镜：与消息插图同规则外置（否则会被孤儿清理误删）
+    if (session.comic && Array.isArray(session.comic.panels)) {
+      for (const panel of session.comic.panels) {
+        if (!panel || typeof panel !== 'object') continue
+        collectImages(panel, sessionDir)
       }
-      let rel = imageAssetRel(message.illust)
-      if (!rel) {
-        const img = dataUrlImage(message.illust)
-        const digest = hashText(img.buffer)
-        rel = sessionDir + '/' + digest + '.' + img.ext
-        const target = path.join(sessionImagesDir(), rel)
-        if (!fs.existsSync(target)) atomicWriteFile(target, img.buffer)
-      } else {
-        resolveImageAsset(rel)
-      }
-      imageCount++
-      if (imageCount > 2000) throw new Error('插图数量超过上限（2000）')
-      assets.add(rel)
-      message.illustAsset = rel
-      delete message.illust
     }
   }
   const json = JSON.stringify({ v: 1, sessions })
@@ -171,16 +196,20 @@ function hydrateSessions(stored) {
   const sessions = Array.isArray(stored) ? stored : []
   for (const session of sessions) {
     if (!session || !Array.isArray(session.messages)) continue
-    for (const message of session.messages) {
-      if (!message || !message.illustAsset) continue
+    const hydrateOne = (holder) => {
+      if (!holder || !holder.illustAsset) return
       try {
-        resolveImageAsset(message.illustAsset)
-        message.illust = imageAssetUrl(message.illustAsset)
+        resolveImageAsset(holder.illustAsset)
+        holder.illust = imageAssetUrl(holder.illustAsset)
       } catch {
-        delete message.illust
-        delete message.illustAsset
-        message.illustError = '本地插图文件缺失或损坏'
+        delete holder.illust
+        delete holder.illustAsset
+        holder.illustError = '本地插图文件缺失或损坏'
       }
+    }
+    for (const message of session.messages) hydrateOne(message)
+    if (session.comic && Array.isArray(session.comic.panels)) {
+      for (const panel of session.comic.panels) hydrateOne(panel)
     }
   }
   return sessions
@@ -433,6 +462,42 @@ app.whenReady().then(() => {
   nativeTheme.themeSource = 'system'
   protocol.handle('sixworlds-asset', async (request) => {
     try {
+      const url = new URL(request.url)
+      if (url.hostname === 'holo') {
+        // 闪卡查看器：sixworlds-asset://holo/viewer → renderer/holo/index.html；
+        // sixworlds-asset://holo/card/<cardId>/<file> → userData/holo-cards/<cardId>/<file>。
+        // file:// 直载有双重死路：ES module 被 CORS 拦截 + fetch('/holo-cards/..') 根路径不可达，
+        // 特权协议（standard+secure+supportFetchAPI）让查看器与卡资源同源可 fetch。
+        const rel = decodeURIComponent(url.pathname).replace(/^\/+/, '')
+        let file = null
+        const cardMatch = rel.match(/^card\/(card-[a-z0-9-]{1,64})\/([a-z0-9._-]{1,64})$/i)
+        if (rel === 'viewer') {
+          file = path.join(__dirname, 'renderer', 'holo', 'index.html')
+        } else if (rel === 'app.bundle.js' || rel === 'style.css' || rel === 'icons.data.js') {
+          // 查看器静态资源白名单（页面相对路径解析到协议根：holo/viewer + holo/card/<id>/ 同源）
+          file = path.join(__dirname, 'renderer', 'holo', rel)
+        } else if (cardMatch) {
+          const root = path.resolve(holoCardsDir())
+          const target = path.resolve(root, path.join(cardMatch[1], cardMatch[2]))
+          if (!target.startsWith(root + path.sep)) throw new Error('路径越界')
+          const stat = fs.statSync(target)
+          if (!stat.isFile() || stat.size > MAX_IMAGE_BYTES + 512 * 1024) throw new Error('卡资源无效或过大')
+          file = target
+        }
+        if (!file) return new Response('Not found', { status: 404 })
+        const ext = path.extname(file).toLowerCase()
+        const mime = ext === '.html' ? 'text/html; charset=utf-8'
+          : ext === '.js' ? 'text/javascript; charset=utf-8'
+          : ext === '.css' ? 'text/css; charset=utf-8'
+          : ext === '.json' ? 'application/json; charset=utf-8'
+          : ext === '.glb' ? 'model/gltf-binary'
+          : ext === '.jpg' ? 'image/jpeg' : (ext === '.webp' ? 'image/webp' : 'image/png')
+        const body = fs.readFileSync(file)
+        return new Response(body, {
+          status: 200,
+          headers: { 'Content-Type': mime, 'Content-Length': String(body.length), 'Cache-Control': 'no-store' }
+        })
+      }
       const rel = imageAssetRel(request.url)
       if (!rel) return new Response('Not found', { status: 404 })
       const file = resolveImageAsset(rel)
@@ -604,8 +669,9 @@ ipcMain.handle('sessions:load', async () => {
       const fromDb = db.load()
       if (fromDb) {
         const doc = fromDb.doc
-        const stored = Array.isArray(doc) ? doc : doc && doc.sessions
-        if (!Array.isArray(stored) || stored.length > MAX_SESSIONS) throw new Error('会话库格式不正确')
+        let stored = Array.isArray(doc) ? doc : doc && doc.sessions
+        if (!Array.isArray(stored)) throw new Error('会话库格式不正确')
+        if (stored.length > MAX_SESSIONS) stored = stored.slice().sort((a, b) => Number((b && b.updatedAt) || 0) - Number((a && a.updatedAt) || 0)).slice(0, MAX_SESSIONS) // 超限库（异常现场）：照常载入，按 updatedAt 截旧保新——拒载会让渲染层回退空数据
         return { ok: true, exists: true, sessions: hydrateSessions(stored), storage: 'sqlite' }
       }
       // 2) 一次性迁移：主存为空且旧 JSON 存在 → 导入主存（JSON 镜像保留不删）
@@ -613,8 +679,9 @@ ipcMain.handle('sessions:load', async () => {
       if (fs.existsSync(file)) {
         const raw = readTextFileLimited(file, MAX_SESSIONS_JSON_BYTES, '会话文件')
         const doc = JSON.parse(raw)
-        const stored = Array.isArray(doc) ? doc : doc.sessions
-        if (!Array.isArray(stored) || stored.length > MAX_SESSIONS) throw new Error('会话文件格式不正确')
+        let stored = Array.isArray(doc) ? doc : doc.sessions
+        if (!Array.isArray(stored)) throw new Error('会话文件格式不正确')
+        if (stored.length > MAX_SESSIONS) stored = stored.slice().sort((a, b) => Number((b && b.updatedAt) || 0) - Number((a && a.updatedAt) || 0)).slice(0, MAX_SESSIONS) // 超限库：照常载入，按 updatedAt 截旧保新
         db.importDoc(Array.isArray(doc) ? { v: 1, sessions: stored } : doc)
         return { ok: true, exists: true, sessions: hydrateSessions(stored), storage: 'migrated' }
       }
@@ -625,8 +692,9 @@ ipcMain.handle('sessions:load', async () => {
     if (!fs.existsSync(file)) return { ok: true, exists: false, sessions: [], storage: 'file' }
     const raw = readTextFileLimited(file, MAX_SESSIONS_JSON_BYTES, '会话文件')
     const doc = JSON.parse(raw)
-    const stored = Array.isArray(doc) ? doc : doc.sessions
-    if (!Array.isArray(stored) || stored.length > MAX_SESSIONS) throw new Error('会话文件格式不正确')
+    let stored = Array.isArray(doc) ? doc : doc.sessions
+    if (!Array.isArray(stored)) throw new Error('会话文件格式不正确')
+    if (stored.length > MAX_SESSIONS) stored = stored.slice().sort((a, b) => Number((b && b.updatedAt) || 0) - Number((a && a.updatedAt) || 0)).slice(0, MAX_SESSIONS) // 超限库：照常载入，按 updatedAt 截旧保新
     return { ok: true, exists: true, sessions: hydrateSessions(stored), storage: 'file' }
   } catch (e) {
     return { ok: false, error: String((e && e.message) || e) }
@@ -797,6 +865,10 @@ safeHandle('engine:restore', (p) => {
 })
 safeHandle('engine:logs', (p) => engineFor().turnLogs(p.storyId))
 safeHandle('engine:log', (p) => engineFor().turnLog(p.storyId, p.turnId))
+// 漫画回放素材：范围内事件账本整编（分镜规划的数据源，纯读）；返回值经 safeHandle 包为 {ok, data: source}
+safeHandle('engine:comicSource', (p) => engineFor().comicSource(p.storyId, p.fromTurn, p.toTurn))
+// 角色闪卡素材：character 实体制卡档案（纯读，不落盘不建账本）
+safeHandle('engine:cardSource', (p) => engineFor().cardSource(p.storyId))
 safeHandle('engine:protocol', () => engineFor().protocolPrompt())
 // 被抛弃的叙事留痕（重生成/IF 分歧丢弃上一版）—— 永不静默覆盖，只增不删
 safeHandle('engine:discardTurn', (p) => {
@@ -1184,7 +1256,10 @@ ipcMain.handle('image:generate', async (_evt, cfg) => {
     }
     // 清晰度（quality）：default 不传（沿用端点默认值，即现有行为），standard/high 透传给支持的端点
     const quality = String(cfg.quality || 'default')
-    if (quality === 'standard' || quality === 'high' || quality === 'low') payload.quality = quality
+    if (quality === 'standard' || quality === 'high' || quality === 'low' || quality === 'medium' || quality === 'auto') payload.quality = quality
+    // 透明背景：gpt-image 系列 Images API 原生参数（transparent=直接返回带 alpha 的 PNG）。
+    // 端点不支持时会 4xx 报错或静默忽略，由调用方按「无透明像素→回落白底」降级（见 holo-card.js）
+    if (cfg.background === 'transparent' || cfg.background === 'opaque' || cfg.background === 'auto') payload.background = cfg.background
     // 额外参数（response_format 等），按需透传
     if (cfg.extra && typeof cfg.extra === 'object') Object.assign(payload, cfg.extra)
     const controller = new AbortController()
@@ -1220,6 +1295,8 @@ ipcMain.handle('image:generate', async (_evt, cfg) => {
     const billing = {}
     if (usage) billing.usage = usage
     if (cost != null) billing.cost = cost
+    // gpt-image 系列会内部改写提示词，revised_prompt 即模型实际作画依据——回传给调用方展示（排查「图与提示词不符」）
+    if (typeof item.revised_prompt === 'string' && item.revised_prompt.trim()) billing.revisedPrompt = item.revised_prompt.trim().slice(0, 2000)
     if (item.b64_json) {
       let mime = 'image/png'
       if (model.includes('jpeg') || model.includes('Kolors')) mime = 'image/jpeg'
@@ -1579,15 +1656,24 @@ const PET_AGENT_FAKE_PLANS = {
   choice: { recommend: 'B', why: '（测试大脑）B 最能推进主线', alternates: [] },
   auto: { recommend: 'A', why: '（测试大脑）托管选 A', alternates: [] },
   illust: { idx: 0, why: '（测试大脑）开场幕画面感最强', visual: 'a quiet village at dawn' },
-  prompt: { prompt: 'masterpiece, (test brain) scenic view', why: '（测试大脑）优化为通用生图风格' }
+  prompt: { prompt: 'masterpiece, (test brain) scenic view', why: '（测试大脑）优化为通用生图风格' },
+  comic: {
+    cast: [{ name: '主角', look: 'young man with brown hair, mage robe' }],
+    panels: [
+      { turn: 1, title: '开场', narration: '故事从清晨的村庄开始。', participants: ['主角'], sceneLine: '【甲龙历407.03.01｜清晨｜布耶纳村】' },
+      { turn: 2, title: '启程', narration: '主角踏上了旅途。', participants: ['主角'], sceneLine: '【甲龙历407.03.01｜上午｜村口】' }
+    ]
+  },
+  card: {
+    name: '主角', subtitle: '（测试大脑）转生少年', technique: '（测试大脑）初级魔术', tagline: '（测试大脑）一句话概括',
+    rarity: 'SSR', subjectPrompt: 'young man with brown hair, mage robe, full body, plain white background',
+    backgroundPrompt: 'misty fantasy village at dawn', foil: 0.65, why: '（测试大脑）测试卡面规划'
+  }
 }
 ipcMain.handle('pet:agent', async (_evt, p) => {
   try {
     const task = String((p && p.task) || '')
     if (!PET_AGENT_FAKE_PLANS[task]) return { ok: false, error: '未知智能体任务：' + task }
-    if (!p || !Array.isArray(p.choices) || !p.choices.length) {
-      if (task === 'choice' || task === 'auto') return { ok: false, error: '当前没有可分析的选项' }
-    }
     const cloud = p && p.cloud
     if (!cloud || !cloud.baseUrl || !cloud.apiKey || !cloud.model) {
       return { ok: false, error: '智能体需要先在设置里配置模型（本地小模型推不动剧情质量）', needCloud: true }
@@ -1604,7 +1690,8 @@ ipcMain.handle('pet:agent', async (_evt, p) => {
     try { endpoint = new URL(baseUrl + '/chat/completions') } catch { return { ok: false, error: '云端大脑地址不合法' } }
     if (!['http:', 'https:'].includes(endpoint.protocol)) return { ok: false, error: '云端大脑地址仅支持 HTTP / HTTPS' }
     const controller = new AbortController()
-    const kill = setTimeout(() => controller.abort(), 60000)
+    // card 与 comic 同档 180s：精修立绘级 JSON（70-90 词主体提示词）实测逼近 60s 旧上限，deepseek-v4-pro 直接超时
+    const kill = setTimeout(() => controller.abort(), (task === 'comic' || task === 'card') ? 180000 : 60000)
     try {
       const res = await fetch(endpoint, {
         method: 'POST',
@@ -1642,7 +1729,7 @@ ipcMain.handle('pet:agent', async (_evt, p) => {
 })
 // 任务化提示词 + JSON 容错提取
 function petAgentSpec(task, p) {
-  const story = String((p && p.story) || '').slice(0, 3000)
+  const story = String((p && p.story) || '').slice(0, task === 'comic' ? 24000 : 3000)
   const choices = (p && p.choices) || []
   const chList = choices.map((c) => c.key + '：' + c.label).join('\n')
   const base = '你是「世界之灵」，六面世界应用里的智能体助手。只输出一个 JSON 对象，不要任何其他文字、不要 markdown 代码块。'
@@ -1662,6 +1749,19 @@ function petAgentSpec(task, p) {
     return {
       system: base + '\n任务：把叙事片段优化为英文文生图提示词（stable diffusion 风格）。字段：{"prompt":"英文提示词（含构图/光影/风格词，逗号分隔）","why":"一两句中文说明优化思路"}。不要出现人名拼写的废字符，用外貌描述代替。',
       user: '【叙事片段】\n' + story + '\n\n优化为约 40 词内的英文生图提示词。'
+    }
+  }
+  if (task === 'comic') {
+    const target = Number(p && p.panelCount) || 16
+    return {
+      system: base + '\n任务：你是漫画分镜师。通读剧情素材，挑出最有戏剧性、最能串起故事的关键幕，并为每位主要角色生成英文外貌描述（发型发色/瞳色/体型/标志性服装），保证跨幕一致。输出字段：{"cast":[{"name":"角色名","look":"英文外貌描述"}],"panels":[{"turn":回合号,"title":"幕标题(≤12字)","narration":"该幕旁白/对白摘录(≤80字)","participants":["在场角色名"],"sceneLine":"【历法｜时段｜地点】"}]}。panels 数量必须接近 ' + target + ' 幕、按 turn 升序、turn 必须取自素材中出现过的回合号；look 为 40 词内英文；不要出现人名拼写的废字符。',
+      user: '【角色档案（cast 素材）】\n' + String((p && p.castText) || '').slice(0, 6000) + '\n\n【按回合分组的剧情素材】\n' + story + '\n\n请按目标 ' + target + ' 幕完成分镜规划。'
+    }
+  }
+  if (task === 'card') {
+    return {
+      system: base + '\n任务：你是收藏卡设计师。基于给定角色的档案与剧情，规划一张收藏卡的全部文案与生图提示词。输出字段：{"name":"角色名","subtitle":"称号(≤10字,概括身份/境界)","technique":"招式或标志性能力名(≤12字)","tagline":"一句话点睛(≤24字,卡面中段)","rarity":"稀有度,从 N/R/SR/SSR/UR 中选一个","subjectPrompt":"主体立绘英文提示词(70-90词,精修立绘级:开头放画质媒介词 refined digital illustration, clean lineart, detailed face shading, soft rim lighting;再写发型发色/瞳色/表情神态/年龄感体型;再写标志性服装的织物质感/磨损/配饰细节;再写 front-facing full body standing pose;结尾必须包含 plain white background, solid white background)","backgroundPrompt":"背景英文提示词(50-70词,定位是人物身后的氛围底图、不是独立风景:①主色调必须取自 subjectPrompt 里角色服装与发色的同一组颜色,整体低饱和、柔和褪色、与主体同色温;②光线只用均匀漫射光,禁止直射阳光/逆光/炫目天空/强高光;③大光圈景深虚化,远景保留 1-2 个极模糊的环境剪影(遗迹/拱门/树木/山影一类,只点明场景、不抢主体),画面正中留出人物站位的空旷区,不出现任何锐利细节或抢眼主体;④媒介词必须与主体一致:light novel illustration, soft watercolor wash, muted palette, atmospheric haze, 不要用 refined digital painting)","foil":0到1的小数(流光强度建议,主角级0.75,配角0.5左右),"why":"一两句中文设计思路"}。subjectPrompt 与 backgroundPrompt 必须是英文,两条要共享同一画风媒介词保持风格统一;backgroundPrompt 的配色必须以 subjectPrompt 描述的服装与发色主色为基准(同色系、低饱和、同色温),两条不能各写一套色调;不要出现人名拼写废字符。',
+      user: '【角色档案】\n' + String((p && p.castText) || '').slice(0, 6000) + '\n\n【该角色相关的剧情素材】\n' + story + '\n\n请为该角色规划收藏卡面。'
     }
   }
   return null
@@ -1703,8 +1803,135 @@ function petAgentExtractPlan(task, text, p) {
     if (prompt.length < 8) return null
     return { prompt: prompt.slice(0, 600), why: String(plan.why || '').slice(0, 160) }
   }
+  if (task === 'comic') {
+    const cast = (Array.isArray(plan.cast) ? plan.cast : []).map((c) => ({
+      name: String((c && c.name) || '').slice(0, 60),
+      look: String((c && c.look) || '').slice(0, 300)
+    })).filter((c) => c.name && c.look)
+    const panels = (Array.isArray(plan.panels) ? plan.panels : []).map((q) => ({
+      turn: Number(q && q.turn) || 0,
+      title: String((q && q.title) || '').slice(0, 40),
+      narration: String((q && q.narration) || '').slice(0, 160),
+      participants: (Array.isArray(q && q.participants) ? q.participants : []).map(String).slice(0, 8),
+      sceneLine: String((q && q.sceneLine) || '').slice(0, 80)
+    })).filter((q) => q.turn > 0 && q.narration)
+    if (!panels.length || !cast.length) return null
+    panels.sort((a, b) => a.turn - b.turn)
+    return { cast: cast.slice(0, 24), panels: panels.slice(0, 40) }
+  }
+  if (task === 'card') {
+    const subjectPrompt = String(plan.subjectPrompt || '').trim()
+    const backgroundPrompt = String(plan.backgroundPrompt || '').trim()
+    if (subjectPrompt.length < 8 || backgroundPrompt.length < 8) return null
+    let foil = Number(plan.foil)
+    if (!Number.isFinite(foil)) foil = 0.6
+    foil = Math.min(1, Math.max(0, foil))
+    const rarity = ['N', 'R', 'SR', 'SSR', 'UR'].includes(String(plan.rarity)) ? String(plan.rarity) : 'SR'
+    return {
+      name: String(plan.name || '').slice(0, 40),
+      subtitle: String(plan.subtitle || '').slice(0, 20),
+      technique: String(plan.technique || '').slice(0, 24),
+      tagline: String(plan.tagline || '').slice(0, 48),
+      rarity,
+      subjectPrompt: subjectPrompt.slice(0, 900),
+      backgroundPrompt: backgroundPrompt.slice(0, 700),
+      foil,
+      why: String(plan.why || '').slice(0, 160)
+    }
+  }
   return null
 }
+
+// ---- 角色闪卡（Holo Card）：卡目录落盘 / 读取 / 查看器窗口 ----
+/* 卡目录 = userData/holo-cards/<cardId>/，由渲染层经 card:write 一次性写入
+ * （config + 四层 PNG data URL）；card.glb 从应用内 renderer/holo/ 复制共享副本。
+ * 查看器窗口无 preload（纯静态展示页，零暴露面），安全防线与设置窗对齐：
+ * 导航封堵 + 开窗拒绝 + 外链转系统浏览器。 */
+ipcMain.handle('card:write', (_evt, p) => {
+  try {
+    const cardId = String((p && p.cardId) || '')
+    const dir = holoCardDirOf(cardId)
+    const config = p && p.config
+    if (!config || typeof config !== 'object') return { ok: false, error: '卡配置缺失' }
+    const layers = p && p.layers
+    if (!layers || typeof layers !== 'object') return { ok: false, error: '卡面图层缺失' }
+    const writePng = (key, name) => {
+      const img = dataUrlImage(String(layers[key] || ''))
+      if (img.ext !== 'png') throw new Error(name + ' 必须是 PNG')
+      fs.writeFileSync(path.join(dir, name + '.png'), img.buffer)
+    }
+    fs.mkdirSync(dir, { recursive: true })
+    writePng('subject', 'subject')
+    writePng('background', 'background')
+    writePng('text', 'text')
+    if (layers.lineart) writePng('lineart', 'lineart') // 线稿层可选（查看器有 1×1 白纹兜底）
+    atomicWriteFile(path.join(dir, 'card-config.json'), JSON.stringify(config, null, 2))
+    // 共享静态 glb：不存在时从应用模板复制（打包升级后自动补新）
+    const glbPath = path.join(dir, 'card.glb')
+    if (!fs.existsSync(glbPath)) fs.copyFileSync(path.join(__dirname, 'renderer', 'holo', 'card.glb'), glbPath)
+    return { ok: true, dir }
+  } catch (e) {
+    return { ok: false, error: String((e && e.message) || e) }
+  }
+})
+ipcMain.handle('card:read', (_evt, p) => {
+  try {
+    const dir = holoCardDirOf(p && p.cardId)
+    const file = path.join(dir, 'card-config.json')
+    const config = JSON.parse(readTextFileLimited(file, MAX_CONFIG_BYTES, '卡配置'))
+    return { ok: true, config }
+  } catch (e) {
+    return { ok: false, error: String((e && e.message) || e) }
+  }
+})
+ipcMain.handle('card:delete', (_evt, p) => {
+  try {
+    const dir = holoCardDirOf(p && p.cardId)
+    fs.rmSync(dir, { recursive: true, force: true })
+    return { ok: true }
+  } catch (e) {
+    return { ok: false, error: String((e && e.message) || e) }
+  }
+})
+/* 查看器窗口：一次一卡可多开；e2e 接缝（SIXWORLDS_TEST）不真开窗，直接回 ok。 */
+ipcMain.handle('card:window', (evt, p) => {
+  try {
+    const dir = holoCardDirOf(p && p.cardId)
+    const stat = fs.statSync(path.join(dir, 'card-config.json')) // 校验卡存在
+    if (!stat.isFile()) throw new Error('卡配置不存在')
+    if (process.env.SIXWORLDS_TEST) return { ok: true, dir, testMode: true }
+    const cardWin = new BrowserWindow({
+      width: 980, height: 860, minWidth: 640, minHeight: 520,
+      backgroundColor: '#fafafa', show: false,
+      title: '角色闪卡 · 六面世界',
+      icon: path.join(__dirname, 'build', 'icon.ico'),
+      webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true }
+    })
+    // 特权协议托管（同源 fetch + ES module）：file:// 直载下 <script type="module"> 被
+    // CORS 拦截、fetch('/holo-cards/..') 根路径不可达——查看器会永远停在「正在装裱作品」。
+    cardWin.loadURL('sixworlds-asset://holo/viewer?card=' + encodeURIComponent('card/' + path.basename(dir)))
+    cardWin.once('ready-to-show', () => cardWin.show())
+    cardWin.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+    cardWin.webContents.on('will-navigate', (e, url) => { e.preventDefault() })
+    // 保存按钮：查看器用 <a download> 触发下载（模板的浏览器习惯），Electron 里没有
+    // 处理器会被静默丢弃且 toast 谎报「已保存」——接住它，转存用户选定的文件。
+    cardWin.webContents.session.on('will-download', (e, item) => {
+      try {
+        const safeName = String(item.getFilename() || 'holo-card.png').replace(/[\\/:*?"<>|]/g, '_').slice(0, 120)
+        const res = dialog.showSaveDialogSync(cardWin, {
+          title: '保存卡片图片',
+          defaultPath: path.join(app.getPath('pictures') || app.getPath('downloads') || '', safeName),
+          filters: [{ name: 'PNG 图片', extensions: ['png'] }]
+        })
+        if (res) item.setSavePath(res)
+        else item.cancel()
+      } catch { item.cancel() }
+    })
+    return { ok: true, dir }
+  } catch (e) {
+    return { ok: false, error: String((e && e.message) || e) }
+  }
+})
 
 // ---- 打开任意 JSON 文件并返回内容（导入配置用）----
 ipcMain.handle('dialog:openFile', async (evt, opts) => {
@@ -1852,6 +2079,12 @@ ipcMain.handle('dialog:saveFile', async (evt, opts) => {
     const title = String((opts && opts.title) || '保存文件')
     const defaultName = String((opts && opts.defaultName) || 'export.json')
     const content = String((opts && opts.content) || '')
+    // 测试接缝：SIXWORLDS_TEST 下允许用环境变量注入保存路径（自动化无法驱动原生对话框）
+    if (process.env.SIXWORLDS_TEST && process.env.SIXWORLDS_TEST_SAVE_PATH) {
+      const p = process.env.SIXWORLDS_TEST_SAVE_PATH
+      fs.writeFileSync(p, content, 'utf8')
+      return { ok: true, path: p }
+    }
     const res = await dialog.showSaveDialog(windowForEvent(evt), { title, defaultPath: defaultName })
     if (res.canceled || !res.filePath) return { ok: false }
     fs.writeFileSync(res.filePath, content, 'utf8')

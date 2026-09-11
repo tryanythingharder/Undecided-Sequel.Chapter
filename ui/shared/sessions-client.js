@@ -65,7 +65,7 @@
       }
       // 首次升级时把 localStorage 会话与插图迁入文件存储，成功后移除配额受限副本。
       if (!api.isTest && ((!disk || !disk.exists) || api.isStorageTest) && sessions.length && api.saveSessions) {
-        const migrated = await api.saveSessions(sessions.slice(0, 50))
+        const migrated = await api.saveSessions(sessions.length > 200 ? sessions.slice(sessions.length - 200) : sessions)
         if (migrated && migrated.ok) {
           try { localStorage.removeItem(SESSIONS_KEY); localStorage.removeItem(OLD_SESSIONS_KEY) } catch {}
         } else warnSaveFail('旧世界线迁移')
@@ -77,7 +77,15 @@
      * immediate=true 用于删除/导入/工作区切换等关键点；页面隐藏/关闭时强制冲刷，不丢尾部消息。 */
     let _saveTimer = 0
     function doSave() {
-      const snapshot = s.getSessions().slice(0, 50)
+      /* P2 数据丢失治理：不再 slice(0,50) 静默截尾（第 51 条起保存即丢、重启消失——QA D4）。
+       * 上限与主进程 MAX_SESSIONS=200 对齐；超限时裁到上限并提醒用户删除旧线，
+       * 被裁的是 updatedAt 最旧者（s.getSessions() 首位即最新——调用方按 unshift 维护）。 */
+      const all = s.getSessions()
+      let snapshot = all
+      if (all.length > 200) {
+        snapshot = all.slice(all.length - 200) // 保最新 200 条，最旧的被裁
+        if (typeof u.onOverLimit === 'function') u.onOverLimit(all.length, all.length - snapshot.length)
+      }
       if (api.isTest) {
         try { localStorage.setItem(SESSIONS_KEY, JSON.stringify(snapshot)) } catch { warnSaveFail('最新世界线进度') }
       }

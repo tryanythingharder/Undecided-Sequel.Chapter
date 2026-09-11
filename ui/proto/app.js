@@ -254,7 +254,9 @@
    *    shared/sessions-client.js 是唯一实现处；此处只绑定本方案的可变状态与提示回调，
    *    归属修复/迁移逻辑的改动不再需要双边人工同步。 ---- */
   const sessionsLib = SessionsClient.createSessionsPersistence({ getSessions: () => sessions }, {
-    api, warnSaveFail, onSaved: () => { saveFailWarned = false }
+    api, warnSaveFail, onSaved: () => { saveFailWarned = false },
+    // P2 数据丢失治理：超 200 条时裁掉最旧的并明确告知（此前 50 条静默截断无任何提示）
+    onOverLimit: (total, dropped) => toast('世界线已达 ' + total + ' 条上限，最早的 ' + dropped + ' 条不再保存——请删除一些旧世界线', 'err', 8000)
   })
   sessionsLib.bindAutoFlush() // 页面隐藏/关闭强制冲刷（规范八：不丢尾部消息）
   async function loadSessions() {
@@ -380,6 +382,34 @@
     renderSessionList()
   })
 
+  /* 切换当前世界线：草稿保存/恢复、选项区状态重置、工作区 lastSessionId 回写。
+   * 侧栏点选与画廊重绘按钮共用（后者原先自己拼了一套，漏了草稿与多选重置）。 */
+  function activateSession(s) {
+    if (!s || s.id === currentId) return
+    const inputEl2 = $('input')
+    if (currentId) sessionDrafts.set(currentId, inputEl2.value)
+    currentId = s.id
+    // 选项区状态随会话重置：收起/自动收起/多选模式不跨会话残留
+    choicesFoldUser = false
+    choicesAutoFolded = false
+    multiMode = false
+    multiSel.clear()
+    const ws = curWs()
+    if (ws) { ws.lastSessionId = s.id; saveWorkspaces() }
+    saveStore()
+    inputEl2.value = sessionDrafts.get(s.id) || ''
+    fitInput()
+    renderSessionList()
+    renderMessages()
+    updateTitle()
+    // 全局搜索态：切过去后自动打开会话内搜索并定位命中
+    if (sbFilter) {
+      openSearch()
+      searchInput.value = sbFilter
+      runSearch(sbFilter)
+    }
+  }
+
   function renderSessionList() {
     const list = $('session-list')
     list.innerHTML = ''
@@ -484,30 +514,7 @@
       item.addEventListener('click', () => {
         if (justDraggedSession) { justDraggedSession = false; return }
         if (busy) { toast('世界运转中，回合结束后即可切换', 'info', 1800); return } // R56：生成中点选其它线给出反馈（与新建按钮一致，不再静默无响应）
-        if (s.id === currentId) return
-        // 保存当前输入草稿，切换后恢复目标会话草稿
-        const inputEl2 = $('input')
-        if (currentId) sessionDrafts.set(currentId, inputEl2.value)
-        currentId = s.id
-        // 选项区状态随会话重置：收起/自动收起/多选模式不跨会话残留
-        choicesFoldUser = false
-        choicesAutoFolded = false
-        multiMode = false
-        multiSel.clear()
-        const ws = curWs()
-        if (ws) { ws.lastSessionId = s.id; saveWorkspaces() }
-        saveStore()
-        inputEl2.value = sessionDrafts.get(s.id) || ''
-        fitInput()
-        renderSessionList()
-        renderMessages()
-        updateTitle()
-        // 全局搜索态：切过去后自动打开会话内搜索并定位命中
-        if (sbFilter) {
-          openSearch()
-          searchInput.value = sbFilter
-          runSearch(sbFilter)
-        }
+        activateSession(s)
       })
       // 拖拽排序：按下记录，移动超阈值进入拖拽（点击不受影响）
       item.addEventListener('mousedown', (e) => {
@@ -580,6 +587,7 @@ const WsPanel = window.WorkspacePanel.createWorkspacePanel({
     newSession, fitInput, loadKernel,
     confirmDialog, promptDialog, toast,
     currentKernelRef,
+    curSession, cancelHideAnim, hideWithAnim,
   })
   const renderWsMenu = () => WsPanel.renderWsMenu()
   const openWsMenu = () => WsPanel.openWsMenu()
@@ -1058,6 +1066,14 @@ const Illust = window.IllustPanel.createIllustPanel({
             if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); img.click() }
           })
           il.appendChild(img)
+          // 模型改写提示（gpt-image 系会内部改写提示词）：插图与预期不符时看这条
+          if (m.illustRevised) {
+            const rev = document.createElement('div')
+            rev.className = 'illust-revised'
+            rev.textContent = '模型改写了提示词 → ' + m.illustRevised.slice(0, 160) + (m.illustRevised.length > 160 ? '…' : '')
+            rev.title = m.illustRevised
+            il.appendChild(rev)
+          }
         } else if (m.illustPending) {
           il.className = 'illust-pending'
           il.innerHTML = '<span class="dots">正在绘制这一幕的插图</span>'
@@ -1209,12 +1225,12 @@ const Illust = window.IllustPanel.createIllustPanel({
     choiceEl.innerHTML = ''
     multiSel.clear()
     // 输入占位随上下文切换（P1：占位文案须与当前可用操作一致）
-    $('input').placeholder = '自由描述你的行动…（Enter 发送 · Shift+Enter 换行）'
+    $('input').placeholder = '随心输入…（Enter 发送 · Shift+Enter 换行）'
     if (lastAssistantIdx >= 0 && !busy) {
       const choices = parseChoices(all[lastAssistantIdx].content)
       if (choices.length > 0) {
         choiceMode = true
-        $('input').placeholder = '点选上方选项直接行动，或在此自由描述…（Enter 发送）'
+        $('input').placeholder = '点选上方选项直接行动，或随心输入…（Enter 发送）'
         // 一次性 IF 发现提示（R7 P1-1）：首次出现选项时展示；点 ✕ 或用过 IF 后永不再现
         if (!localStorage.getItem('sixworlds.ifhint-seen.v1')) {
           const ifh = document.createElement('div')
@@ -1324,7 +1340,7 @@ const Illust = window.IllustPanel.createIllustPanel({
     const quoteChoices = (!choiceMode && lastMsg && !isErr) ? extractQuoteChoices(lastMsg.content) : []
     if (quoteChoices.length >= 2) {
       choiceMode = true
-      $('input').placeholder = '点选上方选项直接行动，或在此自由描述…（Enter 发送）'
+      $('input').placeholder = '点选上方选项直接行动，或随心输入…（Enter 发送）'
       const head = document.createElement('div')
       head.className = 'choices-head'
       const title = document.createElement('span')
@@ -1358,7 +1374,7 @@ const Illust = window.IllustPanel.createIllustPanel({
         !(window.api && window.api.isTest)
       if (allowGenericFallback) {
         choiceMode = true
-        $('input').placeholder = '点选上方选项直接行动，或在此自由描述…（Enter 发送）'
+        $('input').placeholder = '点选上方选项直接行动，或随心输入…（Enter 发送）'
         const head = document.createElement('div')
         head.className = 'choices-head'
         const title = document.createElement('span')
@@ -1646,28 +1662,13 @@ const sendSt = {
     document.title = (s && n > 0 && s.title ? s.title : '六面世界')
   }
 
-  // ---- 模型面板（点模型芯片展开）：模型清单 + 思考程度滑块 + token 用量明细 ----
+  // ---- 模型面板（点模型芯片展开）：只留模型清单 + 思考程度滑块；用量/扣费等统一在输入框下方小字 ----
   const THINK_ORDER = ['default', 'low', 'medium', 'high']
   const THINK_LABELS = { default: '默认', low: '浅', medium: '中', high: '深' }
   function renderModelPop() {
     const pop = $('model-pop')
     if (!pop) return
-    const s = curSession()
-    let allTok = 0, allCost = 0, allImgs = 0
-    for (const x of sessions) {
-      if (x.tokens) { allTok += x.tokens.total || 0; allCost += x.tokens.cost || 0 }
-      allImgs += x.messages.filter((m) => m.illust).length
-    }
     const provider = PRESETS[cfg.preset] ? PRESETS[cfg.preset].name : cfg.preset
-    const st = (s && s.tokens) ? s.tokens : { prompt: 0, completion: 0, total: 0, cost: 0 }
-    const sessImgs = s ? s.messages.filter((m) => m.illust).length : 0
-    const row = (k, v) => {
-      const d = document.createElement('div'); d.className = 'mp-row'
-      const k1 = document.createElement('span'); k1.className = 'mp-k'; k1.textContent = k
-      const v1 = document.createElement('span'); v1.className = 'mp-v'; v1.textContent = v
-      d.appendChild(k1); d.appendChild(v1)
-      return d
-    }
     pop.innerHTML = ''
     // 头部：当前模型 + 提供商 + 刷新模型清单（从端点拉取）
     const head = document.createElement('div'); head.className = 'mp-head'
@@ -1763,19 +1764,7 @@ const sendSt = {
     sliderWrap.appendChild(range); sliderWrap.appendChild(dots)
     think.appendChild(th); think.appendChild(sliderWrap)
     pop.appendChild(think)
-    // token 用量明细（自有计费保留）
-    const usage = document.createElement('div'); usage.className = 'mp-usage'
-    usage.appendChild(row('本线用量', (st.prompt || 0) + ' 输入 / ' + (st.completion || 0) + ' 输出 / ' + (st.total || 0) + ' tok'))
-    usage.appendChild(row('全部世界线', allTok + ' tok'))
-    const costTxt = (st.cost > 0 || allCost > 0)
-      ? ((st.cost || 0).toFixed(4) + '（累计 ' + allCost.toFixed(4) + '）')
-      : '端点未返回计费信息'
-    usage.appendChild(row('扣费', costTxt))
-    if (illustReady()) {
-      usage.appendChild(row('插图模型', cfg.illustModel || '—'))
-      usage.appendChild(row('插图', sessImgs + ' 张本线 / ' + allImgs + ' 张全部（按张计费）'))
-    }
-    pop.appendChild(usage)
+    // 面板只留模型与思考程度；用量/扣费/插图统一走输入框下方小字（renderTokenMeter）
   }
   function toggleModelPop() {
     const pop = $('model-pop')
@@ -1787,21 +1776,26 @@ const sendSt = {
   if (chipT0) chipT0.addEventListener('click', (e) => { e.stopPropagation(); toggleModelPop() })
   if (meter0) meter0.addEventListener('click', (e) => { e.stopPropagation(); toggleModelPop() })
 
-  // ---- 底栏常显 token 计费小字（本会话累计；明细在模型面板） ----
-  function fmtTokCompact(n) {
-    n = Number(n) || 0
-    if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M'
-    if (n >= 1000) return (n / 1000).toFixed(1) + 'k'
-    return String(n)
-  }
+  // ---- 输入框下方统一小字：本线用量 / 扣费 / 全部世界线 / 插图（面板只留模型与思考程度） ----
   function renderTokenMeter() {
     const el = $('token-meter')
     if (!el) return
     const s = curSession()
     const t = s && s.tokens
     if (!t || !(t.total > 0)) { el.hidden = true; return }
+    let allTok = 0, allCost = 0, allImgs = 0
+    for (const x of sessions) {
+      if (x.tokens) { allTok += x.tokens.total || 0; allCost += x.tokens.cost || 0 }
+      allImgs += x.messages.filter((m) => m.illust).length
+    }
+    const sessImgs = s ? s.messages.filter((m) => m.illust).length : 0
+    const parts = ['本线 ' + (t.prompt || 0) + ' 输入 / ' + (t.completion || 0) + ' 输出 / ' + (t.total || 0) + ' tok']
+    if (t.cost > 0) parts.push('扣费 ' + Number(t.cost).toFixed(4) + (allCost > t.cost ? '（累计 ' + allCost.toFixed(4) + '）' : ''))
+    parts.push('全部世界线 ' + allTok + ' tok')
+    if (illustReady()) parts.push('插图 ' + (cfg.illustModel || '') + ' ' + sessImgs + '/' + allImgs + ' 张')
     el.hidden = false
-    el.textContent = fmtTokCompact(t.total) + ' tok' + (t.cost > 0 ? ' · ' + Number(t.cost).toFixed(4) : '')
+    el.textContent = parts.join(' · ')
+    el.title = '本会话 token 用量与扣费 · 点击打开模型面板' + (t.cost > 0 ? '' : '（端点未返回计费信息，费率见提供商账单）')
   }
 
   // ---- 模型/思考档位已并入模型面板（renderModelPop）。保留空实现：shared/onboarding.js 的向导拉取模型后仍会调用 ----
@@ -2495,6 +2489,8 @@ const KData = window.KernelData.createKernelData({
       if ($('kernel-hub').hidden) openKernelHub()
       openKernelLayer('source')
     } else if (name === 'gallery') openGallery()
+    else if (name === 'comic') openWorks()
+    else if (name === 'holo') openHoloGallery()
     else if (name === 'settings') openSettings()
     else if (name === 'density') {
       cfg.density = cfg.density === 'compact' ? 'standard' : 'compact'
@@ -3143,6 +3139,9 @@ const KData = window.KernelData.createKernelData({
     renderSessionList, renderMessages, updateTitle,
     summarize,
     viewIllust, generateIllust, downloadIllust,
+    illustReady: () => Illust.illustReady(),
+    switchToSession: (id) => { const t = sessions.find((x) => x.id === id); if (t) activateSession(t) },
+    focusInput: () => { const el = $('input'); if (el) el.focus() },
     confirmDialog, toast,
     cancelHideAnim, closeModalAnim,
   })
@@ -3150,6 +3149,92 @@ const KData = window.KernelData.createKernelData({
   const closeGallery = () => Gallery.closeGallery()
   const buildGallerySessionSelect = () => Gallery.buildGallerySessionSelect()
   const renderGallery = () => Gallery.renderGallery()
+
+  // ---- 漫画回放（Comic Replay）：一键从头生成漫画 + 阅读视图 + 导出 ----
+  const Comic = window.ComicPanel.createComicPanel({
+    api, cfg: () => cfg, $,
+    curSession, saveSessions, toast, confirmDialog,
+    stylePrompt: () => Illust.stylePrompt(),
+  })
+  const openComicPlanner = () => Comic.openPlanner()
+
+  // ---- 角色闪卡（Holo Card）：选角 → AI 规划 → 2 次生图 → 抠图排版 → 3D 查看器 ----
+  const Holo = window.HoloCard.createHoloCard({
+    api, cfg: () => cfg, $,
+    curSession, saveSessions, toast, confirmDialog,
+    stylePrompt: () => Illust.stylePrompt(),
+    onCardsChanged: () => { refreshWorksPop(); Holo.renderGalleryView() }
+  })
+  const openComicView = () => Comic.openView()
+  const comicResumePending = () => Comic.resumePending()
+  const openHoloGallery = () => Holo.openGalleryView()
+  const closeHoloGallery = () => Holo.closeGalleryView()
+  // ---- 作品菜单（顶栏）：漫画回放 / 角色闪卡 = 两个独立面板的入口 ----
+  // 替代原先挤在画廊工具条里的「生成漫画回放/阅读漫画/生成角色闪卡」三个按钮；
+  // 画廊因此回到纯插图浏览，闪卡图鉴也不再内嵌在画廊里（两者各占一层，互不干扰）。
+  function openWorks() {
+    // 已有分镜直接进阅读器（阅读器内有「继续生成」），否则进生成向导
+    const s = curSession()
+    if (s && s.comic && s.comic.panels && s.comic.panels.length) openComicView()
+    else openComicPlanner()
+  }
+  function refreshWorksPop() {
+    const s = curSession()
+    const comic = s && s.comic
+    const comicSub = $('works-comic-sub')
+    if (comicSub) {
+      comicSub.textContent = (comic && comic.panels && comic.panels.length)
+        ? ('已画 ' + comic.panels.filter((p) => p.illust).length + ' / ' + comic.panels.length + ' 幕')
+        : '还没有分镜'
+    }
+    const holoSub = $('works-holo-sub')
+    if (holoSub) {
+      const n = (s && s.cards && s.cards.length) || 0
+      holoSub.textContent = n ? (n + ' 张') : '还没有闪卡'
+    }
+  }
+  function openWorksPop() {
+    const pop = $('works-pop'); const btn = $('btn-works')
+    if (!pop || !btn) return
+    refreshWorksPop()
+    pop.classList.remove('hidden')
+    const r = btn.getBoundingClientRect()
+    pop.style.top = Math.round(r.bottom + 6) + 'px'
+    pop.style.right = Math.round(window.innerWidth - r.right) + 'px'
+    pop.style.left = 'auto'
+    const first = pop.querySelector('.works-item')
+    if (first) first.focus()
+  }
+  function closeWorksPop() {
+    const pop = $('works-pop')
+    if (!pop || pop.classList.contains('hidden')) return
+    const hadFocus = pop.contains(document.activeElement)
+    pop.classList.add('hidden')
+    if (hadFocus) window.A11y && window.A11y.restore($('btn-works'))
+  }
+  // 菜单方向键导航（role=menu 的键盘语义）
+  $('works-pop').addEventListener('keydown', (e) => {
+    const pop = $('works-pop')
+    const items = [...pop.querySelectorAll('.works-item')]
+    if (!items.length) return
+    const i = items.indexOf(document.activeElement)
+    if (e.key === 'ArrowDown') { e.preventDefault(); items[(i + 1 + items.length) % items.length].focus() }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); items[(i - 1 + items.length) % items.length].focus() }
+  })
+  function toggleWorksPop() {
+    const pop = $('works-pop')
+    if (pop && !pop.classList.contains('hidden')) closeWorksPop()
+    else openWorksPop()
+  }
+  $('btn-works').addEventListener('click', (e) => { e.stopPropagation(); toggleWorksPop() })
+  $('works-comic').addEventListener('click', () => { closeWorksPop(); openWorks() })
+  $('works-holo').addEventListener('click', () => { closeWorksPop(); openHoloGallery() })
+  // 点弹层外任意处收起（按钮自身的点击已 stopPropagation，不会误关）
+  document.addEventListener('click', (e) => {
+    const pop = $('works-pop')
+    if (!pop || pop.classList.contains('hidden')) return
+    if (!pop.contains(e.target)) closeWorksPop()
+  })
 
   // 叙事摘要：去掉【】结构块后截取前 60 字
   function summarize(text) {
@@ -3772,7 +3857,16 @@ const KData = window.KernelData.createKernelData({
       return
     }
     if (e.key === 'Escape') {
-      if (commandMask && !commandMask.hidden) closeCommandPanel()
+      // 大图查看器优先：它自己的 Esc 监听负责关闭，这里让行（否则一次 Esc 会连带关掉画廊）
+      if (document.getElementById('lightbox')) return
+      // 漫画回放阅读视图优先于画廊（视图从画廊打开，Esc 应先关视图本身）
+      const comicView = document.getElementById('comic-view')
+      const holoView = document.getElementById('holo-view')
+      const worksPopEl = $('works-pop')
+      if (comicView) comicView.dispatchEvent(new CustomEvent('comic-close'))
+      else if (holoView) closeHoloGallery()
+      else if (worksPopEl && !worksPopEl.classList.contains('hidden')) closeWorksPop()
+      else if (commandMask && !commandMask.hidden) closeCommandPanel()
       else if (themePopEl && !themePopEl.classList.contains('hidden')) closeThemePop()
       else if (!$('gallery').hidden) closeGallery()
       else if (!$('inspector-mask').hidden) closeInspector()
@@ -3808,6 +3902,14 @@ const KData = window.KernelData.createKernelData({
       if ($('kernel-hub').hidden) openKernelHub()
       if ($('kernel-hub').classList.contains('library-open')) closeKernelLayer()
       else openKernelLayer('library')
+    } else if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'm' || e.key === 'M')) {
+      // Ctrl+Shift+M 漫画回放（有分镜进阅读器，否则进生成向导）
+      e.preventDefault()
+      openWorks()
+    } else if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'h' || e.key === 'H')) {
+      // Ctrl+Shift+H 角色闪卡图鉴（独立面板）
+      e.preventDefault()
+      openHoloGallery()
     } else if ((e.ctrlKey || e.metaKey) && (e.key === '.' || e.key === '>')) {
       // Ctrl+. 打开/关闭源码焦点层
       e.preventDefault()

@@ -209,9 +209,165 @@ function createEngine(dataDir, opts) {
   engine.turnLogs = (storyId) => store.listTurnLogs(storyId)
   engine.turnLog = (storyId, turnId) => store.readTurnLog(storyId, turnId)
 
+  /* ---- 漫画回放素材（Comic Replay）：把事件账本整编为分镜师可读的素材 ----
+   * 纯读函数（不落盘、不建账本）。范围内 events 按 turn 分组，participants 的
+   * entity_id 翻译为角色名；每回合取 importance 最高的 events 作为该幕代表（压缩器）。
+   * cast 素材：character 实体的 name/summary/state 摘要，供外观表生成。
+   * turnLogs 增强：60 轮内的 patch（scene/participants 实名）补入该幕素材。 */
+  engine.comicSource = (storyId, fromTurn, toTurn) => {
+    const story = store.getStory(storyId)
+    if (!story) return null
+    const from = Math.max(1, Number(fromTurn) || 1)
+    const to = Math.min(Number.isFinite(Number(toTurn)) ? Number(toTurn) : (story.counters.turn || 1), story.counters.turn || 1)
+    return buildComicSource(story, from, Math.max(from, to), store)
+  }
+
+  /* ---- 角色闪卡素材（Holo Card）：character 实体的制卡档案 ----
+   * 纯读函数（不落盘、不建账本）。每个角色 = 实体档案 + 相关 ACTIVE facts（提及该角色）
+   * + 关系网（双向）+ 高重要度事件（参与）+ 近期场景行。玩家不在 entities 时补位。
+   * 输出供 pet:agent 'card' 任务规划卡面文案（称号/招式/一句话/生图提示词）。 */
+  engine.cardSource = (storyId) => {
+    const story = store.getStory(storyId)
+    if (!story) return null
+    return buildCardSource(story)
+  }
+
   engine.protocolPrompt = patchProtocolPrompt
   engine.meta = ENGINE_META
   return engine
 }
 
-module.exports = { createEngine, ENGINE_VERSION, ENGINE_META }
+/* 素材整编（导出供单测：引擎无 I/O，可直接构造 story 断言压缩器行为） */
+function buildComicSource(story, fromTurn, toTurn, store) {
+  const entById = new Map(story.entities.map((e) => [e.entity_id, e]))
+  const nameOf = (eid) => { const e = entById.get(eid); return (e && e.name) || eid }
+  // 范围内事件 → 按回合分桶（保持 turn 升序）
+  const byTurn = new Map()
+  for (const ev of story.events) {
+    const t = Number(ev.turn) || 0
+    if (t < fromTurn || t > toTurn) continue
+    if (!byTurn.has(t)) byTurn.set(t, [])
+    byTurn.get(t).push(ev)
+  }
+  // turnLogs（60 轮内滚动）的 patch 素材：turn → scene 摘要（实名）
+  const patchByTurn = new Map()
+  try {
+    if (store && typeof store.listTurnLogs === 'function') {
+      for (const tid of store.listTurnLogs(story.story_id)) {
+        const log = store.readTurnLog(story.story_id, tid)
+        const patch = log && log.parsed_state_patch
+        const turn = Number(patch && patch.turn_summary != null ? log.turn : NaN) || Number(log && log.turn) || NaN
+        if (!Number.isFinite(turn)) continue
+        patchByTurn.set(turn, patch)
+      }
+    }
+  } catch { /* 日志缺失不阻断素材整编 */ }
+
+  const turns = []
+  for (const t of Array.from(byTurn.keys()).sort((a, b) => a - b)) {
+    const evs = byTurn.get(t)
+    // 压缩器：每回合取 importance 最高的前 4 条事件描述（同分按账本顺序），转场（arrival/departure）必留
+    const picked = evs.slice().sort((a, b) => (b.importance || 0) - (a.importance || 0)).slice(0, 4)
+    const transitions = evs.filter((e) => e.type === 'arrival' || e.type === 'departure').filter((e) => !picked.includes(e))
+    const representative = picked[0] || evs[0]
+    const patch = patchByTurn.get(t) || null
+    const participants = Array.from(new Set(
+      evs.flatMap((e) => Array.isArray(e.participants) ? e.participants : []).map(nameOf)
+    )).filter(Boolean)
+    turns.push({
+      turn: t,
+      location: representative.location || '',
+      game_time: representative.game_time || '',
+      summary: (patch && patch.turn_summary) || '',
+      participants,
+      scene: (patch && patch.scene) ? {
+        location: patch.scene.location || '',
+        game_time: patch.scene.game_time || '',
+        participants: (Array.isArray(patch.scene.participants) ? patch.scene.participants : []).slice(0, 12)
+      } : null,
+      events: picked.concat(transitions.slice(0, 2)).map((e) => ({
+        type: e.type, description: e.description, importance: e.importance || 0
+      }))
+    })
+  }
+  // cast 素材：character 实体（含玩家）档案摘要；玩家与实体同名时去重（以实体档案为准）
+  const cast = story.entities.filter((e) => e.type === 'character').slice(0, 40).map((e) => ({
+    name: e.name,
+    summary: String(e.summary || '').slice(0, 400),
+    state: e.state && typeof e.state === 'object' ? JSON.stringify(e.state).slice(0, 400) : ''
+  }))
+  if (story.player && story.player.name && !cast.some((c) => c.name === story.player.name)) {
+    cast.unshift({ name: story.player.name, summary: '玩家角色', state: story.player.location ? JSON.stringify({ location: story.player.location }) : '' })
+  }
+  return {
+    story_id: story.story_id,
+    title: story.title,
+    from_turn: fromTurn,
+    to_turn: toTurn,
+    total_turns: story.counters.turn || 0,
+    turns,
+    cast
+  }
+}
+
+
+/* 闪卡素材整编（导出供单测）：character 实体制卡档案
+ * 每个角色：档案（name/summary/state/tags）+ 提及该角色的 ACTIVE facts（前 10）
+ * + 关系网（双向，前 8）+ 参与的高重要度事件（前 6）+ 玩家补位。
+ * 压缩原则与 comicSource 一致：只做装配，不调任何外部服务。 */
+function buildCardSource(story) {
+  const byName = (name) => story.entities.filter((e) => e.name === name)
+  const factsOf = (name) => story.facts
+    .filter((f) => f.status === 'ACTIVE' && String(f.statement || '').includes(name))
+    .slice(0, 10)
+    .map((f) => ({ statement: String(f.statement || '').slice(0, 200) }))
+  const relOf = (ent) => story.relationships
+    .filter((r) => r.status === 'ACTIVE' && (r.source === ent.entity_id || r.target === ent.entity_id))
+    .slice(0, 8)
+    .map((r) => ({
+      with: r.source === ent.entity_id ? r.target : r.source,
+      type: r.relation_type || '',
+      strength: r.strength != null ? Number(r.strength) : null
+    }))
+  const evOf = (ent) => story.events
+    .filter((e) => Array.isArray(e.participants) && e.participants.includes(ent.entity_id))
+    .sort((a, b) => (b.importance || 0) - (a.importance || 0))
+    .slice(0, 6)
+    .map((e) => ({ turn: e.turn, description: String(e.description || '').slice(0, 160), importance: e.importance || 0 }))
+  const characters = story.entities
+    .filter((e) => e.type === 'character' && e.status !== 'RETIRED')
+    .slice(0, 60)
+    .map((ent) => ({
+      name: ent.name,
+      summary: String(ent.summary || '').slice(0, 400),
+      state: ent.state && typeof ent.state === 'object' ? JSON.stringify(ent.state).slice(0, 400) : '',
+      tags: Array.isArray(ent.tags) ? ent.tags.slice(0, 10) : [],
+      facts: factsOf(ent.name),
+      relationships: relOf(ent),
+      events: evOf(ent)
+    }))
+  // 玩家角色补位（同名实体已存在时以实体档案为准）
+  if (story.player && story.player.name && !byName(story.player.name).length) {
+    characters.unshift({
+      name: story.player.name,
+      summary: '玩家角色',
+      state: story.player.location ? JSON.stringify({ location: story.player.location }) : '',
+      tags: [], facts: [], relationships: [], events: []
+    })
+  }
+  // 关系里的 entity_id 顺手翻译成名字（渲染层/LLM 直接可读）
+  const nameById = new Map(story.entities.map((e) => [e.entity_id, e.name]))
+  for (const c of characters) {
+    for (const r of c.relationships) {
+      if (r.with && nameById.has(r.with)) r.with = nameById.get(r.with)
+    }
+  }
+  return {
+    story_id: story.story_id,
+    title: story.title,
+    total_turns: story.counters.turn || 0,
+    characters
+  }
+}
+
+module.exports = { createEngine, ENGINE_VERSION, ENGINE_META, buildComicSource, buildCardSource }
