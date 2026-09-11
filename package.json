@@ -49,6 +49,7 @@
       "build/cat.png",
       "engine/**",
       "ui/**",
+      "renderer/holo/**",
       "node_modules/node-llama-cpp/**",
       "node_modules/@node-llama-cpp/win-x64/**",
       "node_modules/@node-llama-cpp/win-x64-vulkan/**",
