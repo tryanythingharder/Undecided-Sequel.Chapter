@@ -38,18 +38,30 @@ async function main() {
     await win.reload()
     await win.waitForTimeout(1800)
 
+    /* reload 后渲染层把 localStorage 会话防抖刷盘到磁盘（400ms 防抖 + 事件循环），
+     * CI 慢机上一发 loadSessions 可能赶在刷盘前——轮询至内容就绪（上限 8s），
+     * 消除时序竞态（2026-09 CI 在 763f54a 曾因此假红，本地 3/3 通过复现不出）。 */
     const result = await win.evaluate(async () => {
-      const cfg = JSON.parse(localStorage.getItem('sixworlds.codex.state.v3') || '{}')
-      const stored = await window.api.loadSessions()
-      const secrets = await window.api.loadSecrets()
-      const source = stored.sessions[0].messages[0].illust
+      const read = async () => {
+        const stored = await window.api.loadSessions()
+        const secrets = await window.api.loadSecrets()
+        const cfg = JSON.parse(localStorage.getItem('sixworlds.codex.state.v3') || '{}')
+        const s0 = stored && stored.sessions && stored.sessions[0]
+        return { cfg, stored, secrets, source: s0 && s0.messages && s0.messages[0] ? s0.messages[0].illust : undefined }
+      }
+      let r = await read()
+      const t0 = Date.now()
+      while ((!r.source || !(r.stored && r.stored.ok)) && Date.now() - t0 < 8000) {
+        await new Promise((res) => setTimeout(res, 400))
+        r = await read()
+      }
       const imageLoaded = await new Promise((resolve) => {
         const img = new Image()
         img.onload = () => resolve(img.naturalWidth === 1 && img.naturalHeight === 1)
         img.onerror = () => resolve(false)
-        img.src = source
+        img.src = r.source
       })
-      return { cfg, localSessions: localStorage.getItem('sixworlds.sessions.v2'), stored, secrets, source, imageLoaded }
+      return Object.assign(r, { localSessions: localStorage.getItem('sixworlds.sessions.v2'), imageLoaded })
     })
 
     const checks = [
