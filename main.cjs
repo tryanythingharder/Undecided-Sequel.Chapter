@@ -1660,8 +1660,8 @@ const PET_AGENT_FAKE_PLANS = {
   comic: {
     cast: [{ name: '主角', look: 'young man with brown hair, mage robe' }],
     panels: [
-      { turn: 1, title: '开场', narration: '故事从清晨的村庄开始。', participants: ['主角'], sceneLine: '【甲龙历407.03.01｜清晨｜布耶纳村】' },
-      { turn: 2, title: '启程', narration: '主角踏上了旅途。', participants: ['主角'], sceneLine: '【甲龙历407.03.01｜上午｜村口】' }
+      { turn: 1, title: '开场', narration: '故事从清晨的村庄开始。', participants: ['主角'], sceneLine: '【甲龙历407.03.01｜清晨｜布耶纳村】', size: 'hero', dialogue: [{ speaker: '主角', line: '又是新的一天。', tone: 'normal' }] },
+      { turn: 2, title: '启程', narration: '主角踏上了旅途。', participants: ['主角'], sceneLine: '【甲龙历407.03.01｜上午｜村口】', size: 'square', dialogue: [{ speaker: '主角', line: '出发吧！', tone: 'shout' }] }
     ]
   },
   card: {
@@ -1754,7 +1754,7 @@ function petAgentSpec(task, p) {
   if (task === 'comic') {
     const target = Number(p && p.panelCount) || 16
     return {
-      system: base + '\n任务：你是漫画分镜师。通读剧情素材，挑出最有戏剧性、最能串起故事的关键幕，并为每位主要角色生成英文外貌描述（发型发色/瞳色/体型/标志性服装），保证跨幕一致。输出字段：{"cast":[{"name":"角色名","look":"英文外貌描述"}],"panels":[{"turn":回合号,"title":"幕标题(≤12字)","narration":"该幕旁白/对白摘录(≤80字)","participants":["在场角色名"],"sceneLine":"【历法｜时段｜地点】"}]}。panels 数量必须接近 ' + target + ' 幕、按 turn 升序、turn 必须取自素材中出现过的回合号；look 为 40 词内英文；不要出现人名拼写的废字符。',
+      system: base + '\n任务：你是漫画分镜师。通读剧情素材，把故事编排成漫画页：每幕是一格分镜，相邻幕将拼在同一页上阅读。挑出最有戏剧性、最能串起故事的关键幕，并为每位主要角色生成英文外貌描述（发型发色/瞳色/体型/标志性服装），保证跨幕一致。输出字段：{"cast":[{"name":"角色名","look":"英文外貌描述"}],"panels":[{"turn":回合号,"title":"幕标题(≤12字)","narration":"该幕旁白摘录(≤60字,只写画外旁白,不写人物台词)","participants":["在场角色名"],"sceneLine":"【历法｜时段｜地点】","size":"格子尺寸,从 hero(跨页大格,用于开篇/高潮)/square(标准方格)/wide(宽扁格,用于风景/转场)/tall(竖长格,用于立绘/对峙) 中选","dialogue":[{"speaker":"说话人名","line":"台词(≤20字,口语化、贴角色)","tone":"语气,从 normal(平叙)/shout(怒喝,配锯齿气泡)/thought(内心独白,配云朵气泡)/whisper(低语,配虚线气泡) 中选"}]}]}。每幕 dialogue 给 0~3 条（无对话的动作格给空数组）；台词必须是素材中出现过或从情节自然推出的；narration 与 dialogue 不要重复同一句话。panels 数量必须接近 ' + target + ' 幕、按 turn 升序、turn 必须取自素材中出现过的回合号；look 为 40 词内英文；不要出现人名拼写的废字符。',
       user: '【角色档案（cast 素材）】\n' + String((p && p.castText) || '').slice(0, 6000) + '\n\n【按回合分组的剧情素材】\n' + story + '\n\n请按目标 ' + target + ' 幕完成分镜规划。'
     }
   }
@@ -1808,12 +1808,20 @@ function petAgentExtractPlan(task, text, p) {
       name: String((c && c.name) || '').slice(0, 60),
       look: String((c && c.look) || '').slice(0, 300)
     })).filter((c) => c.name && c.look)
+    const SIZES = ['hero', 'square', 'wide', 'tall']
+    const TONES = ['normal', 'shout', 'thought', 'whisper']
     const panels = (Array.isArray(plan.panels) ? plan.panels : []).map((q) => ({
       turn: Number(q && q.turn) || 0,
       title: String((q && q.title) || '').slice(0, 40),
       narration: String((q && q.narration) || '').slice(0, 160),
       participants: (Array.isArray(q && q.participants) ? q.participants : []).map(String).slice(0, 8),
-      sceneLine: String((q && q.sceneLine) || '').slice(0, 80)
+      sceneLine: String((q && q.sceneLine) || '').slice(0, 80),
+      size: SIZES.includes(q && q.size) ? q.size : 'square',
+      dialogue: (Array.isArray(q && q.dialogue) ? q.dialogue : []).map((d) => ({
+        speaker: String((d && d.speaker) || '').slice(0, 30),
+        line: String((d && d.line) || '').slice(0, 80),
+        tone: TONES.includes(d && d.tone) ? d.tone : 'normal'
+      })).filter((d) => d.speaker && d.line).slice(0, 4)
     })).filter((q) => q.turn > 0 && q.narration)
     if (!panels.length || !cast.length) return null
     panels.sort((a, b) => a.turn - b.turn)

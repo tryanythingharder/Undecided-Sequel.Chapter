@@ -56,9 +56,11 @@ function startMock() {
           const panels = turns.map((t) => ({
             turn: t,
             title: t === 1 ? '清晨的到访' : (t === 2 ? '走向森林' : '第' + t + '幕·继续旅程'),
-            narration: '第' + t + '幕的叙事摘录。',
+            narration: '第' + t + '幕的叙事旁白。',
             participants: ['主角'],
-            sceneLine: '【甲龙历407.03.0' + t + '｜清晨｜布耶纳村】'
+            sceneLine: '【甲龙历407.03.0' + t + '｜清晨｜布耶纳村】',
+            size: t === 1 ? 'hero' : 'square',
+            dialogue: [{ speaker: '主角', line: '第' + t + '句台词。', tone: t === 1 ? 'normal' : 'shout' }]
           }))
           return json(200, { choices: [{ message: { role: 'assistant', content: JSON.stringify({ cast: [{ name: '主角', look: 'young man with brown hair, plain village clothes' }], panels }) } }] })
         }
@@ -697,14 +699,33 @@ async function main() {
   await win.waitForTimeout(400)
   check('comic-view-opens', await win.locator('#comic-view').isVisible().catch(() => false))
   check('comic-sidebar-shown', await win.locator('#comic-view .comic-sidebar').isVisible().catch(() => false))
+  // 真漫画页：2 幕切 1 页（4 幕/页），一页上 2 个分格并排（hero 跨双列）
   const comicRows = await win.locator('#comic-view .comic-list-row').count()
-  check('comic-sidebar-rows', comicRows === 2, 'rows=' + comicRows)
-  check('comic-sidebar-states-done', (await win.locator('#comic-view .comic-list-state').allTextContents()).join('') === '✓✓')
-  check('comic-view-shows-img', (await win.locator('#comic-view .comic-img').count()) === 1)
+  check('comic-sidebar-rows-pages', comicRows === 1, 'pages=' + comicRows)
+  const rowState = (await win.locator('#comic-view .comic-list-state').allTextContents()).join('')
+  check('comic-sidebar-states-done', rowState === '✓', 'rowState=' + rowState + '（页面聚合：4格全✓则页显示单✓）')
+  check('comic-page-grid-cells', (await win.locator('#comic-view .comic-cell').count()) === 2, 'cells=' + (await win.locator('#comic-view .comic-cell').count()))
+  check('comic-cell-hero-spans', (await win.locator('#comic-view .comic-cell.size-hero').count()) === 1)
+  check('comic-view-shows-img', (await win.locator('#comic-view .comic-img').count()) === 2)
+  // 对白气泡：mock 规划给每幕 1 条台词 → 页上 2 个气泡（喊话语气带 tone-shout）
+  check('comic-bubbles-shown', (await win.locator('#comic-view .comic-bubble').count()) === 2, 'bubbles=' + (await win.locator('#comic-view .comic-bubble').count()))
+  check('comic-bubble-shout-tone', (await win.locator('#comic-view .comic-bubble.tone-shout').count()) === 1)
+  check('comic-caption-shown', (await win.locator('#comic-view .comic-caption').count()) === 2)
+  // 布局几何：hero 格宽 ≈ 2×方格（跨双列）；气泡叠在格内（气泡盒在 cell 盒内）
+  const geo = await win.evaluate(() => {
+    const hero = document.querySelector('#comic-view .comic-cell.size-hero')
+    const square = document.querySelector('#comic-view .comic-cell.size-square')
+    const bubble = document.querySelector('#comic-view .comic-bubble')
+    if (!hero || !square || !bubble) return null
+    const hr = hero.getBoundingClientRect(), sr = square.getBoundingClientRect()
+    const br = bubble.getBoundingClientRect()
+    const cr = bubble.parentElement.getBoundingClientRect() // 气泡自己的分格
+    return { heroW: Math.round(hr.width), squareW: Math.round(sr.width), bubbleInCell: br.left >= cr.left - 2 && br.right <= cr.right + 2 && br.top >= cr.top - 2 && br.bottom <= cr.bottom + 2 }
+  })
+  check('comic-hero-cell-double-width', !!geo && geo.heroW >= geo.squareW * 1.8, JSON.stringify(geo))
+  check('comic-bubble-overlaid-in-cell', !!geo && geo.bubbleInCell, '气泡应叠在分格内')
   const counterText = await win.locator('#comic-view .comic-counter').textContent().catch(() => '')
-  check('comic-view-counter', /1 \/ 2|2 \/ 2/.test(counterText), 'counter=' + counterText)
-  await win.keyboard.press('ArrowRight')
-  await win.waitForTimeout(200)
+  check('comic-view-counter', /第 1 \/ 1 页/.test(counterText), 'counter=' + counterText)
   await win.click('#comic-view .comic-view-export')
   ok = false
   for (let i = 0; i < 20; i++) {
@@ -714,10 +735,18 @@ async function main() {
   if (ok) {
     const exported = fs.readFileSync(path.join(__dirname, 'tmp-comic-export.html'), 'utf8')
     check('comic-export-selfcontained', exported.includes('data:image/png') && /漫画回放/.test(exported), 'len=' + exported.length)
+    // 导出为漫画页布局：分格 grid + 气泡 + hero 跨双列
+    check('comic-export-grid-page', exported.includes('class="page"') && exported.includes('grid-template-columns'), '导出应含分格页面')
+    check('comic-export-bubble', exported.includes('class="bubble tone-normal') && exported.includes('class="bubble tone-shout'), '导出应含对白气泡')
+    check('comic-export-hero-cell', exported.includes('class="cell size-hero"'), '导出应含 hero 跨列格')
   } else {
     check('comic-export-file-written', false, '导出文件未生成')
   }
   fs.rmSync(path.join(__dirname, 'tmp-comic-export.html'), { force: true })
+  // 阅读视图截图（人工视觉验收：分格网格 + 旁白条 + 对白气泡的排版效果）
+  await win.evaluate(() => { document.getElementById('comic-view') && document.querySelector('#comic-view .comic-nav-prev') })
+  fs.rmSync(path.join(__dirname, 'shot-comic-page.png'), { force: true })
+  await win.screenshot({ path: path.join(__dirname, 'shot-comic-page.png') })
   await win.keyboard.press('Escape')
   await win.waitForTimeout(300)
   check('comic-view-closes', !(await win.locator('#comic-view').count()))

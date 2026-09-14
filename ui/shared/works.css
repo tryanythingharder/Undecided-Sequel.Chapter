@@ -425,3 +425,52 @@ html[data-theme="light"] .gallery { box-shadow: -24px 0 64px rgba(0,0,0,.12), in
 @media (max-width: 760px) {
   .gallery { width: 100vw; }
 }
+
+
+/* ---------------- 真漫画页：网格分格 + 对白气泡（comic-panel.js renderPage） ----------------
+ * 页 = 2 列网格，4 幕/页；hero 跨双列开篇，tall 竖长格，wide 跨双列扁格。
+ * 对白气泡为 DOM 叠加（文字是真实文本，不是生图画出来的）；语气 tone-* 区分形态。 */
+.comic-page-grid {
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px; width: min(1180px, 90vw);
+  max-height: calc(88vh - 72px); overflow-y: auto; padding: 2px;
+}
+.comic-cell {
+  position: relative; overflow: hidden; min-height: 240px;
+  border: 2px solid rgba(255, 252, 245, .85); border-radius: 4px; background: #14161b;
+}
+.comic-cell.size-hero { grid-column: span 2; min-height: 400px; }
+.comic-cell.size-wide { grid-column: span 2; }
+.comic-cell.size-tall { min-height: 340px; }
+.comic-cell .comic-img { width: 100%; height: 100%; object-fit: cover; max-height: none; border: none; box-shadow: none; display: block; }
+/* 旁白条：格子顶部压暗横条（narration 只写画外旁白，不抢对白） */
+.comic-caption {
+  position: absolute; left: 0; right: 0; top: 0; z-index: 2;
+  padding: 6px 12px; background: rgba(16, 18, 24, .74);
+  color: #efe8da; font-size: 12.5px; line-height: 1.7; font-family: var(--sans);
+}
+/* 对白气泡：白底黑描边漫画泡；说话人小字 + 台词正文 */
+.comic-bubble {
+  position: absolute; z-index: 3; max-width: 58%;
+  padding: 7px 12px 8px; background: #fffdf8; color: #26221b;
+  border: 2px solid #2b2823; border-radius: 14px;
+  font-size: 13px; line-height: 1.6; font-family: var(--sans);
+  box-shadow: 2px 3px 0 rgba(0, 0, 0, .22);
+}
+.comic-bubble-name { font-size: 10.5px; font-weight: 700; color: #8a7c5c; letter-spacing: 1px; margin-bottom: 2px; }
+.comic-bubble-line { white-space: pre-wrap; }
+/* 气泡四角错位排布（同一格最多 4 条） */
+.comic-bubble.bubble-pos-1 { top: 44px; right: 12px; }
+.comic-bubble.bubble-pos-2 { bottom: 38px; left: 12px; }
+.comic-bubble.bubble-pos-3 { top: 96px; right: 12px; }
+.comic-bubble.bubble-pos-4 { bottom: 90px; left: 12px; }
+/* 语气形态：喊话锯齿感（旋转 + 加粗）/ 内心云朵（大圆角虚线）/ 低语（点线 + 弱化） */
+.comic-bubble.tone-shout { background: #fff3ee; font-weight: 700; transform: rotate(-1.5deg); }
+.comic-bubble.tone-thought { background: #f4f3fc; border-style: dashed; border-color: #5b5b7a; border-radius: 22px; }
+.comic-bubble.tone-whisper { background: #f7f6f2; border-style: dotted; color: #6a655c; }
+/* 未画格占位沿用 .comic-placeholder（classic/proto styles.css 里已有），压在 cell 内 */
+.comic-cell .comic-placeholder { width: auto; max-width: 100%; margin: auto; position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+/* 页脚场景行 */
+.comic-scene-line {
+  font-size: 11px; color: #a08b5f; letter-spacing: 2px; font-family: var(--sans); text-align: center;
+}

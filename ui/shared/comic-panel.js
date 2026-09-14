@@ -26,7 +26,15 @@
       try { localStorage.setItem(LS_KEY, JSON.stringify(p)) } catch {}
     }
 
-    /* ---------- 分镜提示词构建：风格 + cast 外观 + 场景行 + 叙事 ---------- */
+    /* ---------- 分镜提示词构建：风格 + cast 外观 + 场景行 + 叙事 ----------
+     * 漫画格构图原则：一格只画「一个瞬间」（正在发生的事，不是剧情概括）；
+     * 对白/旁白由 DOM 气泡叠加，画面必须完全无文字（模型画字必成乱码）。 */
+    const PANEL_COMPOSITION = {
+      hero: 'single dramatic establishing panel composition, one key dramatic moment in motion, dynamic angle, cinematic framing',
+      square: 'standard manga panel composition, one clear action beat, mid-shot, focus on one decisive moment',
+      wide: 'wide landscape panel, panoramic scenery or transition shot, small figures in environment, horizontal framing',
+      tall: 'tall vertical panel, full-body character standing pose or face-off, dramatic low angle, vertical framing'
+    }
     function panelPrompt(panel, comic, styleText) {
       const look = (comic.cast || [])
         .filter((c) => (panel.participants || []).includes(c.name))
@@ -34,10 +42,12 @@
         .join('; ')
       const scene = panel.sceneLine || ''
       const narr = String(panel.narration || '')
-      const parts = [styleText]
+      const comp = PANEL_COMPOSITION[panel.size] || PANEL_COMPOSITION.square
+      const parts = [styleText, comp, 'one single moment from the scene, not a summary collage']
       if (look) parts.push('Characters present: ' + look)
       if (scene) parts.push('Scene: ' + scene)
       parts.push('Depicted: ' + narr)
+      parts.push('absolutely no text, no letters, no speech bubbles, no captions in the image (dialogue is overlaid separately)')
       return parts.join('. ')
     }
 
@@ -253,6 +263,8 @@
           sceneLine: q.sceneLine || '',
           narration: q.narration || '',
           participants: q.participants || [],
+          size: q.size || 'square',
+          dialogue: Array.isArray(q.dialogue) ? q.dialogue : [],
           prompt: '',
           illust: null, illustAsset: null, illustAt: null, illustPending: false, illustError: null
         })))
@@ -303,7 +315,9 @@
           title: (t.summary || (top && top.description) || '第' + t.turn + '幕').slice(0, 40),
           narration: (t.summary || (top && top.description) || '').slice(0, 160),
           participants: (t.scene && t.scene.participants) || [],
-          sceneLine: sceneLineOf(t)
+          sceneLine: sceneLineOf(t),
+          size: panels.length % 4 === 0 ? 'hero' : 'square', // 轮转节奏：每页首格大
+          dialogue: [] // 本地模式没有台词素材，出无对白的纯画格（旁白气泡仍会渲染）
         })
         if (panels.length >= 200) break // 2000 张闸门 + 每回合上限双保险
       }
@@ -479,7 +493,7 @@
       sidebar.className = 'comic-sidebar'
       const sbHead = document.createElement('div')
       sbHead.className = 'comic-sidebar-head'
-      sbHead.textContent = '分幕'
+      sbHead.textContent = '分页'
       const sbCount = document.createElement('span')
       sbCount.className = 'comic-sidebar-count'
       sbHead.appendChild(sbCount)
@@ -491,11 +505,11 @@
       const navPrev = document.createElement('button')
       navPrev.className = 'comic-nav comic-nav-prev'
       navPrev.innerHTML = '‹'
-      navPrev.title = '上一幕（←）'
+      navPrev.title = '上一页（←）'
       const navNext = document.createElement('button')
       navNext.className = 'comic-nav comic-nav-next'
       navNext.innerHTML = '›'
-      navNext.title = '下一幕（→）'
+      navNext.title = '下一页（→）'
       mask.appendChild(navPrev); mask.appendChild(navNext)
       const closeBtn = document.createElement('button')
       closeBtn.className = 'comic-view-close'
@@ -515,44 +529,56 @@
       document.body.appendChild(mask)
 
       const panels = s.comic.panels
-      // 列表行只建一次，renderPanel 只更新高亮与状态字（避免每次翻页重建 DOM）
-      const listRows = panels.map((p, i) => {
+      /* ---- 真漫画页模型：panels 按每页 4 幕切页（hero 格占双列），阅读器翻的是页 ----
+       * 分页确定性（按数组顺序切块），不存 pages —— 数据形状不变，旧 session 兼容。 */
+      const PAGE_SIZE = 4
+      const pages = []
+      for (let i = 0; i < panels.length; i += PAGE_SIZE) pages.push(panels.slice(i, i + PAGE_SIZE))
+      // 列表行只建一次，renderPage 只更新高亮与状态字（避免每次翻页重建 DOM）
+      const listRows = pages.map((pg, pi) => {
         const row = document.createElement('button')
         row.type = 'button'
         row.className = 'comic-list-row'
         const idxEl = document.createElement('span')
         idxEl.className = 'comic-list-idx'
-        idxEl.textContent = String(i + 1)
+        idxEl.textContent = String(pi + 1)
         const titleEl = document.createElement('span')
         titleEl.className = 'comic-list-title'
-        titleEl.textContent = p.title || ('第 ' + p.turn + ' 回合')
+        const t = (pg[0] && (pg[0].title || ('第 ' + pg[0].turn + ' 回合'))) || ''
+        titleEl.textContent = t + ' …'
         titleEl.title = titleEl.textContent
         const stEl = document.createElement('span')
         stEl.className = 'comic-list-state'
         row.appendChild(idxEl); row.appendChild(titleEl); row.appendChild(stEl)
-        row.addEventListener('click', () => { viewIdx = i; renderPanel() })
+        row.addEventListener('click', () => { viewIdx = pi; renderPage() })
         list.appendChild(row)
         return { row, stEl }
       })
+      const stateOfPage = (pg) => {
+        const states = pg.map((p) => p.illust ? '✓' : (p.illustError ? '!' : (p.illustPending ? '…' : '—')))
+        const uniq = [...new Set(states)]
+        return uniq.length === 1 ? uniq[0] : uniq.join('')
+      }
       const stateOf = (p) => p.illust ? '✓' : (p.illustError ? '!' : (p.illustPending ? '…' : '—'))
-      const renderPanel = () => {
-        const p = panels[viewIdx]
-        if (!p) return
-        stage.innerHTML = ''
-        sbCount.textContent = (viewIdx + 1) + ' / ' + panels.length
-        listRows.forEach((r, i) => {
-          r.row.classList.toggle('on', i === viewIdx)
-          r.stEl.textContent = stateOf(panels[i])
-        })
-        const page = document.createElement('div')
-        page.className = 'comic-page'
-        const counter = document.createElement('div')
-        counter.className = 'comic-counter'
-        counter.textContent = (viewIdx + 1) + ' / ' + panels.length + ' · ' + (p.title || ('第 ' + p.turn + ' 回合'))
-        const img = document.createElement('img')
-        img.className = 'comic-img'
-        img.src = p.illust || ''
-        img.alt = p.title || '漫画分镜'
+
+      /* ---- 气泡：对白叠在画格上（白底描边漫画气泡 / 喊话锯齿 / 内心云朵 / 低语虚线） ----
+       * 旁白（narration）走画格顶部的旁白条（半透明压暗条），不再占页面下方整段。 */
+      function buildBubble(d) {
+        const b = document.createElement('div')
+        b.className = 'comic-bubble tone-' + (d.tone || 'normal')
+        const name = document.createElement('div')
+        name.className = 'comic-bubble-name'
+        name.textContent = d.speaker
+        const line = document.createElement('div')
+        line.className = 'comic-bubble-line'
+        line.textContent = d.line
+        b.appendChild(name); b.appendChild(line)
+        return b
+      }
+      function buildPanelCell(p, panelNoOnPage) {
+        const cell = document.createElement('div')
+        cell.className = 'comic-cell size-' + (p.size || 'square')
+        cell.setAttribute('data-panel-no', String(panelNoOnPage))
         if (!p.illust) {
           const ph = document.createElement('div')
           ph.className = 'comic-placeholder'
@@ -560,41 +586,73 @@
           if (p.illustError || !p.illustPending) {
             const rb = document.createElement('button')
             rb.className = 'comic-redraw'
-            rb.textContent = p.illustError ? '↻ 重绘这一幕' : '绘制这一幕'
-            rb.addEventListener('click', async () => {
+            rb.textContent = p.illustError ? '↻ 重绘这一格' : '绘制这一格'
+            rb.addEventListener('click', async (ev) => {
+              ev.stopPropagation()
               if (queueRunning) { toast('队列进行中，稍后再试', 'info'); return }
               p.illustError = null
               await drawPanel(curSession(), p, ctx.stylePrompt())
-              renderPanel()
+              renderPage()
             })
             ph.appendChild(document.createElement('br'))
             ph.appendChild(rb)
           }
-          page.appendChild(ph)
+          cell.appendChild(ph)
         } else {
-          page.appendChild(img)
+          const img = document.createElement('img')
+          img.className = 'comic-img'
+          img.src = p.illust || ''
+          img.alt = p.title || '漫画分镜'
+          cell.appendChild(img)
         }
-        const narr = document.createElement('div')
-        narr.className = 'comic-narr'
+        // 旁白条：格子顶部压暗横条（narration 只写画外旁白）
+        if (p.narration) {
+          const cap = document.createElement('div')
+          cap.className = 'comic-caption'
+          cap.textContent = p.narration
+          cell.appendChild(cap)
+        }
+        // 对白气泡：右上/左下/右上/左上按序错开，多气泡沿边排布
+        const dl = Array.isArray(p.dialogue) ? p.dialogue : []
+        dl.forEach((d, di) => {
+          if (!d || !d.speaker || !d.line) return
+          const b = buildBubble(d)
+          b.classList.add('bubble-pos-' + ((di % 4) + 1))
+          cell.appendChild(b)
+        })
+        return cell
+      }
+
+      const renderPage = () => {
+        const pg = pages[viewIdx]
+        if (!pg) return
+        stage.innerHTML = ''
+        sbCount.textContent = (viewIdx + 1) + ' / ' + pages.length
+        listRows.forEach((r, i) => {
+          r.row.classList.toggle('on', i === viewIdx)
+          r.stEl.textContent = stateOfPage(pages[i])
+        })
+        const page = document.createElement('div')
+        page.className = 'comic-page comic-page-grid'
+        const counter = document.createElement('div')
+        counter.className = 'comic-counter'
+        const first = pg[0]
+        const last = pg[pg.length - 1]
+        counter.textContent = '第 ' + (viewIdx + 1) + ' / ' + pages.length + ' 页 · 幕 ' +
+          ((first.turn ? ('#' + first.turn) : '') || '') + '–' + (last ? ('#' + last.turn) : '')
+        pg.forEach((p, i) => page.appendChild(buildPanelCell(p, i + 1)))
         const scene = document.createElement('div')
-        scene.className = 'comic-scene'
-        scene.textContent = p.sceneLine || ''
-        const title = document.createElement('div')
-        title.className = 'comic-title'
-        title.textContent = (viewIdx + 1) + '. ' + (p.title || '') + (p.turn ? '（第' + p.turn + '回合）' : '')
-        const body = document.createElement('div')
-        body.className = 'comic-body'
-        body.textContent = p.narration || ''
-        narr.appendChild(scene); narr.appendChild(title); narr.appendChild(body)
-        page.appendChild(narr)
+        scene.className = 'comic-scene-line'
+        scene.textContent = (first.sceneLine || '') + (first.sceneLine && last.sceneLine && first.sceneLine !== last.sceneLine ? ' → ' + last.sceneLine : '')
         stage.appendChild(counter)
         stage.appendChild(page)
+        stage.appendChild(scene)
       }
       const step = (dir) => {
         const next = viewIdx + dir
-        if (next < 0 || next >= panels.length) return
+        if (next < 0 || next >= pages.length) return
         viewIdx = next
-        renderPanel()
+        renderPage()
       }
       navPrev.addEventListener('click', () => step(-1))
       navNext.addEventListener('click', () => step(1))
@@ -620,17 +678,17 @@
       contBtn.addEventListener('click', () => { close(); openPlanner() })
       document.addEventListener('keydown', onKey)
       closeViewFn = close
-      // 从最新已画幕开始读
+      // 从含最新已画幕的页开始读
       let lastDone = -1
       panels.forEach((p, i) => { if (p.illust) lastDone = i })
-      viewIdx = Math.max(0, lastDone)
-      renderPanel()
+      viewIdx = Math.max(0, Math.floor(Math.max(0, lastDone) / PAGE_SIZE))
+      renderPage()
       closeBtn.focus()
     }
 
     function closeView() { if (closeViewFn) closeViewFn() }
 
-    /* ---------- HTML 导出（自包含：内嵌 base64 图 + 分镜排版） ---------- */
+    /* ---------- HTML 导出（自包含：内嵌 base64 图 + 漫画页分格排版 + 气泡） ---------- */
     async function exportHtml() {
       const s = curSession()
       if (!s || !s.comic) return
@@ -642,20 +700,41 @@
         const loaded = await api.readImageDataUrl(p.illust)
         return Object.assign({}, p, { illust: loaded && loaded.ok ? loaded.dataUrl : null })
       }))
-      const sections = hydrated.map((p, i) => {
-        const img = p.illust ? ('<figure><img src="' + esc(p.illust) + '" alt="' + esc(p.title) + '" /></figure>') : ''
-        return '<section class="panel"><div class="panel-head">' + esc(p.sceneLine) + '</div>' + img +
-          '<h3>' + (i + 1) + '. ' + esc(p.title) + '</h3><p>' + esc(p.narration) + '</p></section>'
-      }).join('\n')
+      // 与阅读视图同构：每页 4 格（hero 占双列），格内叠对白气泡
+      const PAGE_SIZE = 4
+      const pages = []
+      for (let i = 0; i < hydrated.length; i += PAGE_SIZE) pages.push(hydrated.slice(i, i + PAGE_SIZE))
+      const bubbleHtml = (p) => (Array.isArray(p.dialogue) ? p.dialogue : [])
+        .filter((d) => d && d.speaker && d.line)
+        .map((d, di) => '<div class="bubble tone-' + esc(d.tone || 'normal') + ' pos-' + ((di % 4) + 1) + '"><i>' + esc(d.speaker) + '</i>' + esc(d.line) + '</div>')
+        .join('')
+      const pageHtml = (pg) => '<section class="page">' + pg.map((p) => {
+        const cell = '<div class="cell size-' + esc(p.size || 'square') + '">' +
+          (p.illust ? ('<img src="' + esc(p.illust) + '" alt="' + esc(p.title) + '" />') : '') +
+          (p.narration ? ('<div class="cap">' + esc(p.narration) + '</div>') : '') +
+          bubbleHtml(p) +
+          '<div class="tag">' + esc(p.sceneLine) + ' · ' + esc(p.title) + '</div>' +
+          '</div>'
+        return cell
+      }).join('') + '</section>'
       const html = '<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>' + esc(s.title) + ' · 漫画回放</title><style>' +
-        'body{font-family:Georgia,"Noto Serif SC",serif;max-width:860px;margin:40px auto;padding:0 20px;background:#f7f4ee;color:#2b2823;line-height:1.9}' +
-        'h1{font-size:24px;letter-spacing:2px;text-align:center}.meta{color:#8a857c;font-size:13px;text-align:center;margin-bottom:36px}' +
-        '.panel{margin:36px 0;padding:20px 24px;background:#fffdf9;border:1px solid #e4ded2;border-radius:12px}' +
-        '.panel-head{font-size:12px;letter-spacing:1px;color:#a08b5f;margin-bottom:10px}' +
-        'figure{margin:0 0 14px}figure img{max-width:100%;border-radius:8px;border:1px solid #e4ded2}' +
-        '.panel h3{font-size:17px;margin:0 0 8px}.panel p{white-space:pre-wrap;margin:0;font-size:15px}' +
-        '</style></head><body><h1>' + esc(s.title) + '</h1><div class="meta">六面世界 · 漫画回放 · ' + hydrated.length + ' 幕 · 导出于 ' +
-        new Date().toLocaleDateString('zh-CN') + '</div>' + sections + '</body></html>'
+        'body{font-family:"Noto Sans SC","Microsoft YaHei",sans-serif;max-width:1060px;margin:24px auto;padding:0 16px;background:#efe9de;color:#2b2823}' +
+        'h1{font-size:22px;letter-spacing:3px;text-align:center;margin:28px 0 4px}.meta{color:#8a857c;font-size:12.5px;text-align:center;margin-bottom:24px}' +
+        '.page{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin:0 0 22px}' +
+        '.cell{position:relative;overflow:hidden;border:2px solid #2b2823;border-radius:4px;background:#fffdf9;min-height:220px}' +
+        '.cell.size-hero{grid-column:span 2;min-height:360px}.cell.size-wide{grid-column:span 2}.cell.size-square{}.cell.size-tall{grid-row:span 1}' +
+        '.cell img{width:100%;height:100%;object-fit:cover;display:block}' +
+        '.cap{position:absolute;left:0;right:0;top:0;padding:6px 12px;background:rgba(20,22,26,.72);color:#f4efe5;font-size:12.5px;line-height:1.7;z-index:2}' +
+        '.bubble{position:absolute;max-width:62%;padding:7px 12px 8px;background:#fff;border:2px solid #2b2823;border-radius:14px;z-index:3;font-size:13px;line-height:1.6;box-shadow:2px 2px 0 rgba(43,40,35,.18)}' +
+        '.bubble i{display:block;font-style:normal;font-size:10.5px;color:#8a7c5c;font-weight:700;margin-bottom:2px;letter-spacing:1px}' +
+        '.bubble.pos-1{top:12px;right:12px}.bubble.pos-2{bottom:14px;left:12px}.bubble.pos-3{top:64px;right:12px}.bubble.pos-4{bottom:64px;left:12px}' +
+        '.bubble.tone-shout{border-style:solid;background:#fff3ef;transform:rotate(-1.5deg);font-weight:700}' +
+        '.bubble.tone-thought{background:#f3f2ff;border-style:dashed;border-color:#5b5b7a;border-radius:20px}' +
+        '.bubble.tone-whisper{background:#f7f7f4;border-style:dotted;color:#6a6a60}' +
+        '.tag{position:absolute;left:0;right:0;bottom:0;padding:4px 10px;background:rgba(43,40,35,.66);color:#e8e2d4;font-size:10.5px;letter-spacing:1px;z-index:2}' +
+        '@media print{body{max-width:none}.page{break-inside:avoid}}' +
+        '</style></head><body><h1>' + esc(s.title) + '</h1><div class="meta">六面世界 · 漫画回放 · ' + hydrated.length + ' 幕 · ' + pages.length + ' 页 · 导出于 ' +
+        new Date().toLocaleDateString('zh-CN') + '</div>' + pages.map(pageHtml).join('\n') + '</body></html>'
       const name = (s.title || 'sixworlds').replace(/[\\/:*?"<>|]/g, '_').slice(0, 60) + '-漫画.html'
       const r = await api.saveFile({ title: '导出漫画回放', defaultName: name, content: html })
       if (r && r.ok) toast('漫画已导出：' + r.path, 'ok')
