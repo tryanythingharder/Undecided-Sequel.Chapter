@@ -10,13 +10,29 @@ async function main() {
   const resources = path.join(root, 'dist', 'win-unpacked', 'resources')
 
   // ---- 打包产物静态检查：原型方案已入 asar；sqlite-vec dll 已解包 ----
+  // asar 头部是嵌套 JSON 键树（路径段各自成键），完整路径不会以连续子串出现在字节流里——
+  // 必须解析头部后做结构化路径查找；对原始 buffer 的子串断言只会因文件内容碰巧含该串而"侥幸通过"。
   const asarBuf = fs.readFileSync(path.join(resources, 'app.asar'))
-  if (!asarBuf.includes('ui/proto')) throw new Error('app.asar 缺少 ui/proto（原型方案未打包）')
-  if (!asarBuf.includes(Buffer.from('sessions-client.js'))) throw new Error('app.asar 缺少 ui/shared/sessions-client.js（双方案共享会话数据层未打包——两侧启动即崩）')
-  if (!asarBuf.includes(Buffer.from('cat.png'))) throw new Error('app.asar 缺少 build/cat.png（品牌图未打包）')
+  const asarJsonSize = asarBuf.readUInt32LE(12)
+  const asarHeader = JSON.parse(asarBuf.slice(16, 16 + asarJsonSize).toString('utf8'))
+  const asarPaths = (node, prefix) => {
+    const out = []
+    if (!node || !node.files) return out
+    for (const [k, v] of Object.entries(node.files)) {
+      const p = prefix ? prefix + '/' + k : k
+      if (v.files) out.push(...asarPaths(v, p))
+      else out.push(p)
+    }
+    return out
+  }
+  const packedPaths = asarPaths(asarHeader, '')
+  const hasPacked = (suffix) => packedPaths.some((p) => p.endsWith(suffix) || p.endsWith(suffix.replace(/\//g, '\\')))
+  if (!hasPacked('ui/proto/index.html')) throw new Error('app.asar 缺少 ui/proto/index.html（原型方案未打包）')
+  if (!hasPacked('ui/shared/sessions-client.js')) throw new Error('app.asar 缺少 ui/shared/sessions-client.js（双方案共享会话数据层未打包——两侧启动即崩）')
+  if (!hasPacked('build/cat.png')) throw new Error('app.asar 缺少 build/cat.png（品牌图未打包）')
   /* 全息查看器资产路径与 UI 方案目录无关地断言（renderer/holo 或 ui/holo 都应命中）：
    * 目录重组把打包清单改成 ui/**，而 holo 查看器不在 ui/ 下，曾整包丢失。 */
-  if (!asarBuf.includes(Buffer.from('holo/card.glb'))) throw new Error('app.asar 缺少全息查看器资产 holo/card.glb（查看器打开即白屏）')
+  if (!hasPacked('holo/card.glb')) throw new Error('app.asar 缺少全息查看器资产 holo/card.glb（查看器打开即白屏）')
   const dll = path.join(resources, 'app.asar.unpacked', 'node_modules', 'sqlite-vec-windows-x64', 'vec0.dll')
   if (!fs.existsSync(dll)) throw new Error('sqlite-vec 的 vec0.dll 未解包到 app.asar.unpacked')
 

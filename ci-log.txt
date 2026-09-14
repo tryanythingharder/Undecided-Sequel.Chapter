@@ -1,0 +1,1438 @@
+﻿2026-09-11T05:01:04.3927488Z Current runner version: '2.337.0'
+2026-09-11T05:01:04.3962249Z ##[group]Runner Image Provisioner
+2026-09-11T05:01:04.3963363Z Hosted Compute Agent
+2026-09-11T05:01:04.3964159Z Version: 20260828.587
+2026-09-11T05:01:04.3965102Z Commit: abac92662cab4cc7352de4f9f9d2e2419aad9c29
+2026-09-11T05:01:04.3966151Z Build Date: 2026-08-28T16:44:25Z
+2026-09-11T05:01:04.3967282Z Worker ID: {f1daf75b-9f72-4574-9678-754d6adb94ff}
+2026-09-11T05:01:04.3968401Z Azure Region: northcentralus
+2026-09-11T05:01:04.3969308Z ##[endgroup]
+2026-09-11T05:01:04.3971287Z ##[group]Operating System
+2026-09-11T05:01:04.3972192Z Microsoft Windows Server 2025
+2026-09-11T05:01:04.3973027Z 10.0.26100
+2026-09-11T05:01:04.3973729Z Datacenter
+2026-09-11T05:01:04.3974465Z ##[endgroup]
+2026-09-11T05:01:04.3975205Z ##[group]Runner Image
+2026-09-11T05:01:04.3976149Z Image: windows-2025-vs2026
+2026-09-11T05:01:04.3977429Z Version: 20260907.229.1
+2026-09-11T05:01:04.3980106Z Included Software: https://github.com/actions/runner-images/blob/win25-vs2026/20260907.229/images/windows/Windows2025-VS2026-Readme.md
+2026-09-11T05:01:04.3982865Z Image Release: https://github.com/actions/runner-images/releases/tag/win25-vs2026%2F20260907.229
+2026-09-11T05:01:04.3984472Z ##[endgroup]
+2026-09-11T05:01:04.3986336Z ##[group]GITHUB_TOKEN Permissions
+2026-09-11T05:01:04.3988934Z Contents: read
+2026-09-11T05:01:04.3989810Z Metadata: read
+2026-09-11T05:01:04.3990575Z Packages: read
+2026-09-11T05:01:04.3991361Z ##[endgroup]
+2026-09-11T05:01:04.3993857Z Secret source: Actions
+2026-09-11T05:01:04.3995131Z Cache mode: write
+2026-09-11T05:01:04.3996239Z Prepare workflow directory
+2026-09-11T05:01:04.4361720Z Prepare all required actions
+2026-09-11T05:01:04.4430032Z Getting action download info
+2026-09-11T05:01:04.6423071Z Download action repository 'actions/checkout@v4' (SHA:11d5960a326750d5838078e36cf38b85af677262)
+2026-09-11T05:01:04.7906937Z Download action repository 'actions/setup-node@v4' (SHA:49933ea5288caeca8642d1e84afbd3f7d6820020)
+2026-09-11T05:01:05.1181850Z Complete job name: desktop
+2026-09-11T05:01:05.2587270Z Node 20 is being deprecated. This workflow is running with Node 24 by default. If you need to temporarily use Node 20, you can set the ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION=true environment variable. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+2026-09-11T05:01:05.2596992Z ##[group]Run actions/checkout@v4
+2026-09-11T05:01:05.2597628Z with:
+2026-09-11T05:01:05.2598134Z   repository: tryanythingharder/Undecided-Sequel.Chapter
+2026-09-11T05:01:05.2602729Z   token: ***
+2026-09-11T05:01:05.2603131Z   ssh-strict: true
+2026-09-11T05:01:05.2603528Z   ssh-user: git
+2026-09-11T05:01:05.2603929Z   persist-credentials: true
+2026-09-11T05:01:05.2604368Z   clean: true
+2026-09-11T05:01:05.2604773Z   sparse-checkout-cone-mode: true
+2026-09-11T05:01:05.2605245Z   fetch-depth: 1
+2026-09-11T05:01:05.2605623Z   fetch-tags: false
+2026-09-11T05:01:05.2606023Z   show-progress: true
+2026-09-11T05:01:05.2606501Z   lfs: false
+2026-09-11T05:01:05.2606872Z   submodules: false
+2026-09-11T05:01:05.2607276Z   set-safe-directory: true
+2026-09-11T05:01:05.2607726Z   allow-unsafe-pr-checkout: false
+2026-09-11T05:01:05.2608432Z ##[endgroup]
+2026-09-11T05:01:05.4104976Z Syncing repository: tryanythingharder/Undecided-Sequel.Chapter
+2026-09-11T05:01:05.4110693Z ##[group]Getting Git version info
+2026-09-11T05:01:05.4111945Z Working directory is 'D:\a\Undecided-Sequel.Chapter\Undecided-Sequel.Chapter'
+2026-09-11T05:01:05.5118502Z [command]"C:\Program Files\Git\bin\git.exe" version
+2026-09-11T05:01:05.8654722Z git version 2.55.0.windows.5
+2026-09-11T05:01:05.8706849Z ##[endgroup]
+2026-09-11T05:01:05.8727253Z Temporarily overriding HOME='D:\a\_temp\63ff1898-40e4-4e92-9152-b5c3dcb0901b' before making global git config changes
+2026-09-11T05:01:05.8729549Z Adding repository directory to the temporary git global config as a safe directory
+2026-09-11T05:01:05.8739870Z [command]"C:\Program Files\Git\bin\git.exe" config --global --add safe.directory D:\a\Undecided-Sequel.Chapter\Undecided-Sequel.Chapter
+2026-09-11T05:01:05.9450453Z Deleting the contents of 'D:\a\Undecided-Sequel.Chapter\Undecided-Sequel.Chapter'
+2026-09-11T05:01:05.9455912Z ##[group]Initializing the repository
+2026-09-11T05:01:05.9465379Z [command]"C:\Program Files\Git\bin\git.exe" init D:\a\Undecided-Sequel.Chapter\Undecided-Sequel.Chapter
+2026-09-11T05:01:06.0290987Z Initialized empty Git repository in D:/a/Undecided-Sequel.Chapter/Undecided-Sequel.Chapter/.git/
+2026-09-11T05:01:06.0336098Z [command]"C:\Program Files\Git\bin\git.exe" remote add origin https://github.com/tryanythingharder/Undecided-Sequel.Chapter
+2026-09-11T05:01:06.0896847Z ##[endgroup]
+2026-09-11T05:01:06.0898407Z ##[group]Disabling automatic garbage collection
+2026-09-11T05:01:06.0905573Z [command]"C:\Program Files\Git\bin\git.exe" config --local gc.auto 0
+2026-09-11T05:01:06.1189371Z ##[endgroup]
+2026-09-11T05:01:06.1190913Z ##[group]Setting up auth
+2026-09-11T05:01:06.1201340Z [command]"C:\Program Files\Git\bin\git.exe" config --local --name-only --get-regexp core\.sshCommand
+2026-09-11T05:01:06.1488656Z [command]"C:\Program Files\Git\bin\git.exe" submodule foreach --recursive "sh -c \"git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :\""
+2026-09-11T05:01:07.5817569Z [command]"C:\Program Files\Git\bin\git.exe" config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-09-11T05:01:07.6127949Z [command]"C:\Program Files\Git\bin\git.exe" submodule foreach --recursive "sh -c \"git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :\""
+2026-09-11T05:01:08.1639843Z [command]"C:\Program Files\Git\bin\git.exe" config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-09-11T05:01:08.1943231Z [command]"C:\Program Files\Git\bin\git.exe" submodule foreach --recursive "git config --local --show-origin --name-only --get-regexp remote.origin.url"
+2026-09-11T05:01:08.7206209Z [command]"C:\Program Files\Git\bin\git.exe" config --local http.https://github.com/.extraheader "AUTHORIZATION: basic ***"
+2026-09-11T05:01:08.7510979Z ##[endgroup]
+2026-09-11T05:01:08.7511528Z ##[group]Fetching the repository
+2026-09-11T05:01:08.7528970Z [command]"C:\Program Files\Git\bin\git.exe" -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin +b824130fe518cf1f708b4e6c613f90ba30af8fbb:refs/remotes/origin/main
+2026-09-11T05:01:10.2737315Z From https://github.com/tryanythingharder/Undecided-Sequel.Chapter
+2026-09-11T05:01:10.2738209Z  * [new ref]         b824130fe518cf1f708b4e6c613f90ba30af8fbb -> origin/main
+2026-09-11T05:01:10.2781187Z ##[endgroup]
+2026-09-11T05:01:10.2781588Z ##[group]Determining the checkout info
+2026-09-11T05:01:10.2783674Z ##[endgroup]
+2026-09-11T05:01:10.2793497Z [command]"C:\Program Files\Git\bin\git.exe" sparse-checkout disable
+2026-09-11T05:01:10.3256859Z [command]"C:\Program Files\Git\bin\git.exe" config --local --unset-all extensions.worktreeConfig
+2026-09-11T05:01:10.3563371Z ##[group]Checking out the ref
+2026-09-11T05:01:10.3572490Z [command]"C:\Program Files\Git\bin\git.exe" checkout --progress --force -B main refs/remotes/origin/main
+2026-09-11T05:01:10.5298596Z Switched to a new branch 'main'
+2026-09-11T05:01:10.5358531Z branch 'main' set up to track 'origin/main'.
+2026-09-11T05:01:10.5421925Z ##[endgroup]
+2026-09-11T05:01:10.5806860Z [command]"C:\Program Files\Git\bin\git.exe" log -1 --format=%H
+2026-09-11T05:01:10.6071027Z b824130fe518cf1f708b4e6c613f90ba30af8fbb
+2026-09-11T05:01:10.6532999Z Node 20 is being deprecated. This workflow is running with Node 24 by default. If you need to temporarily use Node 20, you can set the ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION=true environment variable. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+2026-09-11T05:01:10.6535956Z ##[group]Run actions/setup-node@v4
+2026-09-11T05:01:10.6536217Z with:
+2026-09-11T05:01:10.6536423Z   node-version: 24
+2026-09-11T05:01:10.6536623Z   cache: npm
+2026-09-11T05:01:10.6536812Z   always-auth: false
+2026-09-11T05:01:10.6537022Z   check-latest: false
+2026-09-11T05:01:10.6539632Z   token: ***
+2026-09-11T05:01:10.6539839Z ##[endgroup]
+2026-09-11T05:01:10.8326835Z Found in cache @ C:\hostedtoolcache\windows\node\24.20.0\x64
+2026-09-11T05:01:10.8333867Z (node:2896) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+2026-09-11T05:01:10.8334627Z (Use `node --trace-deprecation ...` to show where the warning was created)
+2026-09-11T05:01:10.8337018Z ##[group]Environment details
+2026-09-11T05:01:27.7931009Z node: v24.20.0
+2026-09-11T05:01:27.7931343Z npm: 11.19.0
+2026-09-11T05:01:27.7931617Z yarn: 1.22.22
+2026-09-11T05:01:27.7932922Z ##[endgroup]
+2026-09-11T05:01:27.8500082Z [command]C:\Windows\system32\cmd.exe /D /S /C "C:\hostedtoolcache\windows\node\24.20.0\x64\npm.cmd config get cache"
+2026-09-11T05:01:28.8588417Z C:\npm\cache
+2026-09-11T05:01:29.1659798Z npm cache is not found
+2026-09-11T05:01:29.1968435Z ##[group]Run npm ci
+2026-09-11T05:01:29.1968841Z [36;1mnpm ci[0m
+2026-09-11T05:01:29.2646992Z shell: C:\Program Files\PowerShell\7\pwsh.EXE -command ". '{0}'"
+2026-09-11T05:01:29.2647417Z ##[endgroup]
+2026-09-11T05:01:36.6009787Z npm warn deprecated lodash.isequal@4.5.0: This package is deprecated. Use require('node:util').isDeepStrictEqual instead.
+2026-09-11T05:01:36.6024117Z npm warn deprecated inflight@1.0.6: This module is not supported, and leaks memory. Do not use it. Check out lru-cache if you want a good and tested way to coalesce async requests by a key value, which is much more comprehensive and powerful.
+2026-09-11T05:01:37.0620459Z npm warn deprecated rimraf@2.6.3: Rimraf versions prior to v4 are no longer supported
+2026-09-11T05:01:37.6757283Z npm warn deprecated glob@7.2.3: Old versions of glob are not supported, and contain widely publicized security vulnerabilities, which have been fixed in the current version. Please update. Support for old versions may be purchased (at exorbitant rates) by contacting i@izs.me
+2026-09-11T05:01:39.0050313Z npm warn deprecated boolean@3.2.0: Package no longer supported. Contact Support at https://www.npmjs.com/support for more info.
+2026-09-11T05:01:53.7103023Z 
+2026-09-11T05:01:53.7103794Z added 408 packages, and audited 409 packages in 24s
+2026-09-11T05:01:53.7104193Z 
+2026-09-11T05:01:53.7108012Z 87 packages are looking for funding
+2026-09-11T05:01:53.7109585Z   run `npm fund` for details
+2026-09-11T05:01:53.7162513Z 
+2026-09-11T05:01:53.7163288Z 3 high severity vulnerabilities
+2026-09-11T05:01:53.7163657Z 
+2026-09-11T05:01:53.7163883Z To address all issues, run:
+2026-09-11T05:01:53.7164253Z   npm audit fix
+2026-09-11T05:01:53.7164431Z 
+2026-09-11T05:01:53.7164610Z Run `npm audit` for details.
+2026-09-11T05:01:53.7180232Z npm warn install-scripts 2 packages have install scripts not yet covered by allowScripts:
+2026-09-11T05:01:53.7181507Z npm warn install-scripts   electron-winstaller@5.4.0 (install: node ./script/select-7z-arch.js)
+2026-09-11T05:01:53.7182764Z npm warn install-scripts   node-llama-cpp@3.20.0 (postinstall: node ./dist/cli/cli.js postinstall)
+2026-09-11T05:01:53.7183548Z npm warn install-scripts
+2026-09-11T05:01:53.7184489Z npm warn install-scripts Run `npm install-scripts ls` to review, or `npm install-scripts approve <pkg>` to allow.
+2026-09-11T05:02:01.4462247Z ##[group]Run npm test
+2026-09-11T05:02:01.4462588Z [36;1mnpm test[0m
+2026-09-11T05:02:01.4530084Z shell: C:\Program Files\PowerShell\7\pwsh.EXE -command ". '{0}'"
+2026-09-11T05:02:01.4530534Z ##[endgroup]
+2026-09-11T05:02:02.2710639Z 
+2026-09-11T05:02:02.2711393Z > six-worlds-codex@1.5.3 test
+2026-09-11T05:02:02.2711975Z > node scripts-dev/run-tests.cjs all
+2026-09-11T05:02:02.2712289Z 
+2026-09-11T05:02:02.3388734Z 
+2026-09-11T05:02:02.3389876Z === scripts-dev/test-story-engine.cjs ===
+2026-09-11T05:02:02.5600181Z   PASS t1: 首回合提交成功
+2026-09-11T05:02:02.5602155Z   PASS t1: decision raw_input 原样保留（自由输入留痕）
+2026-09-11T05:02:02.5602720Z   PASS t1: 协议块已从叙事剥离
+2026-09-11T05:02:15.4638204Z   PASS t1: 第1000回合后，第1回合的重大决定仍被检索命中
+2026-09-11T05:02:15.4638682Z   PASS t1: 第1000回合后，伏笔仍开放且被检索
+2026-09-11T05:02:15.4639265Z   PASS t1: 琐事事件未淹没重大记忆（事件截断生效）
+2026-09-11T05:02:15.4643554Z   PASS t2: storyB 检索不到 storyA 的决定
+2026-09-11T05:02:15.4644221Z   PASS t2: storyB 检索不到 storyA 的事实
+2026-09-11T05:02:15.4645130Z   PASS t2: storyB 回合计数独立（仍为 0）
+2026-09-11T05:02:15.4645929Z   PASS t3: 跨故事 retrieve 调用被硬闸拒绝
+2026-09-11T05:02:15.4681732Z   PASS t3: 同内核不同故事提交互不影响（storyB 记了自己的，storyA 回合数未变）
+2026-09-11T05:02:15.4756367Z   PASS t4: 新 Session 中旧 Session 的承诺仍被检索（跨 Session 记忆延续）
+2026-09-11T05:02:15.4757127Z   PASS t4: Session 登记簿正确（2 个 session，day1 已关闭）
+2026-09-11T05:02:15.5108152Z   PASS t5: 含 AI 选项的 patch 仍提交成功（降级而非丢弃整回合）
+2026-09-11T05:02:15.5108826Z   PASS t5: 校验层给出降级警告
+2026-09-11T05:02:15.5109513Z   PASS t5: AI 选项被强制降为 PROPOSED
+2026-09-11T05:02:15.5109933Z   PASS t5: 玩家真实输入为 CONFIRMED
+2026-09-11T05:02:15.5125141Z   PASS t6: 无 patch 回合提交 ok（降级不报错）
+2026-09-11T05:02:15.5125544Z   PASS t6: 引擎回合未推进
+2026-09-11T05:02:15.5125825Z   PASS t6: 给出 PATCH_ABSENT 警告
+2026-09-11T05:02:15.5129556Z   PASS t6: 空回合计入诊断日志
+2026-09-11T05:02:15.5174358Z   PASS t7: 摘要清空后，决定/事实检索照常
+2026-09-11T05:02:15.5174849Z   PASS t7: 摘要清空后，开放伏笔仍在
+2026-09-11T05:02:15.5388487Z   PASS t8: 快照前有新增回合
+2026-09-11T05:02:15.5748680Z   PASS t8: 恢复后回合数回到快照点
+2026-09-11T05:02:15.5749196Z   PASS t8: 恢复后 later_fact 不存在
+2026-09-11T05:02:15.5749647Z   PASS t8: 恢复后第1回合决定仍在
+2026-09-11T05:02:15.5751021Z   PASS t8: 跨故事快照恢复被拒绝
+2026-09-11T05:02:15.5768921Z   PASS t9: 引用不存在的承诺 → 提交失败
+2026-09-11T05:02:15.5769390Z   PASS t9: 失败后状态未变（回滚生效）
+2026-09-11T05:02:15.5841803Z   PASS t9: 截断 JSON 被容错修复并成功提交
+2026-09-11T05:02:15.5946221Z   PASS t10: 秘密事实不在玩家检索结果中
+2026-09-11T05:02:15.5946942Z   PASS t10: 公开事实正常可见
+2026-09-11T05:02:15.5947372Z   PASS t10: 上下文文本不含秘密内容
+2026-09-11T05:02:37.9813261Z   PASS t11: 1000 回合全部成功
+2026-09-11T05:02:37.9813718Z   PASS t11: 决定账本完整（1000 条新增）
+2026-09-11T05:02:37.9814404Z   PASS t11: 事实取代机制（同 key 只留 ACTIVE）
+2026-09-11T05:02:37.9814884Z   PASS t11: 重大决定（每50回合）仍在账本
+2026-09-11T05:02:37.9824210Z   PASS t11: 长跑后 storyB 仍完全隔离（无任何 storyA 记忆命中）
+2026-09-11T05:02:37.9824878Z   PASS t11: 性能 合格（平均 22.39ms/回合 < 300ms）
+2026-09-11T05:02:37.9992201Z   PASS t11: 重启后（重新 createEngine）状态完整恢复
+2026-09-11T05:02:38.0159677Z   PASS t11: 重启后第1回合决定仍可检索
+2026-09-11T05:02:38.0195014Z   PASS t12: 因果预埋为 PENDING
+2026-09-11T05:02:38.0250922Z   PASS t12: 因果兑现（RESOLVED）提交成功
+2026-09-11T05:02:38.0253333Z   PASS t12: 已兑现因果不再 PENDING
+2026-09-11T05:02:38.0258069Z   PASS t12: 已兑现因果退出检索 pending 位
+2026-09-11T05:02:38.0317257Z   PASS t12: HAPPENED 同义归一为 RESOLVED 提交成功
+2026-09-11T05:02:38.0328310Z   PASS t12: 非法目标状态被拒（对齐既有容错链行为）
+2026-09-11T05:02:38.0345187Z   PASS t12: 引用不存在的因果 → 提交失败并回滚
+2026-09-11T05:02:38.0383470Z   PASS t12: relation_type friendship 归一为 friend
+2026-09-11T05:02:38.0413263Z   PASS t12: 未知 relation_type 按原样保留不拒收
+2026-09-11T05:02:38.5179044Z   PASS t12: 快照上限 30（33 份入 → 淘汰最旧 3 份）
+2026-09-11T05:02:38.5179483Z   PASS t12: 淘汰的是最旧（auto-0 不在列，最新仍在）
+2026-09-11T05:02:38.5199715Z   PASS t12: 淘汰后恢复最新快照仍可用
+2026-09-11T05:02:38.5343886Z   PASS t12: 纯 threads 回合后向量检索照常（同步未被指纹跳过破坏）
+2026-09-11T05:02:38.5344301Z   PASS t12: 索引统计仍可用
+2026-09-11T05:02:38.9739534Z   PASS t13: clone 返回新故事概览
+2026-09-11T05:02:38.9740784Z   PASS t13: 全账本归属戳已重写（0 条残留母线戳）
+2026-09-11T05:02:38.9909189Z   PASS t13: IF 线检索可见继承记忆（第1回合决定命中）
+2026-09-11T05:02:38.9909824Z   PASS t13: IF 线上下文文本含继承事实
+2026-09-11T05:02:39.0246124Z   PASS t13: IF 线提交新回合成功（归属戳一致，写闸放行）
+2026-09-11T05:02:39.0246823Z   PASS t13: 母线不受 IF 线写入影响
+2026-09-11T05:02:39.2855732Z   PASS t13: clone 后母线快照不被连带（独立快照域）
+2026-09-11T05:02:39.2856148Z 
+2026-09-11T05:02:39.2856498Z ===== 故事状态引擎测试结果 =====
+2026-09-11T05:02:39.2856817Z t1 OK   (6/6)
+2026-09-11T05:02:39.2857072Z t2 OK   (3/3)
+2026-09-11T05:02:39.2857446Z t3 OK   (2/2)
+2026-09-11T05:02:39.2857718Z t4 OK   (2/2)
+2026-09-11T05:02:39.2857989Z t5 OK   (4/4)
+2026-09-11T05:02:39.2858264Z t7 OK   (2/2)
+2026-09-11T05:02:39.2858524Z t8 OK   (5/5)
+2026-09-11T05:02:39.2858767Z t9 OK   (3/3)
+2026-09-11T05:02:39.2859022Z t10 OK   (3/3)
+2026-09-11T05:02:39.2859252Z t11 OK   (8/8)
+2026-09-11T05:02:39.2859492Z t12 OK   (14/14)
+2026-09-11T05:02:39.2859771Z t13 OK   (7/7)
+2026-09-11T05:02:39.2860128Z 总计: 63/63 通过
+2026-09-11T05:02:39.4853759Z 
+2026-09-11T05:02:39.4854509Z === scripts-dev/test-vector-store.cjs ===
+2026-09-11T05:02:39.6265491Z PASS  chunks-indexed  {"enabled":true,"chunks":5,"stories":1,"dim":256,"metric":"cosine","partitioned":true,"embedder":"hash-v1","pages":277,"freelist":0,"dbBytes":1134592}
+2026-09-11T05:02:39.6269525Z PASS  sync-idempotent
+2026-09-11T05:02:39.6283522Z PASS  semantic-recalls-paraphrase  F1=0.289
+2026-09-11T05:02:39.6284192Z PASS  semantic-ranks-relevant-first  F1=0.289 F2=0.000
+2026-09-11T05:02:39.6291853Z PASS  unrelated-query-low-score  F1=0.000
+2026-09-11T05:02:39.6437872Z PASS  story-isolation  S2 查询不得召回 S1 独有记录
+2026-09-11T05:02:39.6438455Z PASS  isolation-keeps-own-hit  S2 自身 F1=0.636
+2026-09-11T05:02:39.6483852Z PASS  reindex-after-edit  {"enabled":true,"chunks":5,"stories":2,"dim":256,"metric":"cosine","partitioned":true,"embedder":"hash-v1","pages":535,"freelist":0,"dbBytes":2191360}
+2026-09-11T05:02:39.6499861Z PASS  updated-text-searchable  F1=0.292
+2026-09-11T05:02:39.6507324Z PASS  deleted-record-dropped
+2026-09-11T05:02:39.6592915Z PASS  forget-story-clears-rows  {"enabled":true,"chunks":1,"stories":1,"dim":256,"metric":"cosine","partitioned":true,"embedder":"hash-v1","pages":535,"freelist":258,"dbBytes":2191360}
+2026-09-11T05:02:39.6595375Z PASS  forget-story-empty-search
+2026-09-11T05:02:39.6760427Z PASS  forget-story-resync-rebuilds
+2026-09-11T05:02:39.6768136Z PASS  short-token-search-safe  短词查询不返回 null/异常
+2026-09-11T05:02:39.6776456Z PASS  short-query-vec-hits  名字+地点短查 F1=0.730
+2026-09-11T05:02:39.7954464Z [vector-store] 检测到索引损坏，已自动重建 memory.db
+2026-09-11T05:02:39.7955384Z PASS  corruption-selfheal-reopens
+2026-09-11T05:02:39.8155094Z PASS  corruption-selfheal-usable  F1=0.289
+2026-09-11T05:02:39.8748875Z PASS  engine-vector-store-enabled
+2026-09-11T05:02:39.9217426Z PASS  retriever-uses-semantic-signal  hit=0.385
+2026-09-11T05:02:39.9217918Z PASS  retriever-facts-present
+2026-09-11T05:02:39.9520591Z PASS  delete-story-cleans-index  2->1
+2026-09-11T05:02:39.9520959Z PASS  embedder-registry
+2026-09-11T05:02:40.0171204Z PASS  embedder-selected  {"enabled":true,"chunks":5,"stories":1,"dim":256,"metric":"cosine","partitioned":true,"embedder":"hash-v2","pages":277,"freelist":0,"dbBytes":1134592}
+2026-09-11T05:02:40.0178439Z PASS  embedder-v2-search-works
+2026-09-11T05:02:40.0436329Z PASS  watermark-rebuilds-on-model-change  {"enabled":true,"chunks":5,"stories":1,"dim":256,"metric":"cosine","partitioned":true,"embedder":"hash-v1","pages":277,"freelist":0,"dbBytes":1134592}
+2026-09-11T05:02:40.0444543Z PASS  watermark-rebuilt-search-usable
+2026-09-11T05:02:40.0766447Z PASS  embedder-versions-differ  cos=0.961
+2026-09-11T05:02:40.0785241Z PASS  fallback-without-vec
+2026-09-11T05:02:40.0794225Z [vector-store] 已停用（EEXIST: file already exists, mkdir 'C:\Users\RUNNER~1\AppData\Local\Temp\vec-test-V5b1w9\blocked'）；检索回退为纯词面+实体信号
+2026-09-11T05:02:40.0794909Z PASS  disabled-when-db-unavailable
+2026-09-11T05:02:40.0795349Z PASS  embedding-deterministic
+2026-09-11T05:02:40.0796061Z PASS  embedding-normalized
+2026-09-11T05:02:40.0796428Z PASS  embedding-differentiates  cos=0.086
+2026-09-11T05:02:40.0796733Z PASS  semScore-calibration
+2026-09-11T05:02:40.2899656Z [vector-store] 向量表结构升级（分区/维度 256），旧索引已弃，将按需全量重嵌
+2026-09-11T05:02:40.2995675Z [vector-store] 例行维护：空闲页 258/277，已 VACUUM 压缩 memory.db
+2026-09-11T05:02:40.2998960Z PASS  upgrade-opens-partitioned  {"enabled":true,"chunks":0,"stories":0,"dim":256,"metric":"cosine","partitioned":true,"embedder":"hash-v1","pages":19,"freelist":0,"dbBytes":77824}
+2026-09-11T05:02:40.3000344Z PASS  upgrade-purges-old-index  {"enabled":true,"chunks":0,"stories":0,"dim":256,"metric":"cosine","partitioned":true,"embedder":"hash-v1","pages":19,"freelist":0,"dbBytes":77824}
+2026-09-11T05:02:40.3166773Z PASS  upgrade-resync-rebuilds  {"enabled":true,"chunks":5,"stories":1,"dim":256,"metric":"cosine","partitioned":true,"embedder":"hash-v1","pages":277,"freelist":0,"dbBytes":1134592}
+2026-09-11T05:02:40.3175116Z PASS  upgrade-resync-searchable
+2026-09-11T05:02:40.3527499Z PASS  upgrade-idempotent-on-reopen  {"enabled":true,"chunks":5,"stories":1,"dim":256,"metric":"cosine","partitioned":true,"embedder":"hash-v1","pages":277,"freelist":0,"dbBytes":1134592}
+2026-09-11T05:02:40.4602397Z PASS  partitioned-no-cross-story-noise  S2 查询不得从 S1 分区捡到命中
+2026-09-11T05:02:40.4602862Z PASS  partitioned-own-hit-preserved
+2026-09-11T05:02:40.6504821Z PASS  maint-stats-diagnostics  {"enabled":true,"chunks":120,"stories":3,"dim":256,"metric":"cosine","partitioned":true,"embedder":"hash-v1","pages":799,"freelist":0,"dbBytes":3272704}
+2026-09-11T05:02:40.6640035Z PASS  maint-bulk-delete-leaves-free-pages  freelist=521/803
+2026-09-11T05:02:40.7008948Z PASS  maint-close-reclaims-wal  close 后 -wal 应被 checkpoint 截断/回收
+2026-09-11T05:02:40.7536339Z [vector-store] 例行维护：空闲页 521/803，已 VACUUM 压缩 memory.db
+2026-09-11T05:02:40.7539092Z PASS  maint-startup-vacuum-compacts  803→282 页, freelist=0
+2026-09-11T05:02:40.7761435Z PASS  maint-idempotent-no-revacuum  {"enabled":true,"chunks":40,"stories":1,"dim":256,"metric":"cosine","partitioned":true,"embedder":"hash-v1","pages":282,"freelist":0,"dbBytes":1155072}
+2026-09-11T05:02:40.8084011Z 
+2026-09-11T05:02:40.8084565Z ALL PASS
+2026-09-11T05:02:40.8164345Z 
+2026-09-11T05:02:40.8164879Z === scripts-dev/test-embedder-api.cjs ===
+2026-09-11T05:02:40.9434249Z PASS  api-store-enabled
+2026-09-11T05:02:40.9533468Z PASS  cold-sync-chunks-only  {"enabled":true,"chunks":2,"stories":1,"dim":4,"metric":"cosine","partitioned":true,"embedder":"api-v1","pages":19,"freelist":0,"dbBytes":77824}
+2026-09-11T05:02:40.9540487Z PASS  cold-search-fts-fallback  冷查询不崩溃
+2026-09-11T05:02:41.1692501Z PASS  warm-resync-semantic-hit  补嵌后语义命中 F1
+2026-09-11T05:02:41.1693531Z PASS  warm-chunks-stable  {"enabled":true,"chunks":2,"stories":1,"dim":4,"metric":"cosine","partitioned":true,"embedder":"api-v1","pages":25,"freelist":0,"dbBytes":102400}
+2026-09-11T05:02:43.2249672Z PASS  batched-requests  mock 请求次数=1
+2026-09-11T05:02:45.2654964Z PASS  cached-no-refetch  重复 sync 请求 1→1
+2026-09-11T05:02:45.5178626Z PASS  semantic-beats-lexical  F1=1.000
+2026-09-11T05:02:45.5274449Z PASS  offline-sync-search-safe  离线时已热条目照常命中
+2026-09-11T05:02:45.5668100Z [vector-store] 向量表结构升级（分区/维度 256），旧索引已弃，将按需全量重嵌
+2026-09-11T05:02:45.5700009Z PASS  dim-switch-rebuilds  {"enabled":true,"chunks":0,"stories":0,"dim":256,"metric":"cosine","partitioned":true,"embedder":"hash-v1","pages":25,"freelist":6,"dbBytes":102400}
+2026-09-11T05:02:45.5991999Z PASS  hash-sync-works
+2026-09-11T05:02:45.6838202Z [vector-store] 异步补嵌失败（下次未热命中会重新入队）：fetch failed
+2026-09-11T05:02:46.8846118Z [vector-store] 向量表结构升级（分区/维度 4），旧索引已弃，将按需全量重嵌
+2026-09-11T05:02:46.8953633Z [vector-store] 例行维护：空闲页 258/277，已 VACUUM 压缩 memory.db
+2026-09-11T05:02:47.7086019Z PASS  back-to-api-dim-restored  {"enabled":true,"chunks":2,"stories":1,"dim":4,"metric":"cosine","partitioned":true,"embedder":"api-v1","pages":25,"freelist":0,"dbBytes":102400}
+2026-09-11T05:02:47.7087241Z PASS  cache-survives-dim-switch  切回 api-v1 零新请求（缓存持久）calls=0
+2026-09-11T05:02:47.7219583Z ALL PASS
+2026-09-11T05:02:47.7311888Z 
+2026-09-11T05:02:47.7312295Z === scripts-dev/test-sessions-db.cjs ===
+2026-09-11T05:02:47.8066551Z PASS  empty-load-null
+2026-09-11T05:02:47.8097675Z PASS  roundtrip-doc
+2026-09-11T05:02:47.8098038Z PASS  roundtrip-timestamp
+2026-09-11T05:02:47.8143526Z PASS  overwrite-latest-wins
+2026-09-11T05:02:47.8179790Z PASS  clear-empties
+2026-09-11T05:02:47.8312322Z PASS  persist-across-reopen
+2026-09-11T05:02:47.8578429Z PASS  mirror-untouched-by-module
+2026-09-11T05:02:47.8960557Z [sessions-db] 检测到库损坏，已重建 sessions.db（等待从 JSON 镜像迁移）
+2026-09-11T05:02:47.8961188Z PASS  corruption-selfheal
+2026-09-11T05:02:47.8991185Z PASS  corruption-selfheal-usable
+2026-09-11T05:02:47.9065147Z [sessions-db] 已停用（EEXIST: file already exists, mkdir 'C:\Users\RUNNER~1\AppData\Local\Temp\sw-sessions-db-tp9JC7\blocked'）；回退为 sessions.json 文件存储
+2026-09-11T05:02:47.9066775Z PASS  disabled-when-unavailable
+2026-09-11T05:02:47.9067041Z 
+2026-09-11T05:02:47.9067160Z ALL PASS
+2026-09-11T05:02:47.9127853Z 
+2026-09-11T05:02:47.9128431Z === scripts-dev/test-engine-comic.cjs ===
+2026-09-11T05:02:47.9758928Z == buildComicSource 素材整编 ==
+2026-09-11T05:02:47.9768061Z   ✓ 范围过滤：范围内回合 1/2/4/8
+2026-09-11T05:02:47.9768528Z   ✓ 范围外事件不泄漏（turn 99）
+2026-09-11T05:02:47.9768885Z   ✓ 实体 id → 名翻译
+2026-09-11T05:02:47.9769802Z   ✓ location 实体不进 turn participants
+2026-09-11T05:02:47.9770754Z   ✓ importance 压缩：turn 4 事件 ≤ 6 条（4 picked + 转场）
+2026-09-11T05:02:47.9771452Z   ✓ 压缩保留最高 importance（拜师 85 在列）
+2026-09-11T05:02:47.9772231Z   ✓ patch 素材合入（turn_summary）
+2026-09-11T05:02:47.9772867Z   ✓ patch scene 合入
+2026-09-11T05:02:47.9773475Z   ✓ cast 只含 character（布耶纳村不在）
+2026-09-11T05:02:47.9774064Z   ✓ cast 玩家与实体同名去重
+2026-09-11T05:02:47.9774440Z   ✓ cast 实体 state 序列化
+2026-09-11T05:02:47.9774795Z   ✓ total_turns 回传
+2026-09-11T05:02:47.9775134Z == 空范围 / 无事件 ==
+2026-09-11T05:02:47.9775471Z   ✓ 范围无事件 → turns 为空
+2026-09-11T05:02:47.9775965Z   ✓ cast 仍然可用
+2026-09-11T05:02:47.9776399Z == 玩家名与实体不同名（无重复条目） ==
+2026-09-11T05:02:47.9777639Z   ✓ 玩家无同名实体时补进 cast
+2026-09-11T05:02:47.9778117Z 
+2026-09-11T05:02:47.9778540Z test-engine-comic: 15 项断言全部通过
+2026-09-11T05:02:47.9859161Z 
+2026-09-11T05:02:47.9859562Z === scripts-dev/test-holo-card.cjs ===
+2026-09-11T05:02:48.0339932Z ===== buildCardSource 素材装配 =====
+2026-09-11T05:02:48.0480552Z   ✓ 只收 character（location 被过滤）
+2026-09-11T05:02:48.0481056Z   ✓ RETIRED 角色被过滤
+2026-09-11T05:02:48.0481433Z   ✓ 玩家同名实体不重复补位
+2026-09-11T05:02:48.0482262Z   ✓ 关系双向命中且 entity_id 翻译为名字
+2026-09-11T05:02:48.0482767Z   ✓ facts 按名字提及命中
+2026-09-11T05:02:48.0483190Z   ✓ events 按参与命中且 importance 降序
+2026-09-11T05:02:48.0483637Z   ✓ summary 截断保护（≤400）
+2026-09-11T05:02:48.0484436Z   ✓ 玩家不在 entities 时补位
+2026-09-11T05:02:48.0484955Z ===== 渲染层约定（源静态断言 + 数值交叉验证） =====
+2026-09-11T05:02:48.0488393Z   ✓ 抠图透明占比阈值 15%（分层判定）
+2026-09-11T05:02:48.0488827Z   ✓ 抠图失败回退整幅贴满（不做透明化）
+2026-09-11T05:02:48.0489248Z   ✓ 文字层画布 1024×1536（RuiC 排版基准）
+2026-09-11T05:02:48.0489775Z   ✓ 主标题 88pt 奶白 + 称号 25pt 金（RuiC 布局）
+2026-09-11T05:02:48.0490368Z   ✓ 金色 = #f4d087 / 奶白 = #fff1ce（RuiC 配色）
+2026-09-11T05:02:48.0490936Z   ✓ 字体链含 Windows 楷体与 Noto 衬线回退
+2026-09-11T05:02:48.0491343Z   ✓ 主体生图提示词强制纯白底（分层抠图前提）
+2026-09-11T05:02:48.0491625Z   ✓ 背景生图排除人物
+2026-09-11T05:02:48.0491942Z   ✓ config 装配：model/subject/background/text 相对路径
+2026-09-11T05:02:48.0492340Z   ✓ lineart 描边层：分层时配置 lineart.png（uHasLine=1）
+2026-09-11T05:02:48.0492873Z   ✓ lineart 从主体层推导（同图零配准漂移）
+2026-09-11T05:02:48.0493425Z   ✓ lineart 黑线白底（shader r 通道语义）+ alpha 边缘轮廓（v2 目视标定阈值）
+2026-09-11T05:02:48.0498933Z   ✓ 分层时启用视差参数（1.25/0.28），整幅时贴满（1.0/0）
+2026-09-11T05:02:48.0499341Z   ✓ foil 数值化防注入
+2026-09-11T05:02:48.0499663Z   ✓ 生图失败重试一次（与插图管线一致）
+2026-09-11T05:02:48.0500006Z ===== 主进程约定 =====
+2026-09-11T05:02:48.0507343Z   ✓ cardId 白名单 /^card-[a-z0-9-]{1,64}$/
+2026-09-11T05:02:48.0508016Z   ✓ 卡目录路径越界防护（resolve + startsWith）
+2026-09-11T05:02:48.0508574Z   ✓ card:write 校验 PNG 层（ext !== png 拒绝）
+2026-09-11T05:02:48.0509102Z   ✓ card:window 无 preload（纯展示页零暴露面）
+2026-09-11T05:02:48.0509650Z   ✓ card:window 导航封堵 + 开窗拒绝
+2026-09-11T05:02:48.0510102Z   ✓ e2e 接缝（SIXWORLDS_TEST 不真开窗）
+2026-09-11T05:02:48.0510541Z   ✓ glb 共享副本缺失时从应用模板补拷
+2026-09-11T05:02:48.0511538Z   ✓ 查看器走 sixworlds-asset://holo/viewer 特权协议（禁 loadFile file://）
+2026-09-11T05:02:48.0512321Z   ✓ 协议托管查看器静态资源白名单（app.bundle.js/style.css/icons.data.js）
+2026-09-11T05:02:48.0512848Z   ✓ 协议卡资源路径解析卡目录 + 越界防护
+2026-09-11T05:02:48.0513342Z   ✓ holo index.html 不用 type="module"（file:// 死路）
+2026-09-11T05:02:48.0513993Z   ✓ 查看器 will-download 转存保存对话框（保存按钮防静默丢弃）
+2026-09-11T05:02:48.0515871Z   ✓ preload 暴露 cardWrite/cardRead/cardDelete/cardWindow
+2026-09-11T05:02:48.0516320Z   ✓ preload 暴露 engineCardSource
+2026-09-11T05:02:48.0516779Z   ✓ pet:agent card 任务校验（rarity 白名单/foil 截断/prompt 长度下限）
+2026-09-11T05:02:48.0517761Z   ✓ 卡面规划=精修立绘级提示词（画质媒介词+构图词+风格统一要求）
+2026-09-11T05:02:48.0518199Z   ✓ 精修提示词提取上限放宽（900/700 防长提示词被截断）
+2026-09-11T05:02:48.0519669Z   ✓ 背景提示词=主体配色锚定+漫射光+景深留白（贴合主体而非独立风景）
+2026-09-11T05:02:48.0522103Z   ✓ image:generate 透传 background 白名单（transparent/opaque/auto）
+2026-09-11T05:02:48.0522972Z   ✓ image:generate 回传 revised_prompt（模型内部改写可见）
+2026-09-11T05:02:48.0523556Z   ✓ 闪卡主体=透明优先；四周非真透明则抠图（防白卡底）
+2026-09-11T05:02:48.0524028Z   ✓ 背景判定=四周透明 + 不透明区边界是白色（识别白卡底）
+2026-09-11T05:02:48.0524465Z   ✓ 抠图把近白像素纳入背景（清封闭白卡底）
+2026-09-11T05:02:48.0524844Z   ✓ 抠图失败才白底重生成（先抠图省一次生图）
+2026-09-11T05:02:48.0525306Z   ✓ 卡元数据记录 subjectMode 与 revisedPrompt
+2026-09-11T05:02:48.0525781Z ===== card.glb 结构 =====
+2026-09-11T05:02:48.0526464Z   ✓ card.glb 产物存在
+2026-09-11T05:02:48.0526808Z   ✓ GLB magic 版本 2
+2026-09-11T05:02:48.0527304Z   ✓ 材质契约齐备（web_front/edge/back/gold）
+2026-09-11T05:02:48.0527855Z   ✓ 每个 mesh 单材质（traverse 契约前提）
+2026-09-11T05:02:48.0528372Z   ✓ front 面尺寸 6.3×9.45（Blender 原版等比）
+2026-09-11T05:02:48.0530424Z   ✓ UV 的 V 与 y 反号（防上下颠倒——真实测试实锤）
+2026-09-11T05:02:48.0530700Z 
+2026-09-11T05:02:48.0531351Z test-holo-card: 54 通过, 0 失败
+2026-09-11T05:02:48.0605662Z 
+2026-09-11T05:02:48.0606209Z === scripts-dev/test-patch-reliability.cjs ===
+2026-09-11T05:02:48.2670635Z   PASS t1: committed=true
+2026-09-11T05:02:48.2672162Z   PASS t1: patch_status=PATCH_PRESENT
+2026-09-11T05:02:48.2672901Z   PASS t1: 引擎回合推进
+2026-09-11T05:02:48.2767005Z   PASS t2: 首次 patch_status=PATCH_MISSING
+2026-09-11T05:02:48.2767530Z   PASS t2: 未提交、回合未推进
+2026-09-11T05:02:48.2767969Z   PASS t2: 带 retryable 标记
+2026-09-11T05:02:48.2984253Z   PASS t2: 重试后 committed=true
+2026-09-11T05:02:48.2984703Z   PASS t2: 回合推进到 1
+2026-09-11T05:02:48.3093640Z   PASS t3: Pending 已落盘
+2026-09-11T05:02:48.3094675Z   PASS t3: 字段齐全（条款 19）
+2026-09-11T05:02:48.3099128Z   PASS t3: listPendings 可见
+2026-09-11T05:02:48.3235606Z   PASS t4: patch_status=NO_STATE_CHANGE
+2026-09-11T05:02:48.3236637Z   PASS t4: ok=true 且无错误警告
+2026-09-11T05:02:48.3236938Z   PASS t4: 标记已从叙事剥离
+2026-09-11T05:02:48.3237185Z   PASS t4: 回合未推进
+2026-09-11T05:02:48.3237509Z   PASS t4: 非 PATCH_MISSING（不触发重试语义）
+2026-09-11T05:02:48.3309041Z   PASS t5: patch_status=PATCH_INVALID
+2026-09-11T05:02:48.3309542Z   PASS t5: 未提交
+2026-09-11T05:02:48.3338715Z   PASS t5: 重试后 committed=true
+2026-09-11T05:02:48.3591178Z   PASS t6: 冲突被拒绝（ok=false）
+2026-09-11T05:02:48.3591785Z   PASS t6: patch_status=PATCH_CONFLICT
+2026-09-11T05:02:48.3592334Z   PASS t6: 历史承诺仍在且未被篡改
+2026-09-11T05:02:48.3789398Z   PASS t7: 提交失败（ok=false）
+2026-09-11T05:02:48.3789784Z   PASS t7: 七维状态逐位一致（无半提交）
+2026-09-11T05:02:48.3790056Z   PASS t7: 实体未被留下
+2026-09-11T05:02:48.3944296Z   PASS t8: 重启后 Pending 仍存在
+2026-09-11T05:02:48.3944685Z   PASS t8: retry_count 保留
+2026-09-11T05:02:48.4844899Z   PASS t8: 重启后补录成功
+2026-09-11T05:02:48.4845426Z   PASS t8: 补录后 Pending 清除
+2026-09-11T05:02:48.5282406Z   PASS t9: B 列表为空
+2026-09-11T05:02:48.5283199Z   PASS t9: B 读 A 的 Pending 得 null
+2026-09-11T05:02:48.5284481Z   PASS t9: B 恢复 A 的 Pending 被硬闸拒绝
+2026-09-11T05:02:48.5287052Z   PASS t9: A 的 Pending 原样保留
+2026-09-11T05:02:48.5563168Z   PASS t9: 同 Story 补录成功并清除
+2026-09-11T05:02:48.5613950Z   PASS t9: 补录失败 retry_count 递增且记录保留
+2026-09-11T05:02:48.5621092Z   PASS t9: discardPending 生效
+2026-09-11T05:02:48.5623668Z   PASS log: 回合日志记录 patch_status
+2026-09-11T05:02:48.5627727Z   PASS log: PATCH_MISSING 也有日志留痕
+2026-09-11T05:02:48.5629555Z   PASS 容错: 全角标记识别
+2026-09-11T05:02:48.5630509Z   PASS 容错: 空格/少箭头/小写标记识别
+2026-09-11T05:02:48.5631146Z   PASS 容错: NO_STATE_CHANGE 全角变体
+2026-09-11T05:02:48.5939183Z   PASS 容错: 尾部裸 JSON 被兜底采纳
+2026-09-11T05:02:48.5939969Z   PASS 容错: 采纳带 PATCH_UNMARKED 警告
+2026-09-11T05:02:48.5940366Z   PASS 容错: 叙事与 JSON 正确剥离
+2026-09-11T05:02:48.5942124Z   PASS 容错: 中段裸 JSON 不误采纳
+2026-09-11T05:02:48.5944190Z   PASS 容错: 围栏包裹 + 尾逗号
+2026-09-11T05:02:48.5944993Z   PASS 容错: 两箭头标记 + 围栏夹层
+2026-09-11T05:02:48.5947696Z   PASS 容错: 函数调用包装（无标记）被剥开
+2026-09-11T05:02:48.5948902Z   PASS 容错: 缺 turn_summary 但 ≥2 协议键仍兜底
+2026-09-11T05:02:48.5949537Z   PASS 容错: 函数包装后带中文长尾注 → 不采纳（可能只是叙事举例）
+2026-09-11T05:02:48.5950402Z   PASS 清洗: 尾部围栏/引导语/函数行逐层剥净
+2026-09-11T05:02:48.5951253Z   PASS 清洗: 正常结尾一个字都不动
+2026-09-11T05:02:48.6091151Z   PASS t11: 前置——线程与承诺已建立
+2026-09-11T05:02:48.6128960Z   PASS t11: thread ACTIVE 归一为 OPEN 提交成功
+2026-09-11T05:02:48.6130026Z   PASS t11: 归一是警告不是错误
+2026-09-11T05:02:48.6130608Z   PASS t11: 磁盘状态为合法 OPEN
+2026-09-11T05:02:48.6173439Z   PASS t11: thread DONE 归一为 RESOLVED
+2026-09-11T05:02:48.6202023Z   PASS t11: commitment OPEN 归一为 ACTIVE 提交成功
+2026-09-11T05:02:48.6203016Z   PASS t11: commitment 归一是警告
+2026-09-11T05:02:48.6213314Z   PASS t11: 不可归一的 thread BROKEN 仍拒绝
+2026-09-11T05:02:48.6214117Z   PASS t12: 值内全角引号原样解析
+2026-09-11T05:02:48.6214874Z   PASS t12: 全角引号内容不被篡改
+2026-09-11T05:02:48.6215698Z   PASS t12: 全角定界符仍归一可解
+2026-09-11T05:02:48.6216541Z 
+2026-09-11T05:02:48.6217069Z == Patch 可靠性测试: 63 通过, 0 失败 ==
+2026-09-11T05:02:48.6292164Z 
+2026-09-11T05:02:48.6292561Z === scripts-dev/test-protocol-position.cjs ===
+2026-09-11T05:02:48.6761157Z PASS  reminder-exists
+2026-09-11T05:02:48.6763428Z PASS  reminder-after-history  history@5632 reminder@6052（重申必须是最后一条消息）
+2026-09-11T05:02:48.6764446Z PASS  protocol-before-reminder
+2026-09-11T05:02:48.6765441Z PASS  reminder-mentions-choices
+2026-09-11T05:02:48.6765928Z PASS  reminder-mentions-state-patch
+2026-09-11T05:02:48.6766698Z PASS  reminder-mentions-no-state-change
+2026-09-11T05:02:48.6767246Z PASS  reminder-mentions-json-closure
+2026-09-11T05:02:48.6768028Z PASS  reminder-guarded-by-engineMeta
+2026-09-11T05:02:48.6768933Z PASS  retry-prompt-is-last-message  user prompt is the last concat item
+2026-09-11T05:02:48.6770968Z PASS  retry-prefix-not-full-history  prefix = kernel (+state block) only
+2026-09-11T05:02:48.6771572Z PASS  resolve-prompt-last-in-msgs2  last push @1385
+2026-09-11T05:02:48.6771878Z ---
+2026-09-11T05:02:48.6772571Z protocol-position：11 通过，0 失败
+2026-09-11T05:02:48.6827209Z 
+2026-09-11T05:02:48.6827656Z === scripts-dev/test-access.cjs ===
+2026-09-11T05:02:48.8596342Z   PASS 准备: 提交成功
+2026-09-11T05:02:48.8597985Z   PASS 准备: 秘密事实已入账（secret_from_player=true）
+2026-09-11T05:02:48.8633751Z   PASS t1: PLAYER 检索不含秘密事实
+2026-09-11T05:02:48.8634067Z   PASS t1: PLAYER 可见公开事实
+2026-09-11T05:02:48.8645208Z   PASS t2: includeSecrets=true 对 PLAYER 无效
+2026-09-11T05:02:48.8646253Z   PASS t2: buildContext 同样拒绝
+2026-09-11T05:02:48.8657294Z   PASS t3: SYSTEM 可见秘密事实
+2026-09-11T05:02:48.8658413Z   PASS t3: SYSTEM 不可见 debug 数据（debug 仅 DEBUG 级）
+2026-09-11T05:02:48.8659616Z   PASS t3: SYSTEM 权限来自 accessLevel 而非 includeSecrets
+2026-09-11T05:02:48.8668125Z   PASS t4: DEBUG 可见秘密事实
+2026-09-11T05:02:48.8668730Z   PASS t4: DEBUG 携带调试信息
+2026-09-11T05:02:48.8669850Z   PASS t4: DEBUG Context 包含秘密
+2026-09-11T05:02:48.8670661Z   PASS t5: 跨 story 检索硬闸（PLAYER）
+2026-09-11T05:02:48.8675982Z   PASS t5: Story B 的 PLAYER Context 不含 Story A 秘密
+2026-09-11T05:02:48.8677205Z   PASS t6: 跨 story 检索硬闸（DEBUG 同样受限）
+2026-09-11T05:02:48.8682784Z   PASS t6: Story B DEBUG Context 不含 Story A 数据
+2026-09-11T05:02:48.8683621Z   PASS t7: 二次权限校验拒绝（CONTEXT_PERMISSION_DENIED）
+2026-09-11T05:02:48.8684093Z   PASS t7: debug 数据注入 PLAYER Context 同样拒绝
+2026-09-11T05:02:48.8693113Z   PASS t7: 正常 PLAYER Context 生成不受影响
+2026-09-11T05:02:48.8694399Z   PASS p1: 未知级别降级为 PLAYER
+2026-09-11T05:02:48.8696030Z   PASS p2: 大小写不敏感
+2026-09-11T05:02:48.8696846Z   PASS p3: canRead 矩阵
+2026-09-11T05:02:48.8697181Z   PASS p4: debug 仅 DEBUG
+2026-09-11T05:02:48.8697485Z   PASS p5: 普通数据三级可读
+2026-09-11T05:02:48.8697612Z 
+2026-09-11T05:02:48.8697767Z == 权限测试: 24 通过, 0 失败 ==
+2026-09-11T05:02:48.8765074Z 
+2026-09-11T05:02:48.8785900Z === scripts-dev/test-bloub.cjs ===
+2026-09-11T05:02:48.9324755Z bloub 引擎（转译自 jeremy-prt/bloub）
+2026-09-11T05:02:48.9326332Z   ✓ 全局 Bloub 存在
+2026-09-11T05:02:48.9326684Z   ✓ BotEngine 可构造
+2026-09-11T05:02:48.9327127Z   ✓ lookTarget 导出
+2026-09-11T05:02:48.9327722Z   ✓ defaultCycle 导出
+2026-09-11T05:02:48.9328122Z   ✓ 15 个状态 id（14 序列 + swirl）
+2026-09-11T05:02:48.9343558Z   ✓ idle：bodyPath 为合法闭合路径
+2026-09-11T05:02:48.9344809Z   ✓ idle：要素数量吻合（eyes 2/2，dots 0/0，arcs 0/0）
+2026-09-11T05:02:48.9349435Z   ✓ thinking：bodyPath 为合法闭合路径
+2026-09-11T05:02:48.9350050Z   ✓ thinking：要素数量吻合（eyes 0/0，dots 2/2，arcs 0/0）
+2026-09-11T05:02:48.9354101Z   ✓ wink：bodyPath 为合法闭合路径
+2026-09-11T05:02:48.9354665Z   ✓ wink：要素数量吻合（eyes 2/2，dots 0/0，arcs 0/0）
+2026-09-11T05:02:48.9357506Z   ✓ wide：bodyPath 为合法闭合路径
+2026-09-11T05:02:48.9358363Z   ✓ wide：要素数量吻合（eyes 2/2，dots 0/0，arcs 0/0）
+2026-09-11T05:02:48.9362099Z   ✓ alert：bodyPath 为合法闭合路径
+2026-09-11T05:02:48.9362876Z   ✓ alert：要素数量吻合（eyes 0/0，dots 1/1，arcs 0/0）
+2026-09-11T05:02:48.9366842Z   ✓ notify：bodyPath 为合法闭合路径
+2026-09-11T05:02:48.9367562Z   ✓ notify：要素数量吻合（eyes 2/2，dots 0/0，arcs 0/0）
+2026-09-11T05:02:48.9370632Z   ✓ exclaim：bodyPath 为合法闭合路径
+2026-09-11T05:02:48.9373979Z   ✓ exclaim：要素数量吻合（eyes 0/0，dots 1/1，arcs 0/0）
+2026-09-11T05:02:48.9377338Z   ✓ sleep：bodyPath 为合法闭合路径
+2026-09-11T05:02:48.9378226Z   ✓ sleep：要素数量吻合（eyes 0/0，dots 0/0，arcs 0/0）
+2026-09-11T05:02:48.9382750Z   ✓ egg：bodyPath 为合法闭合路径
+2026-09-11T05:02:48.9383628Z   ✓ egg：要素数量吻合（eyes 2/2，dots 0/0，arcs 0/0）
+2026-09-11T05:02:48.9386394Z   ✓ hexagon：bodyPath 为合法闭合路径
+2026-09-11T05:02:48.9387223Z   ✓ hexagon：要素数量吻合（eyes 2/2，dots 0/0，arcs 0/0）
+2026-09-11T05:02:48.9397859Z   ✓ play：bodyPath 为合法闭合路径
+2026-09-11T05:02:48.9398211Z   ✓ play：要素数量吻合（eyes 2/2，dots 0/0，arcs 4/4）
+2026-09-11T05:02:48.9411722Z   ✓ orbit：bodyPath 为合法闭合路径
+2026-09-11T05:02:48.9412281Z   ✓ orbit：要素数量吻合（eyes 2/2，dots 0/0，arcs 6/6）
+2026-09-11T05:02:48.9418092Z   ✓ burst：bodyPath 为合法闭合路径
+2026-09-11T05:02:48.9418611Z   ✓ burst：要素数量吻合（eyes 0/0，dots 3/3，arcs 0/0）
+2026-09-11T05:02:48.9425353Z   ✓ comet：bodyPath 为合法闭合路径
+2026-09-11T05:02:48.9425955Z   ✓ comet：要素数量吻合（eyes 0/0，dots 0/0，arcs 4/4）
+2026-09-11T05:02:48.9431511Z   ✓ swirl：bodyPath 为合法闭合路径
+2026-09-11T05:02:48.9432135Z   ✓ swirl：要素数量吻合（eyes 2/2，dots 0/0，arcs 3/3）
+2026-09-11T05:02:50.5246736Z   ✓ 3000 帧两轮重放零差异（sample(t) 确定性）
+2026-09-11T05:02:50.6113272Z   ✓ 12s idle 内出现眨眼压缩（liveliness 活体感，|b|min=0.00）
+2026-09-11T05:02:50.6121392Z   ✓ bloub-mount.js 语法可解析
+2026-09-11T05:02:50.6133588Z   ✓ BloubMount.mount 导出（IIFE 顶层无 DOM 依赖）
+2026-09-11T05:02:50.6134056Z   ✓ IDLE_CYCLE 为 8 段待机循环
+2026-09-11T05:02:50.6146286Z   ✓ bloub-pet.js 语法可解析
+2026-09-11T05:02:50.6154371Z   ✓ BloubPet 导出 init/event（IIFE 顶层无 DOM 依赖）
+2026-09-11T05:02:50.6154853Z   ✓ BloubPet.ask 规则问答可直调
+2026-09-11T05:02:50.6156428Z   ✓ 问答「怎么开始」命中（76 字）
+2026-09-11T05:02:50.6156832Z   ✓ 问答「快捷键」命中（86 字）
+2026-09-11T05:02:50.6157561Z   ✓ 问答「主题」命中（88 字）
+2026-09-11T05:02:50.6157978Z   ✓ 问答「未落账」命中（90 字）
+2026-09-11T05:02:50.6158788Z   ✓ 问答「进度包」命中（62 字）
+2026-09-11T05:02:50.6159161Z   ✓ 问答「内核」命中（72 字）
+2026-09-11T05:02:50.6159849Z   ✓ 问答「IF 分歧」命中（52 字）
+2026-09-11T05:02:50.6160191Z   ✓ 问答「密钥」命中（57 字）
+2026-09-11T05:02:50.6160546Z   ✓ 问答「报错」命中（57 字）
+2026-09-11T05:02:50.6161024Z   ✓ 问答「搜索」命中（33 字）
+2026-09-11T05:02:50.6161280Z   ✓ 问答「你是谁」命中（68 字）
+2026-09-11T05:02:50.6161744Z   ✓ 问答「帮助」命中（78 字）
+2026-09-11T05:02:50.6162296Z   ✓ 无关问题返回 null（兜底话术走气泡层）
+2026-09-11T05:02:50.6162751Z   ✓ systemPrompt 预置人设（本地小模型接入时复用）
+2026-09-11T05:02:50.6171242Z   ✓ pet-reply 导出 sanitizePetReply/timeContextLine
+2026-09-11T05:02:50.6174741Z   ✓ 方括号幻觉 UI 与 markdown 渣被剥离
+2026-09-11T05:02:50.6175388Z   ✓ 加粗/斜体文字本身保留
+2026-09-11T05:02:50.6175746Z   ✓ 重复标点与多余换行被收束
+2026-09-11T05:02:50.6176764Z   ✓ 超长回复收束到 220 字内（实际 24）
+2026-09-11T05:02:50.6177176Z   ✓ 收束保留开头整句、丢弃尾部
+2026-09-11T05:02:50.6179215Z   ✓ 空输入安全返回
+2026-09-11T05:02:50.6186506Z   ✓ 时间上下文格式（（现在是 2026年9月11日 05:02，星期五））
+2026-09-11T05:02:50.6187156Z   ✓ BloubPet 导出 setCloudBrain/brain
+2026-09-11T05:02:50.6188190Z   ✓ 无云端无本地时 brain() 为 null（气泡走兜底话术）
+2026-09-11T05:02:50.6188831Z   ✓ 仅云端可用时 brain() = cloud
+2026-09-11T05:02:50.6189244Z   ✓ 清空云端后 brain() 回到 null
+2026-09-11T05:02:50.6189538Z   ✓ BloubPet 导出 agentIntent（意图路由可直测）
+2026-09-11T05:02:50.6191723Z   ✓ 「选哪个」→ recommend
+2026-09-11T05:02:50.6192236Z   ✓ 「推荐选择」→ recommend
+2026-09-11T05:02:50.6192628Z   ✓ 「托管几轮」无数字 → 默认 3 轮
+2026-09-11T05:02:50.6193672Z   ✓ 「替我选 5 轮」→ 5 轮
+2026-09-11T05:02:50.6193975Z   ✓ 轮数上限 5（9 → 5）
+2026-09-11T05:02:50.6195165Z   ✓ 「哪一幕插图最好看」→ illust
+2026-09-11T05:02:50.6196463Z   ✓ 「插图哪个幕」→ illust
+2026-09-11T05:02:50.6197039Z   ✓ 「优化生图提示词」→ prompt
+2026-09-11T05:02:50.6197898Z   ✓ 普通闲聊不进智能体路由（null → 双大脑闲聊）
+2026-09-11T05:02:50.6198327Z   ✓ 规则库问题不进智能体路由
+2026-09-11T05:02:50.6224797Z   ✓ main.cjs 含 petAgentExtractPlan 纯函数
+2026-09-11T05:02:50.6235154Z   ✓ 裸 JSON 提取成功
+2026-09-11T05:02:50.6236700Z   ✓ markdown 围栏被剥
+2026-09-11T05:02:50.6237835Z   ✓ 杂文包裹 JSON 提取
+2026-09-11T05:02:50.6238214Z   ✓ 推荐键不在选项内 → 拒绝
+2026-09-11T05:02:50.6238466Z   ✓ 非 JSON → null
+2026-09-11T05:02:50.6238779Z   ✓ 备选过滤非法键与重复键（B）
+2026-09-11T05:02:50.6239418Z   ✓ illust idx 边界内通过
+2026-09-11T05:02:50.6240052Z   ✓ illust idx 越界 → 拒绝
+2026-09-11T05:02:50.6240379Z   ✓ prompt 提取成功
+2026-09-11T05:02:50.6241052Z   ✓ 过短 prompt → 拒绝
+2026-09-11T05:02:50.6241386Z 
+2026-09-11T05:02:50.6241563Z bloub：91 通过，0 失败
+2026-09-11T05:02:50.6493069Z 
+2026-09-11T05:02:50.6493955Z === scripts-dev/audit-acceptance.cjs ===
+2026-09-11T05:02:50.7970215Z 
+2026-09-11T05:02:50.7971123Z ===== 条款 3 · Story 隔离 A↔B =====
+2026-09-11T05:02:50.8635745Z PASS [3] A 写入 6 类记录成功  => {"entities":["ENT-000001"],"facts":["FAC-000001"],"decisions":["DEC-000001"],"commitments":["CMT-000001"],"events":["EVT-000001"],"knowledge":["KNW-000001"]}
+2026-09-11T05:02:50.8659957Z PASS [3] B 检索不到 A 任何 Decision  => B retrieved_ids=[]
+2026-09-11T05:02:50.8660524Z PASS [3] B 检索不到 A 任何 Commitment/Fact/Event/Entity/Knowledge  => 
+2026-09-11T05:02:50.8661098Z PASS [3] B 账本物理为空（SYSTEM 级检索也不越 story）  => {"dec":0,"fac":0}
+2026-09-11T05:02:50.8673877Z PASS [3] B 的 Context 不含 A 的秘密事实文本  => 
+2026-09-11T05:02:50.8856233Z PASS [3] 反向：A 检索不到 B 的 Decision（内容级比对）  => A账本=["我拒绝加入血煞教"]
+2026-09-11T05:02:50.8856645Z 
+2026-09-11T05:02:50.8857444Z ===== 条款 4 · 相同 Kernel X → Story A2/B2 隔离 =====
+2026-09-11T05:02:50.8993939Z PASS [4] 两 Story 绑定同一 Kernel（id/version 一致）  => audit:kernel-x vsha1:7f0c7abe2e0a
+2026-09-11T05:02:50.9188200Z PASS [4] B2 检索不到 A2 历史（相同内核≠相同记忆）  => B2 decisions 检索=0
+2026-09-11T05:02:50.9189442Z 
+2026-09-11T05:02:50.9189828Z ===== 条款 5 · Session 续接 / 跨 Story 拒绝 =====
+2026-09-11T05:02:50.9323032Z PASS [5] 同一 Story 两个 Session 均登记  => ["SES-S1","SES-S2"]
+2026-09-11T05:02:50.9323632Z PASS [5] 记录归属 Session1，Session2 可读（承诺仍 ACTIVE 进入检索）  => SES-S1
+2026-09-11T05:02:50.9328001Z PASS [5] Session2 检索到 Session1 的承诺  => CMT-000001
+2026-09-11T05:02:50.9407586Z PASS [5] Story B 的新 Session 检索不到 Story A 历史  => 
+2026-09-11T05:02:50.9409716Z 
+2026-09-11T05:02:50.9410137Z ===== 条款 6 · Decision Ledger =====
+2026-09-11T05:02:51.0033698Z PASS [6] 正式 Decision 存在  => DEC-000001
+2026-09-11T05:02:51.0034721Z PASS [6] 字段齐全 decision_id/story_id/raw_input/normalized_intent/status  => {"id":"DEC-000001","raw":"我拒绝加入这个组织。","ni":"拒绝加入组织","st":"CONFIRMED","src":"user_input"}
+2026-09-11T05:02:51.0035573Z PASS [6] status=CONFIRMED 且 source=user_input  => user_input
+2026-09-11T05:02:51.0323428Z PASS [6] AI 选项不得 CONFIRMED（硬闸降级为 PROPOSED）  => PROPOSED,PROPOSED,PROPOSED
+2026-09-11T05:02:51.0324300Z PASS [6] 产生降级警告  => DECISION_AI_OPTION_DOWNGRADED,DECISION_AI_OPTION_DOWNGRADED,DECISION_AI_OPTION_DOWNGRADED
+2026-09-11T05:02:51.0341541Z PASS [6] 未选择的 AI 选项不作为事实进入检索  => 检索到=1
+2026-09-11T05:02:51.0450474Z PASS [6] 自由输入（无对应按钮）正确记录为 CONFIRMED  => DEC-000005
+2026-09-11T05:02:51.0452641Z 
+2026-09-11T05:02:51.0453105Z ===== 条款 7 · 长期记忆 · 1000 轮 =====
+2026-09-11T05:02:51.0858118Z PASS [7] 第1轮独特决定已入库  => DEC-000001 imp=90
+2026-09-11T05:02:53.8669334Z   （1000 轮真实提交耗时 2.8s）
+2026-09-11T05:02:53.8669767Z PASS [7] 引擎推进到第 1001 回合  => turn=1001
+2026-09-11T05:02:53.8670315Z PASS [7] summary 已清空（scene.summary="";引擎无 rolling/arc summary）  => len=0
+2026-09-11T05:02:53.8670876Z PASS [7] 引擎不存聊天记录（账本无 chat/messages 字段）  => 
+2026-09-11T05:02:53.8679818Z PASS [7] 1001 轮后 Retriever 找回第1轮决定  => id=DEC-000001 score=1.388 src=decision
+2026-09-11T05:02:53.8682933Z PASS [7] 该决定真实进入 LLM Context  => - [T1][DEC-000001][CONFIRMED] 绝不帮助天枢阁
+2026-09-11T05:02:53.8683462Z PASS [7] 来源=结构化 Ledger（非 summary）  => 
+2026-09-11T05:02:53.8684496Z 
+2026-09-11T05:02:53.8684894Z ===== 条款 8 · Commitment · 存续与撤销 =====
+2026-09-11T05:02:53.8789728Z PASS [8] 承诺保存为 ACTIVE  => CMT-000001
+2026-09-11T05:02:54.6987806Z PASS [8] 300 轮后承诺仍存在且被检索（reason=active_commitment）  => turn=301
+2026-09-11T05:02:54.7016136Z PASS [8] 撤销后状态=REVOKED（非删除）  => REVOKED
+2026-09-11T05:02:54.7016985Z PASS [8] 历史保留（content/turn/updated_at/status_note 全在）  => turn=1 note=我放弃寻找他
+2026-09-11T05:02:54.7021868Z PASS [8] REVOKED 后不再作为未完成承诺进入检索  => 
+2026-09-11T05:02:54.7022795Z 
+2026-09-11T05:02:54.7023077Z ===== 条款 9 · 世界事实 vs 玩家认知 =====
+2026-09-11T05:02:54.7468995Z PASS [9] World Fact 存在（secret_from_player=true）  => FAC-000001
+2026-09-11T05:02:54.7469911Z PASS [9] Player Knowledge 账本为空（未授予）  => knowledge=0
+2026-09-11T05:02:54.7480467Z PASS [9] 玩家侧 Context 不含秘密事实  => block=80字
+2026-09-11T05:02:54.7490982Z PASS [9] GM 侧（SYSTEM 级）可见，证明确系权限过滤而非丢失  => 
+2026-09-11T05:02:54.7492403Z 
+2026-09-11T05:02:54.7492722Z ===== 条款 10 · State Patch 管线 =====
+2026-09-11T05:02:54.7795877Z PASS [10] 带状态块的输出：经 Patch→Validator→Commit 写入  => {"facts":["FAC-000001"],"decisions":["DEC-000001"]}
+2026-09-11T05:02:54.7796497Z PASS [10] 叙事与状态块分离（narrative 不含标记）  => 
+2026-09-11T05:02:54.7811453Z PASS [10] 纯自然语言（无状态块）：不写入任何事实  => warnings=PATCH_ABSENT
+2026-09-11T05:02:54.7812093Z PASS [10] 回合不推进（-np 降级）  => turn=1→1
+2026-09-11T05:02:54.7843743Z PASS [10] 损坏 JSON：解析失败降级，不写库  => PATCH_PARSE,PATCH_EMPTY
+2026-09-11T05:02:54.7851522Z PASS [10] 回合日志留痕 raw_llm_output + parsed_state_patch  => TRN-000001 patch_keys=decisions/facts
+2026-09-11T05:02:54.7853123Z 
+2026-09-11T05:02:54.7853389Z ===== 条款 11 · Validator 拒绝非法 Patch =====
+2026-09-11T05:02:54.8938418Z PASS [11] 不存在的 ID → 拒绝  => COMMITMENT_REF_MISSING,PATCH_CONFLICT
+2026-09-11T05:02:54.8938997Z PASS [11] 回滚：合法 fact 未被顺带写入（无半提交）  => facts=1 turn=1
+2026-09-11T05:02:54.8948819Z PASS [11] 非法状态值 DELETED → 拒绝  => COMMITMENT_BAD_STATUS
+2026-09-11T05:02:54.8999342Z PASS [11] FULFILLED→REVOKED 非法跃迁 → 拒绝  => PATCH_CONFLICT:illegal commitment transition FULFILLED 
+2026-09-11T05:02:54.9000369Z PASS [11] 历史 Decision 不可被 patch 覆盖（decisions 仅追加，无 update 通道）  => PATCH_KEYS 无 decision_updates
+2026-09-11T05:02:54.9001271Z 
+2026-09-11T05:02:54.9001579Z ===== 条款 12 · Scene Commit 统一提交 / 中途失败回滚 =====
+2026-09-11T05:02:54.9345717Z PASS [12] Decision+Entity+Fact+Event+Relationship+Commitment 一回合统一提交  => {"entities":["ENT-000001"],"facts":["FAC-000001"],"decisions":["DEC-000001"],"commitments":["CMT-000001"],"events":["EVT-000001"],"relationships":["REL-000001"]}
+2026-09-11T05:02:54.9360007Z PASS [12] 中途失败整体拒绝  => COMMITMENT_REF_MISSING,PATCH_CONFLICT
+2026-09-11T05:02:54.9360826Z PASS [12] 全量回滚：账本/回合数与失败前逐位一致  => before=[1,1,1,1,2,1,1] after=[1,1,1,1,2,1,1]
+2026-09-11T05:02:54.9361916Z 
+2026-09-11T05:02:54.9362202Z ===== 条款 13 · Snapshot → 修改 → Restore =====
+2026-09-11T05:02:54.9891940Z PASS [13] 修改后状态确实变化  => turn=2 loc=山城
+2026-09-11T05:02:54.9994935Z PASS [13] 恢复后 9 类账本+Player State+回合数 全部回到快照  => {"dec":1,"fac":0,"evt":0,"ent":1,"rel":0,"cmt":0,"thr":0,"knw":0,"cau":0,"turn":1,"loc":"渡口"}
+2026-09-11T05:02:54.9995573Z PASS [13] Scene 一并恢复  => 渡口
+2026-09-11T05:02:54.9996027Z 
+2026-09-11T05:02:54.9996950Z ===== 条款 14 · 历史不依赖 Summary =====
+2026-09-11T05:02:54.9998812Z PASS [14] 整个 Story 中 summary 类字段仅有 scene.summary  => ["scene.summary"]
+2026-09-11T05:02:55.0014055Z PASS [14] Summary 全空后重大历史（DEC-000001）仍可检索  => decisions命中=1
+2026-09-11T05:02:55.0014972Z PASS [14] Context 全部来自结构化 Ledger（含明示声明）  => 
+2026-09-11T05:02:55.0016546Z 
+2026-09-11T05:02:55.0016817Z ===== 条款 15 · Retriever 实际返回 =====
+2026-09-11T05:02:55.0017844Z   decisions: [{"id":"DEC-000001","score":1.388,"why":"以后我绝不帮助天枢阁"}]
+2026-09-11T05:02:55.0019331Z   commitments: []  threads: []  facts: []
+2026-09-11T05:02:55.0019931Z   events: []  entities: []  knowledge: []  causal: []
+2026-09-11T05:02:55.0020589Z PASS [15] DEC-000001 命中且排序第一（词面命中 天枢 + 重要度90 主导）  => score=1.388
+2026-09-11T05:02:55.0021643Z PASS [15] 场景中途事件（官道）因低重要度+无词面命中而落选  => 
+2026-09-11T05:02:55.0021811Z 
+2026-09-11T05:02:55.0022026Z ===== 条款 16 · DB→Retriever→Context 三方一致 =====
+2026-09-11T05:02:55.0022780Z PASS [16] 检索结果 100% 进入最终 Prompt 块（decisions/facts/commitments/events/knowledge/threads）  => dec=1 fac=0 cmt=0 evt=0
+2026-09-11T05:02:55.0023419Z PASS [16] retrieved_ids 总数与 Context 引用数一致  => total=1
+2026-09-11T05:02:55.0023630Z 
+2026-09-11T05:02:55.0023811Z ===== 条款 17 · 换新 Kernel（科幻）不改引擎核心 =====
+2026-09-11T05:02:55.0069441Z PASS [17] 新内核 Story 创建并绑定  => test:sci-fi vsha1:220a95472c33
+2026-09-11T05:02:55.0244949Z PASS [17] 完全不同的状态字段正常提交  => {"entities":["ENT-000001"],"facts":["FAC-000001"],"decisions":["DEC-000001"]}
+2026-09-11T05:02:55.0253555Z PASS [17] 检索正常（零核心代码改动）  => 
+2026-09-11T05:02:55.0256148Z 
+2026-09-11T05:02:55.0256448Z ===== 条款 18 · A/B/C 交错 A,B,C,A,C,B,A =====
+2026-09-11T05:02:55.2173353Z PASS [18] 7 步交错期间零交叉污染（每步后交叉检索）  => seq=ABCACBA
+2026-09-11T05:02:55.2173921Z PASS [18] 终态[A] 自有决定=3 且无他人 token 泄漏  => 赤霄剑 x3/预期3
+2026-09-11T05:02:55.2174534Z PASS [18] 终态[B] 自有决定=2 且无他人 token 泄漏  => 玄冰谷 x2/预期2
+2026-09-11T05:02:55.2175514Z PASS [18] 终态[C] 自有决定=2 且无他人 token 泄漏  => 焚天塔 x2/预期2
+2026-09-11T05:02:55.2176359Z 
+2026-09-11T05:02:55.2176558Z ===== 条款 19 · 持久层实际结构 =====
+2026-09-11T05:02:55.2180811Z PASS [19] 落盘文件存在  => C:\Users\RUNNER~1\AppData\Local\Temp\sixworlds-audit-1789102970710\stories\ltm.json
+2026-09-11T05:02:55.2181510Z PASS [19] 全部 2 条记录 story_id 无一缺失/错挂  => mismatch=0
+2026-09-11T05:02:55.2182049Z PASS [19] schema_version + kernel 绑定落盘  => v1 kernel=audit@sha1:72739b56d757
+2026-09-11T05:02:55.2183255Z   顶层键: schema_version, story_id, title, created_at, updated_at, kernel, counters, scene, player, sessions, decisions, commitments, knowledge, facts, events, causal, relationships, threads, entities, discarded_turns, _currentSessionId
+2026-09-11T05:02:55.2184552Z   目录: stories/ snapshots/ logs/<storyId>/*.json tmp/（原子写 .tmp→rename，事务=staging 内存副本 store.js:106-123）
+2026-09-11T05:02:55.2184936Z 
+2026-09-11T05:02:55.2185111Z ===== 审计结果：PASS=69 FAIL=0 =====
+2026-09-11T05:02:55.2610983Z 
+2026-09-11T05:02:55.2611687Z === scripts-dev/validate-kernel-xianxia.cjs ===
+2026-09-11T05:02:55.3095008Z PASS 规则总数 175  -> 实际 175
+2026-09-11T05:02:55.3096419Z PASS 无重复编号
+2026-09-11T05:02:55.3096876Z PASS 无缺失编号
+2026-09-11T05:02:55.3100015Z PASS 卷数为 10  -> 实际 10
+2026-09-11T05:02:55.3101996Z   第一卷 · 引擎宣言与核心原 / 第二卷 · 世界结构与社会体 / 第三卷 · 力量体系 / 第四卷 · 战力宪法（防崩坏 / 第五卷 · 生态与世界环境 / 第六卷 · 引擎与状态系统 / 第七卷 · 任务、调查与叙事 / 第八卷 · 自由人生与多世代 / 第九卷 · 运行协议与输出格 / 第十卷 · 开局流程
+2026-09-11T05:02:55.3102930Z PASS 选项输出契约存在
+2026-09-11T05:02:55.3103195Z PASS 场景行格式（玄历｜时段｜地点）
+2026-09-11T05:02:55.3103438Z PASS 示例选项为 A. 格式
+2026-09-11T05:02:55.3103947Z PASS 简要状态块
+2026-09-11T05:02:55.3105257Z PASS 续玩码协议
+2026-09-11T05:02:55.3106054Z PASS 存档协议
+2026-09-11T05:02:55.3106470Z PASS 你需要决定块
+2026-09-11T05:02:55.3106888Z PASS 境界锚定表存在
+2026-09-11T05:02:55.3107174Z PASS 越阶白名单存在
+2026-09-11T05:02:55.3107465Z PASS 崩坏熔断协议存在
+2026-09-11T05:02:55.3108799Z PASS 寿元口径一致：合道5000年
+2026-09-11T05:02:55.3109545Z PASS 寿元口径一致：金丹500年
+2026-09-11T05:02:55.3110079Z PASS 丹药上限两处口径一致（一生两次）
+2026-09-11T05:02:55.3110717Z PASS 合道存世≤5 口径唯一
+2026-09-11T05:02:55.3111135Z PASS 无"一周连破三境"以外的速通表述
+2026-09-11T05:02:55.3111528Z PASS 远景锚点已登记：苏信
+2026-09-11T05:02:55.3111889Z PASS 远景锚点已登记：无尽神域
+2026-09-11T05:02:55.3112720Z PASS 远景锚点已登记：定渊山主
+2026-09-11T05:02:55.3113159Z PASS 远景锚点已登记：炼玉大领主
+2026-09-11T05:02:55.3113857Z PASS 远景锚点已登记：血碑界
+2026-09-11T05:02:55.3114195Z PASS 远景锚点已登记：踏天境
+2026-09-11T05:02:55.3114551Z PASS 远景锚点已登记：天焱皇朝
+2026-09-11T05:02:55.3114876Z PASS 远景锚点已登记：梵安军
+2026-09-11T05:02:55.3115219Z PASS 远景锚点已登记：混元世界
+2026-09-11T05:02:55.3115555Z PASS 锚点精度标签系统
+2026-09-11T05:02:55.3115913Z PASS AMBIGUOUS 留白标记
+2026-09-11T05:02:55.3116258Z PASS 独立内核声明
+2026-09-11T05:02:55.3116627Z PASS 条款交叉引用全部有效
+2026-09-11T05:02:55.3116952Z PASS 无残留续写标记
+2026-09-11T05:02:55.3117298Z PASS 无乱码字符(U+FFFD)
+2026-09-11T05:02:55.3119400Z PASS 所有规则标题非空
+2026-09-11T05:02:55.3120170Z PASS 版本号为 V1.1+  -> 《玄寰界：修真人生模拟器》V1.1.3
+2026-09-11T05:02:55.3121972Z PASS 子条款 152-A~F + 163-A 齐全  -> 152-A,152-B,152-C,152-D,152-E,152-F,163-A
+2026-09-11T05:02:55.3122539Z PASS 子条款引用全部有效
+2026-09-11T05:02:55.3123381Z PASS 无"六要素"残留（V1.1.1 已改五核心+辅助）
+2026-09-11T05:02:55.3123691Z PASS 无英文混杂残留
+2026-09-11T05:02:55.3124671Z PASS KERNEL_META 块存在
+2026-09-11T05:02:55.3125081Z PASS KERNEL_META JSON 可解析
+2026-09-11T05:02:55.3125506Z PASS KERNEL_META 标题与开场白
+2026-09-11T05:02:55.3126004Z PASS KERNEL_META 出身预设 ≥4 条且字段完整
+2026-09-11T05:02:55.3126431Z PASS KERNEL_META 出身预设不预写人物（创建先行）
+2026-09-11T05:02:55.3130135Z PASS 【175】启动含角色创建门控
+2026-09-11T05:02:55.3130425Z 
+2026-09-11T05:02:55.3130612Z ALL PASS (175 rules, 10 vols)
+2026-09-11T05:02:55.3189717Z 
+2026-09-11T05:02:55.3190098Z === mobile/tools/bridge-test.mjs ===
+2026-09-11T05:02:55.4832317Z [vector-store] 已停用（module not found: sqlite (from engine)）；检索回退为纯词面+实体信号
+2026-09-11T05:02:55.5255287Z [vector-store] 已停用（module not found: sqlite (from engine)）；检索回退为纯词面+实体信号
+2026-09-11T05:02:55.5263188Z ✅ 引擎桥仿真测试全部通过（flush 22 次，seed 文件 7 个）
+2026-09-11T05:02:55.5263531Z    kernel_version = sha1:46ac4318cf53
+2026-09-11T05:02:55.5264197Z    engine_turn = 2，快照 SNP-000001
+2026-09-11T05:02:55.5347267Z 
+2026-09-11T05:02:55.5347666Z === mobile/tools/bridge-sandbox.mjs ===
+2026-09-11T05:02:55.6310550Z ✅ 裸 V8 沙箱回归通过（无 process/structuredClone/console/require 全链路：commit/补录/快照/重启）
+2026-09-11T05:02:55.6312183Z    engine_turn = 2，快照 SNP-000001，vector 索引按预期降级为纯词面通道
+2026-09-11T05:02:55.6415077Z 
+2026-09-11T05:02:55.6415658Z === scripts-dev/verify.cjs ===
+2026-09-11T05:02:55.9898081Z Downloading Electron binary...
+2026-09-11T05:03:14.0636655Z PASS  titlebar brand  六面世界
+2026-09-11T05:03:14.0638214Z PASS  sigil present  
+2026-09-11T05:03:14.0639174Z PASS  kernel loaded  已加载 · 六面世界：人生模拟器
+2026-09-11T05:03:14.0639584Z PASS  kernel ok color  color: var(--ok);
+2026-09-11T05:03:14.0639964Z PASS  empty state + start  开始游戏
+2026-09-11T05:03:14.0640243Z PASS  no console/page errors  
+2026-09-11T05:03:14.0640746Z PASS  sidebar 200px wide  {"sbW":200,"chatW":824,"msgH":460,"compH":160,"innerW":1024,"innerH":720}
+2026-09-11T05:03:14.0641391Z PASS  chat column fills  {"sbW":200,"chatW":824,"msgH":460,"compH":160,"innerW":1024,"innerH":720}
+2026-09-11T05:03:14.0642319Z PASS  composer visible  {"sbW":200,"chatW":824,"msgH":460,"compH":160,"innerW":1024,"innerH":720}
+2026-09-11T05:03:14.0642769Z PASS  settings window opens  
+2026-09-11T05:03:14.0643038Z PASS  settings window movable  
+2026-09-11T05:03:14.0644228Z PASS  settings window resizable  
+2026-09-11T05:03:14.0644684Z PASS  settings has 4 tabs  tabs=4
+2026-09-11T05:03:14.0646983Z PASS  preset default deepseek  deepseek
+2026-09-11T05:03:14.0647493Z PASS  base url default  https://api.deepseek.com
+2026-09-11T05:03:14.0648130Z PASS  preset switch -> zhipu  https://open.bigmodel.cn/api/paas/v4 / glm-4-flash
+2026-09-11T05:03:14.0650389Z PASS  settings window closes  
+2026-09-11T05:03:14.0650756Z PASS  theme attr resolved  data-theme=light
+2026-09-11T05:03:14.0652139Z PASS  theme drawer geometry  {"visible":true,"right":1024,"width":420,"height":680,"viewportW":1024,"viewportH":720,"controls":30,"mask":true}
+2026-09-11T05:03:14.0652846Z PASS  theme drawer visual controls  controls=30
+2026-09-11T05:03:14.0653423Z PASS  theme drawer narrow fit  {"left":0,"right":480,"width":480,"overflow":false,"tileOverflow":false}
+2026-09-11T05:03:14.0653915Z PASS  theme pick -> dark  data-theme=dark
+2026-09-11T05:03:14.0654237Z PASS  theme palette visual pick  
+2026-09-11T05:03:14.0654518Z PASS  theme radius visual pick  
+2026-09-11T05:03:14.0654821Z PASS  theme pick -> light  data-theme=light
+2026-09-11T05:03:14.0655197Z PASS  theme preview -> system (resolved)  data-theme=light
+2026-09-11T05:03:14.0655601Z PASS  theme reverts on close (unsaved)  data-theme=light
+2026-09-11T05:03:14.0655918Z PASS  pin toggle active  
+2026-09-11T05:03:14.0656241Z PASS  narrow: sidebar auto-collapses to 48px  sidebar=48
+2026-09-11T05:03:14.0656610Z PASS  narrow: session badge visible when collapsed  
+2026-09-11T05:03:14.0656976Z PASS  wide: sidebar restores to 200px  sidebar=200
+2026-09-11T05:03:14.0657284Z PASS  maximize IPC ok  
+2026-09-11T05:03:14.0657703Z PASS  send button initial text  btn=发送
+2026-09-11T05:03:14.0658003Z PASS  stop-css-absent-initially  
+2026-09-11T05:03:14.0658285Z PASS  abortChat IPC exposed  
+2026-09-11T05:03:14.0658526Z PASS  saveImage IPC exposed  
+2026-09-11T05:03:14.0658773Z PASS  gallery button present  
+2026-09-11T05:03:14.0659584Z PASS  choice parser extracts A/B/C  [{"key":"A","label":"接受委托（获报酬人脉但被监视）"},{"key":"B","label":"拒绝（保自由失情报信任）"},{"key":"C","label":"私下调查（耗时间有风险）"}]
+2026-09-11T05:03:14.0660269Z PASS  prefers-color-scheme media available  {"dark":false,"light":true}
+2026-09-11T05:03:14.0660553Z 
+2026-09-11T05:03:14.0660676Z ==== 39/39 checks passed ====
+2026-09-11T05:03:14.0773016Z 
+2026-09-11T05:03:14.0773702Z === scripts-dev/test-kernel-hub.cjs ===
+2026-09-11T05:03:19.1641339Z PASS  内核设计画布打开
+2026-09-11T05:03:19.1907799Z PASS  单一 AI 设计画布显示
+2026-09-11T05:03:19.1933304Z PASS  首次打开显示设计起点
+2026-09-11T05:03:19.1955989Z PASS  内置双内核在列  << cards=2
+2026-09-11T05:03:19.1990228Z PASS  内置徽标显示
+2026-09-11T05:03:19.5151244Z PASS  内核库按需打开
+2026-09-11T05:03:19.6793275Z PASS  内核库搜索过滤
+2026-09-11T05:03:20.1521566Z PASS  源码焦点层按需打开
+2026-09-11T05:03:20.7318594Z PASS  从设计起点进入 AI 画布
+2026-09-11T05:03:20.7350329Z PASS  设计入口创建新草稿
+2026-09-11T05:03:21.6364048Z PASS  新建预填通用模板  << len=696
+2026-09-11T05:03:21.6383969Z PASS  模板 meta 解析出标题  << 标题：我的世界：人生模拟器 · 出身 2 条 · 0.7 KB
+2026-09-11T05:03:21.9251002Z PASS  AI 设计对话保留用户与助手消息  << messages=2
+2026-09-11T05:03:21.9277644Z PASS  AI 返回的内核自动同步到源码
+2026-09-11T05:03:21.9299041Z PASS  AI 修改后显示未保存状态
+2026-09-11T05:03:22.5099226Z PASS  窄窗口画布宽度稳定  << {"canvas":{"left":72,"right":800,"top":104,"bottom":700,"width":728},"ai":{"left":120,"right":744,"top":49.796875,"bottom":690.453125,"width":624},"source":{"left":292,"right":800,"top":443.109375,"bottom":708,"width":508}}
+2026-09-11T05:03:22.5103223Z PASS  窄窗口源码层不覆盖主画布  << {"canvas":{"left":72,"right":800,"top":104,"bottom":700,"width":728},"ai":{"left":120,"right":744,"top":49.796875,"bottom":690.453125,"width":624},"source":{"left":292,"right":800,"top":443.109375,"bottom":708,"width":508}}
+2026-09-11T05:03:24.0382410Z PASS  保存后出现在列表
+2026-09-11T05:03:24.0405025Z PASS  自定义徽标显示
+2026-09-11T05:03:24.7506412Z PASS  绑定后显示当前徽标
+2026-09-11T05:03:24.7525330Z PASS  状态芯片显示内核标题  << 已加载 · AI协作测试世界
+2026-09-11T05:03:27.3309778Z PASS  编辑内容已持久化
+2026-09-11T05:03:29.7414683Z PASS  重启后绑定与内核保持  << 已加载 · AI协作测试世界
+2026-09-11T05:03:30.8858623Z PASS  重启后内核库仍在列
+2026-09-11T05:03:32.7194984Z PASS  发布后弹窗确认出现
+2026-09-11T05:03:32.7219516Z PASS  弹窗文案含立即应用并游玩  << 内核已就绪「AI协作测试世界」已保存到内核库。要立即应用到当前工作区并开始游玩吗？稍后立即应用并游玩Esc 取消 · ↵ 确认
+2026-09-11T05:03:32.7220657Z PASS  弹窗指向该内核  << 弹窗应以内核 meta 标题点名（实际: 内核已就绪「AI协作测试世界」已保存到内核库。要立即应用到当前工作区并开始游玩吗？稍后立即应用并游玩）
+2026-09-11T05:03:33.8000684Z PASS  立即应用后回内容区
+2026-09-11T05:03:33.8021276Z PASS  立即应用后绑定生效  << 已加载 · AI协作测试世界
+2026-09-11T05:03:35.5059825Z   DEBUG cards: ["导入世界：测试自定义kernel-import-994422 · 导入测试内核 · 0.1 KB应用到当前内容编辑删除","AI协作测试世界自定义当前世界线测试世界994422 · 由设计对话生成的通用测试内核 · 0.8 KB编辑删除","六面世界：人生模拟器内置六面世界：人生模拟器 · 未声明简介 · 38.8 KB应用到当前内容编辑","玄寰界内置玄寰界：修真人生模拟器 · 玄寰界已就绪，等待第一位求道者 · 69.9 KB应用到当前内容编辑"]
+2026-09-11T05:03:35.5062064Z   DEBUG toasts: ["内核 v0.2 已发布，可应用到任意世界线","已绑定内核并重新加载","已应用「AI协作测试世界」——开始你的新世界吧","已导入内核库：kernel-import-994422"]
+2026-09-11T05:03:35.5078533Z PASS  导入文件出现在列表
+2026-09-11T05:03:35.8729680Z PASS  删除确认对话框出现
+2026-09-11T05:03:36.3825438Z PASS  删除后列表移除
+2026-09-11T05:03:36.3847445Z PASS  删除绑定回落（芯片不再显示被删内核）  << 已加载 · 六面世界：人生模拟器
+2026-09-11T05:03:36.6472177Z ALL_PASS
+2026-09-11T05:03:36.6590560Z 
+2026-09-11T05:03:36.6591122Z === scripts-dev/test-secure-storage.cjs ===
+2026-09-11T05:03:40.7392550Z PASS  localStorage 不再含文本密钥
+2026-09-11T05:03:40.7393461Z PASS  localStorage 会话副本已移除
+2026-09-11T05:03:40.7393835Z PASS  文件会话可恢复
+2026-09-11T05:03:40.7394175Z PASS  插图已外置为受限资源 URL
+2026-09-11T05:03:40.7394508Z PASS  外置插图可真实加载
+2026-09-11T05:03:40.7394852Z PASS  系统安全存储可解密密钥
+2026-09-11T05:03:40.7399862Z PASS  磁盘密钥为密文且会话 JSON 不含 base64 插图
+2026-09-11T05:03:40.7898964Z PASS  文件会话 5000 条保存/加载性能  {"saved":{"ok":true,"count":1,"images":0},"saveMs":34.39999999999418,"loadMs":12.300000000017462,"count":5000}
+2026-09-11T05:03:40.9885077Z 
+2026-09-11T05:03:40.9887120Z === scripts-dev/test-sessions-persistence.cjs ===
+2026-09-11T05:03:43.7427381Z PASS  empty-profile-load  {"ok":true,"exists":false,"storage":"empty"}
+2026-09-11T05:03:44.3516934Z PASS  save-returns-ok  {"ok":true,"count":2,"images":0}
+2026-09-11T05:03:44.3520226Z PASS  mirror-sessions-json-written
+2026-09-11T05:03:44.3521921Z PASS  mirror-keeps-v1-shape
+2026-09-11T05:03:44.3523655Z PASS  sqlite-row-written
+2026-09-11T05:03:44.3556070Z PASS  reload-from-sqlite  {"storage":"sqlite","n":2}
+2026-09-11T05:03:44.9680418Z PASS  comic-save-ok  {"ok":true,"count":1,"images":1}
+2026-09-11T05:03:44.9722284Z PASS  comic-panel-hydrated  {"illust":"sixworlds-asset://image/e5e9460bf825342d"}
+2026-09-11T05:03:44.9723019Z PASS  comic-panel-structure-kept  {"cast":1,"panels":2}
+2026-09-11T05:03:45.5985215Z PASS  comic-asset-roundtrip-idempotent  {"ok":true,"count":1,"images":1}
+2026-09-11T05:03:46.1116116Z PASS  clear-empties-both  {"exists":false}
+2026-09-11T05:03:46.1116821Z PASS  clear-removes-mirror
+2026-09-11T05:03:48.0244207Z PASS  migration-visible-to-ui  {"title":"六面世界"}
+2026-09-11T05:03:48.0266238Z PASS  migration-imported-to-sqlite  {"storage":"sqlite","ids":["sess-test-7","sess-test-8"]}
+2026-09-11T05:03:48.0267533Z PASS  migration-keeps-mirror
+2026-09-11T05:03:48.0285007Z PASS  post-migration-reads-sqlite
+2026-09-11T05:03:49.8620107Z PASS  degraded-file-load  {"storage":"file","n":2}
+2026-09-11T05:03:50.3680151Z PASS  degraded-save-still-writes-mirror
+2026-09-11T05:03:52.2353422Z PASS  migration-overflow-truncates-keeps-newest  {"ok":true,"n":200}
+2026-09-11T05:03:54.0942911Z PASS  migration-rejects-bad-shape  {"ok":false}
+2026-09-11T05:03:54.9962429Z 
+2026-09-11T05:03:54.9962948Z ALL PASS
+2026-09-11T05:03:55.0106077Z 
+2026-09-11T05:03:55.0106591Z === scripts-dev/test-progress-import.cjs ===
+2026-09-11T05:03:57.2761113Z PASS  export-writes-bundle
+2026-09-11T05:03:57.2763832Z PASS  bundle-shape  engine files=4
+2026-09-11T05:03:57.2765174Z PASS  bundle-engine-files-under-whitelist
+2026-09-11T05:03:59.2815163Z PASS  reject-wrong-type  "不是有效的进度包（type 不符）"
+2026-09-11T05:04:01.2135674Z PASS  reject-path-traversal  "引擎文件目录层级不正确"
+2026-09-11T05:04:01.2136199Z PASS  traversal-not-written
+2026-09-11T05:04:03.1462031Z PASS  reject-bad-file-type  "不支持的引擎文件类型"
+2026-09-11T05:04:05.0849891Z PASS  reject-non-whitelisted-root  "不支持的引擎文件目录"
+2026-09-11T05:04:07.0585560Z PASS  reject-unsupported-version  "进度包版本不支持（v=2，需要 v1）"
+2026-09-11T05:04:09.0286377Z PASS  reject-bad-sessions  "进度包世界线数据不正确"
+2026-09-11T05:04:10.9993527Z PASS  legacy-memory-db-skipped  旧包 memory.db 应跳过而非整包拒绝: undefined
+2026-09-11T05:04:13.4153541Z PASS  import-succeeds  {"ok":true,"count":2}
+2026-09-11T05:04:13.4154643Z PASS  import-merges-by-id-keeps-newer  同名会话应保留较新 updatedAt
+2026-09-11T05:04:13.4156927Z PASS  import-engine-files-written
+2026-09-11T05:04:14.0208464Z PASS  engine-reusable-after-import  {"ok":true,"sid":"story-exp-1","created":false}
+2026-09-11T05:04:14.0210703Z PASS  import-writes-mirror
+2026-09-11T05:04:15.9914411Z PASS  renderer-sees-imported  disk titles=包内新增/包内同名（新）
+2026-09-11T05:04:16.8041924Z 
+2026-09-11T05:04:16.8042623Z ALL PASS
+2026-09-11T05:04:16.8169341Z 
+2026-09-11T05:04:16.8170074Z === scripts-dev/test-ui-scheme.cjs ===
+2026-09-11T05:04:19.0576217Z PASS  default-loads-classic  {"dock":false,"island":false,"sidebar":true,"entry":"/D:/a/Undecided-Sequel.Chapter/Undecided-Sequel.Chapter/ui/classic/index.html"}
+2026-09-11T05:04:19.0593470Z PASS  preload-exposes-ui-scheme
+2026-09-11T05:04:19.0611696Z PASS  initial-scheme-is-classic
+2026-09-11T05:04:19.7618317Z PASS  theme-drawer-has-scheme-tiles  [{"s":"classic","on":true},{"s":"proto","on":false},{"s":"d","on":false}]
+2026-09-11T05:04:22.0383634Z PASS  switch-to-proto-reloads-entry  {"dock":true,"island":true,"scheme":"proto","entry":"/D:/a/Undecided-Sequel.Chapter/Undecided-Sequel.Chapter/ui/proto/index.html"}
+2026-09-11T05:04:22.6126244Z PASS  proto-drawer-reflects-proto  [{"s":"classic","on":false},{"s":"proto","on":true},{"s":"d","on":false}]
+2026-09-11T05:04:24.8761994Z PASS  switch-back-to-classic  {"dock":false,"sidebar":true,"entry":"/D:/a/Undecided-Sequel.Chapter/Undecided-Sequel.Chapter/ui/classic/index.html"}
+2026-09-11T05:04:27.6246199Z PASS  switch-to-d-reloads-entry  {"sidebar":true,"rail":true,"pin":true,"entry":"/D:/a/Undecided-Sequel.Chapter/Undecided-Sequel.Chapter/ui/d/index.html","scheme":"d"}
+2026-09-11T05:04:27.6268369Z PASS  d-initial-dock-inline  {"sb":"dock","dock":true,"pinOn":true}
+2026-09-11T05:04:28.1081649Z PASS  d-unpin-to-rail  {"sb":"rail","rail":true,"pinOn":false}
+2026-09-11T05:04:28.5165255Z PASS  d-ctrlb-opens-float  {"float":true,"chatX":56,"pos":"absolute"}
+2026-09-11T05:04:28.8220188Z PASS  d-ctrlb-closes-float
+2026-09-11T05:04:29.5664146Z PASS  d-repin-docks-inline  {"sb":"dock","pinOn":true,"inlineW":true}
+2026-09-11T05:04:30.1217416Z PASS  d-drawer-has-sb-tiles  [{"s":"dock","on":true},{"s":"rail","on":false}]
+2026-09-11T05:04:30.5673900Z PASS  d-tile-rail-unpins  {"sb":"rail","dockTiles":["rail"]}
+2026-09-11T05:04:31.0051177Z PASS  d-tile-dock-restores
+2026-09-11T05:04:32.6303670Z PASS  d-hover-rail-opens-float  {"float":true,"pos":"absolute"}
+2026-09-11T05:04:33.4739615Z PASS  d-hover-away-retracts  {"float":false,"sb":"rail","rail":true}
+2026-09-11T05:04:34.2825725Z PASS  d-final-restore-dock
+2026-09-11T05:04:39.7188753Z PASS  back-on-proto
+2026-09-11T05:04:41.6819660Z PASS  restart-persists-proto  {"dock":true,"entry":"/D:/a/Undecided-Sequel.Chapter/Undecided-Sequel.Chapter/ui/proto/index.html"}
+2026-09-11T05:04:43.6052356Z PASS  localstorage-shared-across-schemes
+2026-09-11T05:04:45.8174806Z PASS  restore-classic-at-end
+2026-09-11T05:04:45.9090582Z 
+2026-09-11T05:04:45.9091361Z ALL PASS
+2026-09-11T05:04:45.9214816Z 
+2026-09-11T05:04:45.9215295Z === scripts-dev/test-choices.cjs ===
+2026-09-11T05:04:51.8587736Z PASS fmt-bracket
+2026-09-11T05:04:51.8866838Z PASS fmt-bracket-labels  ["A为他指路","B闭门不开 C. 跟随他","C跟随他"]
+2026-09-11T05:04:53.6942903Z PASS fmt-numeric  ["A接受委托去森林","B留在村庄帮忙","C拒绝并离开"]
+2026-09-11T05:04:55.4963348Z PASS fmt-circled  ["A向东探索遗迹","B回酒馆打听消息","C原地休息"]
+2026-09-11T05:04:57.2945018Z PASS fmt-bold-list  ["A拔剑迎敌","B转身逃跑","C呼喊求援"]
+2026-09-11T05:04:59.0844453Z PASS no-choices-plain-text
+2026-09-11T05:05:00.9157084Z PASS fallback-quote-count  n=3
+2026-09-11T05:05:00.9158363Z PASS fallback-quote-contextual  ["A一个在阿斯拉纳边境长大的兽血孤儿","B被米里斯教会收养的十岁男孩，不知道自己父母是谁","C布鲁纳村铁匠铺的学徒，今年十四岁"]
+2026-09-11T05:05:00.9160178Z PASS fallback-quote-keys  ["A一个在阿斯拉纳边境长大的兽血孤儿","B被米里斯教会收养的十岁男孩，不知道自己父母是谁","C布鲁纳村铁匠铺的学徒，今年十四岁"]
+2026-09-11T05:05:01.4653948Z PASS fallback-quote-click-send  text=【B】被米里斯教会收养的十岁男孩，不知道自己父母是谁
+2026-09-11T05:05:03.2632448Z PASS fallback-quote-suppressed
+2026-09-11T05:05:05.0691237Z PASS fallback-quote-multiline  n=2
+2026-09-11T05:05:06.9026272Z PASS fold-collapses
+2026-09-11T05:05:06.9046225Z PASS fold-pill-visible
+2026-09-11T05:05:07.6083780Z PASS fold-stays-collapsed-after-scroll-event
+2026-09-11T05:05:07.8024030Z PASS pill-re-expands
+2026-09-11T05:05:09.6003729Z PASS multi-base-3-choices
+2026-09-11T05:05:09.9019913Z PASS multi-picked-2
+2026-09-11T05:05:09.9038479Z PASS multi-bar-visible
+2026-09-11T05:05:09.9066068Z PASS multi-info-text  info=已选 2 项：A + B
+2026-09-11T05:05:10.3690681Z PASS multi-combined-send  text=【A】先搜集情报；【B】准备武器
+2026-09-11T05:05:12.5419859Z PASS multi-clear-works
+2026-09-11T05:05:14.7878676Z PASS plain-click-direct-send  text=【C】立刻出发
+2026-09-11T05:05:15.1887600Z PASS no-console-errors
+2026-09-11T05:05:17.6460749Z PASS stream-choices-early  选项在 JSON 尾巴流完前出现
+2026-09-11T05:05:17.6925547Z PASS stream-click-queues  点击即时反馈排队
+2026-09-11T05:05:17.6933020Z PASS queue-chip-persistent  chip=已排队：【A】买些干粮出发 ✕
+2026-09-11T05:05:18.0969039Z PASS queue-chip-click-cancels  chip 点击后撤下
+2026-09-11T05:05:19.3547762Z PASS queued-auto-sent  排队的发送在轮末自动发出
+2026-09-11T05:05:22.5706937Z PASS stop-clears-queue  （流式太快未捕获窗口，跳过）
+2026-09-11T05:05:22.7025114Z ALL_PASS
+2026-09-11T05:05:22.7153724Z 
+2026-09-11T05:05:22.7154240Z === scripts-dev/test-engine-e2e.cjs ===
+2026-09-11T05:05:29.4437647Z PASS  turn1-reply-completed
+2026-09-11T05:05:30.2471027Z PASS  turn1-no-patch-leak-final  【甲龙历 407.03.01｜清晨｜布耶纳村】灰袍旅人立在门前，兜帽下只露出一双灰眼睛，向你问路。
+2026-09-11T05:05:30.2471557Z PASS  turn1-no-patch-leak-streaming
+2026-09-11T05:05:30.2492562Z PASS  turn1-choices-parsed-from-narrative  chips=2
+2026-09-11T05:05:30.2498849Z PASS  disk-story-file-created  smtwht2fk.json
+2026-09-11T05:05:30.2499390Z PASS  disk-turn-1  turn=1
+2026-09-11T05:05:30.2499876Z PASS  disk-decision-confirmed-with-raw  CONFIRMED
+2026-09-11T05:05:30.2500458Z PASS  disk-secret-fact-stored  true
+2026-09-11T05:05:30.2504147Z PASS  disk-thread-open  OPEN
+2026-09-11T05:05:30.2504578Z PASS  disk-commitment-active
+2026-09-11T05:05:30.2504978Z PASS  disk-turn-log-exists
+2026-09-11T05:05:30.5653940Z PASS  turn2-readable-while-committing  committing chip=1
+2026-09-11T05:05:30.5689043Z PASS  turn2-narrative-readable-before-commit-done  正文已可读（未等补录）
+2026-09-11T05:05:30.5689802Z PASS  turn2-retry-dispatched-at-push  calls=3
+2026-09-11T05:05:33.0233311Z PASS  turn2-retry-exactly-once  calls=3
+2026-09-11T05:05:33.0403659Z PASS  turn2-payload-system-count>=3  n=3
+2026-09-11T05:05:33.0404228Z PASS  turn2-payload-has-state-block  true
+2026-09-11T05:05:33.0404689Z PASS  turn2-payload-has-protocol
+2026-09-11T05:05:33.0405034Z PASS  turn2-payload-has-tail-reminder  true
+2026-09-11T05:05:33.0405374Z PASS  turn2-tail-reminder-is-last  true
+2026-09-11T05:05:33.0438976Z PASS  turn2-retry-payload-has-retry-prompt  retry payload captured=true
+2026-09-11T05:05:33.0440380Z PASS  turn2-retry-no-full-history  历史泄漏=false msgs=5
+2026-09-11T05:05:33.0441084Z PASS  turn2-retry-payload-compact  msgs=5
+2026-09-11T05:05:33.0443173Z PASS  turn2-retry-committed-advances-engine  turn=2
+2026-09-11T05:05:33.0444202Z PASS  turn2-retry-state-on-disk  ["visitor_grayrobe","visitor_secret","road_given"]
+2026-09-11T05:05:33.0490917Z PASS  turn2-plain-narrative-intact
+2026-09-11T05:05:33.0491815Z PASS  turn2-pendings-empty-after-retry  []
+2026-09-11T05:05:33.0511956Z PASS  turn2-no-pending-chip  chips=0
+2026-09-11T05:05:33.6360663Z PASS  inspector-opens
+2026-09-11T05:05:33.6373553Z PASS  inspector-shows-ledgers
+2026-09-11T05:05:34.0830641Z ==== ALL_PASS ====
+2026-09-11T05:05:34.0972795Z 
+2026-09-11T05:05:34.0973417Z === scripts-dev/e2e-mock.cjs ===
+2026-09-11T05:05:38.2311277Z PASS  settings-window-opens
+2026-09-11T05:05:38.3693911Z PASS  plain-http-warn-shown  http 警示可见=true
+2026-09-11T05:05:38.4822112Z PASS  plain-http-warn-hidden-on-https  https 警示隐藏=false
+2026-09-11T05:05:38.5101384Z PASS  apikey-masked-by-default  type=password
+2026-09-11T05:05:38.6952930Z PASS  apikey-peek-toggles-plain  type=text
+2026-09-11T05:05:38.8635551Z PASS  apikey-peek-toggles-back
+2026-09-11T05:05:38.8958440Z PASS  test-result-hidden-initially
+2026-09-11T05:05:38.9838363Z PASS  test-endpoint-ok  text=连接成功，共 3 个模型，当前模型「mock-chat」在列表中；注意：http 端点不加密，密钥将以明文传输
+2026-09-11T05:05:39.0314934Z PASS  test-endpoint-bad-key-err  text=HTTP 401 · bad key {"error":{"message":"bad key"}}
+2026-09-11T05:05:39.1090222Z PASS  model-dropdown-opens
+2026-09-11T05:05:39.1123386Z PASS  model-options-3
+2026-09-11T05:05:39.2709964Z PASS  model-filter-narrows
+2026-09-11T05:05:39.4572981Z PASS  model-picked-fills-input
+2026-09-11T05:05:39.4637450Z PASS  model-dropdown-closes-on-pick
+2026-09-11T05:05:39.6994940Z PASS  model-dropdown-reopens-from-cache
+2026-09-11T05:05:39.9141385Z PASS  model-dropdown-esc-closes
+2026-09-11T05:05:39.9142016Z PASS  settings-window-still-open-after-esc
+2026-09-11T05:05:40.2088188Z PASS  image-model-dropdown-opens
+2026-09-11T05:05:40.5524342Z PASS  image-model-picked
+2026-09-11T05:05:40.6210524Z PASS  test-image-endpoint-ok  text=连接成功，共 3 个模型，当前模型「mock-image」在列表中；注意：http 端点不加密，密钥将以明文传输
+2026-09-11T05:05:41.1667260Z PASS  settings-window-closed-after-save
+2026-09-11T05:05:47.4856599Z PASS  streaming-typewriter-partial-seen
+2026-09-11T05:05:53.5501795Z PASS  streaming-final-complete
+2026-09-11T05:05:53.5502163Z PASS  stream-no-cursor-left
+2026-09-11T05:05:53.5526751Z PASS  choices-rendered
+2026-09-11T05:05:53.5568247Z PASS  auto-illust-b64  data:image/png;base64,iVBORw0K
+2026-09-11T05:05:53.5583615Z PASS  illust-revised-shown  revised=1
+2026-09-11T05:05:53.5601982Z PASS  session-auto-title  title=甲龙历 407.03.01 · 布耶纳村
+2026-09-11T05:05:53.8691997Z PASS  token-usage-shown  meta=本线 150 输入 / 60 输出 / 210 tok · 全部世界线 210 tok · 插图 mock-image 1/1 张
+2026-09-11T05:05:53.8692851Z PASS  retry-usage-counted  meta=本线 150 输入 / 60 输出 / 210 tok · 全部世界线 210 tok · 插图 mock-image 1/1 张
+2026-09-11T05:05:53.8705349Z PASS  msg-time-on-new-messages
+2026-09-11T05:05:53.8715428Z PASS  doc-title-syncs-session  title=甲龙历 407.03.01 · 布耶纳村
+2026-09-11T05:05:54.2215708Z PASS  lightbox-opens
+2026-09-11T05:05:54.2234288Z PASS  lightbox-shows-image
+2026-09-11T05:05:54.4592883Z PASS  lightbox-closes
+2026-09-11T05:05:54.7324613Z PASS  search-bar-opens
+2026-09-11T05:05:54.9999905Z PASS  search-finds-matches  count=1/1
+2026-09-11T05:05:55.0022166Z PASS  search-highlights-mark  marks=1
+2026-09-11T05:05:55.1593540Z PASS  search-active-mark  active=1
+2026-09-11T05:05:55.3882612Z PASS  search-bar-closes
+2026-09-11T05:05:55.4008231Z PASS  search-clears-highlights  leftover=0
+2026-09-11T05:05:56.8264332Z PASS  chat-round-2-via-choice
+2026-09-11T05:05:57.2848933Z PASS  illust-btn-visible
+2026-09-11T05:05:57.8315672Z PASS  manual-illust-url-fetched  data:image/png;base64,iVBORw0K
+2026-09-11T05:05:58.0806750Z PASS  redraw-btn-visible
+2026-09-11T05:05:58.1452982Z PASS  redraw-regenerates
+2026-09-11T05:05:58.3744970Z PASS  busy-status-shown
+2026-09-11T05:05:58.3774705Z PASS  send-button-becomes-stop  btn=停止
+2026-09-11T05:05:58.8451252Z PASS  stopped-not-busy
+2026-09-11T05:05:58.8474875Z PASS  busy-status-cleared
+2026-09-11T05:05:58.8492358Z PASS  send-button-restored  btn=发送
+2026-09-11T05:05:59.0888428Z PASS  rename-input-appears
+2026-09-11T05:05:59.4092549Z PASS  rename-committed  title=重命名测试线
+2026-09-11T05:05:59.4092912Z PASS  rename-changed
+2026-09-11T05:05:59.6597435Z PASS  copy-btn-visible
+2026-09-11T05:05:59.9974560Z PASS  copy-toast-shown
+2026-09-11T05:06:00.5493512Z PASS  regen-btn-visible
+2026-09-11T05:06:01.0062119Z PASS  regen-completes
+2026-09-11T05:06:01.0095307Z PASS  regen-keeps-count  before=3 after=3
+2026-09-11T05:06:01.3181701Z PASS  pending-chip-present  chips=3
+2026-09-11T05:06:01.3192711Z PASS  pending-banner-shown
+2026-09-11T05:06:01.3208443Z PASS  pending-discard-btn-mounted
+2026-09-11T05:06:01.6781381Z PASS  discard-confirm-opens
+2026-09-11T05:06:02.0192474Z PASS  discard-clears-chips
+2026-09-11T05:06:02.0203651Z PASS  discard-hides-banner
+2026-09-11T05:06:02.0221713Z PASS  discard-empties-engine-pendings  left=0
+2026-09-11T05:06:02.0236476Z PASS  discard-keeps-narrative
+2026-09-11T05:06:02.3685503Z PASS  new-session-empty
+2026-09-11T05:06:02.3704282Z PASS  session-list-2  count=2
+2026-09-11T05:06:02.7122788Z PASS  switch-back-restores
+2026-09-11T05:06:03.0477576Z PASS  ws-menu-opens
+2026-09-11T05:06:03.0495008Z PASS  ws-menu-shows-current
+2026-09-11T05:06:03.3097004Z PASS  ws-menu-esc-closes
+2026-09-11T05:06:04.7235406Z PASS  ws-created-switched  ws-name=回归测试工作区
+2026-09-11T05:06:04.7252959Z PASS  ws-new-gives-empty-line
+2026-09-11T05:06:05.5473674Z PASS  ws-switch-back-name  ws-name=默认世界
+2026-09-11T05:06:05.5505807Z PASS  ws-switch-restores-lines  lines=2
+2026-09-11T05:06:07.1064063Z PASS  rail-node-click-jumps  scrollTop 1569 → 96
+2026-09-11T05:06:08.8161866Z PASS  sessions-persist-after-reload
+2026-09-11T05:06:08.8183620Z PASS  messages-persist-after-reload
+2026-09-11T05:06:09.1748011Z PASS  gallery-opens
+2026-09-11T05:06:09.1769609Z PASS  gallery-shows-cards  cards=2
+2026-09-11T05:06:09.1793831Z PASS  gallery-card-excerpt  excerpt=薄雾笼罩的清晨，有人敲响了你的家门。一位灰袍旅人向你问路。 为他指路并闲聊（获得
+2026-09-11T05:06:09.1808807Z PASS  gallery-saveall-btn
+2026-09-11T05:06:09.1823496Z PASS  gallery-export-btn
+2026-09-11T05:06:09.5988724Z PASS  gallery-lightbox-opens
+2026-09-11T05:06:09.8333328Z PASS  gallery-lightbox-closes
+2026-09-11T05:06:10.5941122Z PASS  gallery-esc-scope
+2026-09-11T05:06:10.5956764Z PASS  gallery-session-options  opts=2
+2026-09-11T05:06:10.6887335Z PASS  gallery-closes
+2026-09-11T05:06:10.6899634Z PASS  gallery-focus-restored
+2026-09-11T05:06:11.0027241Z PASS  shortcut-ctrl-g-opens-gallery
+2026-09-11T05:06:11.3165768Z PASS  shortcut-ctrl-g-closes-gallery
+2026-09-11T05:06:11.6563411Z PASS  comic-session-id-resolvable  sid=smtwhtb80
+2026-09-11T05:06:11.6897718Z PASS  comic-seed-turn-1
+2026-09-11T05:06:11.7112919Z PASS  comic-seed-turn-2
+2026-09-11T05:06:11.7161067Z PASS  comic-source-turns  {"n":2}
+2026-09-11T05:06:12.0800231Z PASS  works-menu-opens
+2026-09-11T05:06:12.0818731Z PASS  works-menu-comic-sub
+2026-09-11T05:06:12.5197579Z PASS  comic-planner-opens
+2026-09-11T05:06:12.5218375Z PASS  comic-planner-estimates
+2026-09-11T05:06:13.2768568Z PASS  comic-panels-drawn  两幕绘制完成
+2026-09-11T05:06:13.2786301Z PASS  comic-island-closed
+2026-09-11T05:06:14.0125346Z PASS  comic-view-opens
+2026-09-11T05:06:14.0141984Z PASS  comic-sidebar-shown
+2026-09-11T05:06:14.0159592Z PASS  comic-sidebar-rows  rows=2
+2026-09-11T05:06:14.0198618Z PASS  comic-sidebar-states-done
+2026-09-11T05:06:14.0218065Z PASS  comic-view-shows-img
+2026-09-11T05:06:14.0240916Z PASS  comic-view-counter  counter=2 / 2 · 走向森林
+2026-09-11T05:06:14.2573685Z PASS  comic-export-selfcontained  len=1399
+2026-09-11T05:06:14.5647237Z PASS  comic-view-closes
+2026-09-11T05:06:14.5735908Z PASS  comic-seed-turn-3
+2026-09-11T05:06:15.5012511Z PASS  comic-resume-dialog-shown
+2026-09-11T05:06:16.3465943Z PASS  comic-resume-appends-only-new  续画后应有 3 幕全画完
+2026-09-11T05:06:16.3489614Z PASS  comic-resume-keeps-old-panels  first=清晨的到访
+2026-09-11T05:06:16.3565231Z PASS  gallery-stays-closed-after-comic
+2026-09-11T05:06:16.3590839Z PASS  works-btn-present
+2026-09-11T05:06:16.6959492Z PASS  holo-view-opens
+2026-09-11T05:06:16.6975190Z PASS  holo-view-empty-state
+2026-09-11T05:06:17.1313431Z PASS  holo-picker-opens
+2026-09-11T05:06:17.1331055Z PASS  holo-picker-lists-characters
+2026-09-11T05:06:18.1224984Z PASS  holo-card-created  session.cards 应有 1 张
+2026-09-11T05:06:18.1253809Z PASS  holo-card-meta  {"cardId":"card-mtwhu6yc-ctlp20","name":"主角","rarity":"SSR","subtitle":"测试称号","layered":true,"subjectMode":"white","revisedPrompt":"(mock revised) scene as requested","createdAt":1789103177709}
+2026-09-11T05:06:18.1269421Z PASS  holo-card-config-written
+2026-09-11T05:06:18.1269783Z PASS  holo-card-layered-flag  layered=true
+2026-09-11T05:06:18.1285144Z PASS  holo-viewer-ipc-ok
+2026-09-11T05:06:18.4593128Z PASS  holo-wall-shows-card
+2026-09-11T05:06:18.4620385Z PASS  holo-wall-preview-src
+2026-09-11T05:06:18.8331941Z PASS  holo-delete-confirm-shown
+2026-09-11T05:06:19.7165656Z PASS  holo-card-deleted
+2026-09-11T05:06:19.7181517Z PASS  holo-card-dir-removed
+2026-09-11T05:06:20.1237308Z PASS  holo-view-closes
+2026-09-11T05:06:20.2425767Z PASS  shortcut-ctrl-comma-opens-settings
+2026-09-11T05:06:20.5869979Z PASS  esc-closes-settings
+2026-09-11T05:06:21.0182576Z PASS  fontsize-default-standard  data-fontsize=standard
+2026-09-11T05:06:21.2273939Z PASS  fontsize-large-applies  --font-size=16px
+2026-09-11T05:06:21.4349969Z PASS  readwidth-wide-applies  --read-w=860px
+2026-09-11T05:06:22.6543105Z PASS  settings-tab-remembered  tab=advanced
+2026-09-11T05:06:23.4177080Z PASS  fontsize-persisted-after-save  data-fontsize=standard
+2026-09-11T05:06:23.7712154Z PASS  delete-confirm-dialog-shown
+2026-09-11T05:06:24.2308527Z PASS  delete-session
+2026-09-11T05:06:24.9290767Z ALL_PASS
+2026-09-11T05:06:24.9435654Z 
+2026-09-11T05:06:24.9439884Z === scripts-dev/e2e-mock.cjs（SIXWORLDS_UI_SCHEME=proto） ===
+2026-09-11T05:06:31.9320122Z PASS  settings-window-opens
+2026-09-11T05:06:32.0290675Z PASS  plain-http-warn-shown  http 警示可见=true
+2026-09-11T05:06:32.1413149Z PASS  plain-http-warn-hidden-on-https  https 警示隐藏=false
+2026-09-11T05:06:32.1724303Z PASS  apikey-masked-by-default  type=password
+2026-09-11T05:06:32.3667196Z PASS  apikey-peek-toggles-plain  type=text
+2026-09-11T05:06:32.5339263Z PASS  apikey-peek-toggles-back
+2026-09-11T05:06:32.5647478Z PASS  test-result-hidden-initially
+2026-09-11T05:06:32.6322473Z PASS  test-endpoint-ok  text=连接成功，共 3 个模型，当前模型「mock-chat」在列表中；注意：http 端点不加密，密钥将以明文传输
+2026-09-11T05:06:32.6840220Z PASS  test-endpoint-bad-key-err  text=HTTP 401 · bad key {"error":{"message":"bad key"}}
+2026-09-11T05:06:32.7507207Z PASS  model-dropdown-opens
+2026-09-11T05:06:32.7539420Z PASS  model-options-3
+2026-09-11T05:06:32.9118491Z PASS  model-filter-narrows
+2026-09-11T05:06:33.0836740Z PASS  model-picked-fills-input
+2026-09-11T05:06:33.0903549Z PASS  model-dropdown-closes-on-pick
+2026-09-11T05:06:33.3250026Z PASS  model-dropdown-reopens-from-cache
+2026-09-11T05:06:33.5387256Z PASS  model-dropdown-esc-closes
+2026-09-11T05:06:33.5387829Z PASS  settings-window-still-open-after-esc
+2026-09-11T05:06:33.8302721Z PASS  image-model-dropdown-opens
+2026-09-11T05:06:34.1760806Z PASS  image-model-picked
+2026-09-11T05:06:34.4486655Z PASS  test-image-endpoint-ok  text=连接成功，共 3 个模型，当前模型「mock-image」在列表中；注意：http 端点不加密，密钥将以明文传输
+2026-09-11T05:06:34.9780067Z PASS  settings-window-closed-after-save
+2026-09-11T05:06:41.2540035Z PASS  streaming-typewriter-partial-seen
+2026-09-11T05:06:47.3161948Z PASS  streaming-final-complete
+2026-09-11T05:06:47.3162312Z PASS  stream-no-cursor-left
+2026-09-11T05:06:47.3188353Z PASS  choices-rendered
+2026-09-11T05:06:47.3231019Z PASS  auto-illust-b64  data:image/png;base64,iVBORw0K
+2026-09-11T05:06:47.3244723Z PASS  illust-revised-shown  revised=1
+2026-09-11T05:06:47.3264240Z PASS  session-auto-title  title=甲龙历 407.03.01 · 布耶纳村
+2026-09-11T05:06:47.6358800Z PASS  token-usage-shown  meta=本线 150 输入 / 60 输出 / 210 tok · 全部世界线 210 tok · 插图 mock-image 0/0 张
+2026-09-11T05:06:47.6359649Z PASS  retry-usage-counted  meta=本线 150 输入 / 60 输出 / 210 tok · 全部世界线 210 tok · 插图 mock-image 0/0 张
+2026-09-11T05:06:47.6371288Z PASS  msg-time-on-new-messages
+2026-09-11T05:06:47.6381560Z PASS  doc-title-syncs-session  title=甲龙历 407.03.01 · 布耶纳村
+2026-09-11T05:06:47.9833483Z PASS  lightbox-opens
+2026-09-11T05:06:47.9857078Z PASS  lightbox-shows-image
+2026-09-11T05:06:48.2246865Z PASS  lightbox-closes
+2026-09-11T05:06:48.4911903Z PASS  search-bar-opens
+2026-09-11T05:06:48.7552383Z PASS  search-finds-matches  count=1/1
+2026-09-11T05:06:48.7569389Z PASS  search-highlights-mark  marks=1
+2026-09-11T05:06:48.9124562Z PASS  search-active-mark  active=1
+2026-09-11T05:06:49.0681159Z PASS  search-bar-closes
+2026-09-11T05:06:49.0701098Z PASS  search-clears-highlights  leftover=0
+2026-09-11T05:06:50.4875597Z PASS  chat-round-2-via-choice
+2026-09-11T05:06:50.9457148Z PASS  illust-btn-visible
+2026-09-11T05:06:50.9917972Z PASS  manual-illust-url-fetched  data:image/png;base64,iVBORw0K
+2026-09-11T05:06:51.5650994Z PASS  redraw-btn-visible
+2026-09-11T05:06:51.6278702Z PASS  redraw-regenerates
+2026-09-11T05:06:51.8506555Z PASS  busy-status-shown
+2026-09-11T05:06:51.8527968Z PASS  send-button-becomes-stop  btn=停止
+2026-09-11T05:06:52.3141622Z PASS  stopped-not-busy
+2026-09-11T05:06:52.3159147Z PASS  busy-status-cleared
+2026-09-11T05:06:52.3177878Z PASS  send-button-restored  btn=发送
+2026-09-11T05:06:52.5576977Z PASS  rename-input-appears
+2026-09-11T05:06:52.8774344Z PASS  rename-committed  title=重命名测试线
+2026-09-11T05:06:52.8774732Z PASS  rename-changed
+2026-09-11T05:06:53.1278758Z PASS  copy-btn-visible
+2026-09-11T05:06:53.4644785Z PASS  copy-toast-shown
+2026-09-11T05:06:54.0191593Z PASS  regen-btn-visible
+2026-09-11T05:06:54.4710713Z PASS  regen-completes
+2026-09-11T05:06:54.4727251Z PASS  regen-keeps-count  before=3 after=3
+2026-09-11T05:06:54.7785319Z PASS  pending-chip-present  chips=3
+2026-09-11T05:06:54.7798223Z PASS  pending-banner-shown
+2026-09-11T05:06:54.7814897Z PASS  pending-discard-btn-mounted
+2026-09-11T05:06:55.1384005Z PASS  discard-confirm-opens
+2026-09-11T05:06:55.5223489Z PASS  discard-clears-chips
+2026-09-11T05:06:55.5235758Z PASS  discard-hides-banner
+2026-09-11T05:06:55.5253936Z PASS  discard-empties-engine-pendings  left=0
+2026-09-11T05:06:55.5269202Z PASS  discard-keeps-narrative
+2026-09-11T05:06:55.8786611Z PASS  new-session-empty
+2026-09-11T05:06:55.8804125Z PASS  session-list-2  count=2
+2026-09-11T05:06:56.2346652Z PASS  switch-back-restores
+2026-09-11T05:06:56.5805455Z PASS  ws-menu-opens
+2026-09-11T05:06:56.5822164Z PASS  ws-menu-shows-current
+2026-09-11T05:06:56.8422333Z PASS  ws-menu-esc-closes
+2026-09-11T05:06:58.2571363Z PASS  ws-created-switched  ws-name=回归测试工作区
+2026-09-11T05:06:58.2584822Z PASS  ws-new-gives-empty-line
+2026-09-11T05:06:59.0943447Z PASS  ws-switch-back-name  ws-name=默认世界
+2026-09-11T05:06:59.0970511Z PASS  ws-switch-restores-lines  lines=2
+2026-09-11T05:07:00.6508120Z PASS  rail-node-click-jumps  scrollTop 1861 → 135
+2026-09-11T05:07:02.3525121Z PASS  sessions-persist-after-reload
+2026-09-11T05:07:02.3541764Z PASS  messages-persist-after-reload
+2026-09-11T05:07:02.7190101Z PASS  gallery-opens
+2026-09-11T05:07:02.7212070Z PASS  gallery-shows-cards  cards=2
+2026-09-11T05:07:02.7235860Z PASS  gallery-card-excerpt  excerpt=薄雾笼罩的清晨，有人敲响了你的家门。一位灰袍旅人向你问路。 为他指路并闲聊（获得
+2026-09-11T05:07:02.7252990Z PASS  gallery-saveall-btn
+2026-09-11T05:07:02.7268201Z PASS  gallery-export-btn
+2026-09-11T05:07:03.1594899Z PASS  gallery-lightbox-opens
+2026-09-11T05:07:03.4095204Z PASS  gallery-lightbox-closes
+2026-09-11T05:07:04.1893824Z PASS  gallery-esc-scope
+2026-09-11T05:07:04.1910397Z PASS  gallery-session-options  opts=2
+2026-09-11T05:07:04.2947326Z PASS  gallery-closes
+2026-09-11T05:07:04.2959771Z PASS  gallery-focus-restored
+2026-09-11T05:07:04.6084752Z PASS  shortcut-ctrl-g-opens-gallery
+2026-09-11T05:07:04.8928694Z PASS  shortcut-ctrl-g-closes-gallery
+2026-09-11T05:07:05.2335438Z PASS  comic-session-id-resolvable  sid=smtwhugmx
+2026-09-11T05:07:05.2700063Z PASS  comic-seed-turn-1
+2026-09-11T05:07:05.2897993Z PASS  comic-seed-turn-2
+2026-09-11T05:07:05.2941153Z PASS  comic-source-turns  {"n":2}
+2026-09-11T05:07:05.6780602Z PASS  works-menu-opens
+2026-09-11T05:07:05.6799059Z PASS  works-menu-comic-sub
+2026-09-11T05:07:06.1159801Z PASS  comic-planner-opens
+2026-09-11T05:07:06.1181931Z PASS  comic-planner-estimates
+2026-09-11T05:07:06.8711523Z PASS  comic-panels-drawn  两幕绘制完成
+2026-09-11T05:07:06.8728587Z PASS  comic-island-closed
+2026-09-11T05:07:07.6034160Z PASS  comic-view-opens
+2026-09-11T05:07:07.6050942Z PASS  comic-sidebar-shown
+2026-09-11T05:07:07.6065362Z PASS  comic-sidebar-rows  rows=2
+2026-09-11T05:07:07.6111589Z PASS  comic-sidebar-states-done
+2026-09-11T05:07:07.6126012Z PASS  comic-view-shows-img
+2026-09-11T05:07:07.6145586Z PASS  comic-view-counter  counter=2 / 2 · 走向森林
+2026-09-11T05:07:07.8501974Z PASS  comic-export-selfcontained  len=1399
+2026-09-11T05:07:08.1582587Z PASS  comic-view-closes
+2026-09-11T05:07:08.1662482Z PASS  comic-seed-turn-3
+2026-09-11T05:07:09.0624889Z PASS  comic-resume-dialog-shown
+2026-09-11T05:07:09.9135310Z PASS  comic-resume-appends-only-new  续画后应有 3 幕全画完
+2026-09-11T05:07:09.9153817Z PASS  comic-resume-keeps-old-panels  first=清晨的到访
+2026-09-11T05:07:09.9222310Z PASS  gallery-stays-closed-after-comic
+2026-09-11T05:07:09.9238242Z PASS  works-btn-present
+2026-09-11T05:07:11.1136869Z PASS  holo-view-opens
+2026-09-11T05:07:11.1153113Z PASS  holo-view-empty-state
+2026-09-11T05:07:11.5577846Z PASS  holo-picker-opens
+2026-09-11T05:07:11.5593558Z PASS  holo-picker-lists-characters
+2026-09-11T05:07:12.4078103Z PASS  holo-card-created  session.cards 应有 1 张
+2026-09-11T05:07:12.4102458Z PASS  holo-card-meta  {"cardId":"card-mtwhvcuh-evtm9d","name":"主角","rarity":"SSR","subtitle":"测试称号","layered":true,"subjectMode":"white","revisedPrompt":"(mock revised) scene as requested","createdAt":1789103231994}
+2026-09-11T05:07:12.4120169Z PASS  holo-card-config-written
+2026-09-11T05:07:12.4120743Z PASS  holo-card-layered-flag  layered=true
+2026-09-11T05:07:12.4136371Z PASS  holo-viewer-ipc-ok
+2026-09-11T05:07:12.7576209Z PASS  holo-wall-shows-card
+2026-09-11T05:07:12.7601876Z PASS  holo-wall-preview-src
+2026-09-11T05:07:13.1051574Z PASS  holo-delete-confirm-shown
+2026-09-11T05:07:13.7735368Z PASS  holo-card-deleted
+2026-09-11T05:07:13.7751607Z PASS  holo-card-dir-removed
+2026-09-11T05:07:14.1801062Z PASS  holo-view-closes
+2026-09-11T05:07:14.3013389Z PASS  shortcut-ctrl-comma-opens-settings
+2026-09-11T05:07:14.6307935Z PASS  esc-closes-settings
+2026-09-11T05:07:15.0647679Z PASS  fontsize-default-standard  data-fontsize=standard
+2026-09-11T05:07:15.2733784Z PASS  fontsize-large-applies  --font-size=16px
+2026-09-11T05:07:15.4796822Z PASS  readwidth-wide-applies  --read-w=860px
+2026-09-11T05:07:16.4058513Z PASS  settings-tab-remembered  tab=advanced
+2026-09-11T05:07:17.1515567Z PASS  fontsize-persisted-after-save  data-fontsize=standard
+2026-09-11T05:07:17.5004886Z PASS  delete-confirm-dialog-shown
+2026-09-11T05:07:18.0124250Z PASS  delete-session
+2026-09-11T05:07:18.3288745Z ALL_PASS
+2026-09-11T05:07:18.3429178Z 
+2026-09-11T05:07:18.3429802Z === scripts-dev/test-bloub-e2e.cjs ===
+2026-09-11T05:07:26.3903955Z PASS  pet-mounted  data-state=idle
+2026-09-11T05:07:26.3905006Z PASS  pet-visible  display=block opacity=1 box=[1098,576,104,104] vw=1280
+2026-09-11T05:07:26.3906706Z PASS  pet-default-right-margin  x=1098 ≥ 右带起点 1020（边距 260px）
+2026-09-11T05:07:30.4429447Z PASS  pet-gaze-follows  三个指针位置均采到 idle 眼位
+2026-09-11T05:07:30.4430308Z PASS  pet-gaze-centered-on-hover  贴脸时双眼中点 x=-0.4（|≤4px|）
+2026-09-11T05:07:30.4431124Z PASS  pet-gaze-symmetric  左/右偏移 -13.5/14.7px，对称误差 1.26px
+2026-09-11T05:07:30.4431921Z PASS  pet-gaze-tracks-pointer  全摆幅 28.2px，方向正确（左负右正）
+2026-09-11T05:07:31.8516112Z PASS  pet-gaze-vertical  垂直摆幅 46.1px（下移眼线更低）
+2026-09-11T05:07:31.8517170Z PASS  pet-gaze-recenters  回贴脸后中点回到 0.3px
+2026-09-11T05:07:32.5567540Z PASS  pet-gaze-quad-正左  眼位偏移 dx=-15.6 dy=-0.6（期望 左）
+2026-09-11T05:07:33.2605982Z PASS  pet-gaze-quad-正右  眼位偏移 dx=16.5 dy=-0.4（期望 右）
+2026-09-11T05:07:33.9648475Z PASS  pet-gaze-quad-左上  眼位偏移 dx=-13.6 dy=-15.8（期望 左上）
+2026-09-11T05:07:34.6683614Z PASS  pet-gaze-quad-右下  眼位偏移 dx=17.7 dy=18.2（期望 右下）
+2026-09-11T05:07:35.3741821Z PASS  pet-gaze-quad-屏幕左上角  眼位偏移 dx=-23.8 dy=-25.7（期望 左上）
+2026-09-11T05:07:36.0803709Z PASS  pet-gaze-quad-屏幕左下角  眼位偏移 dx=-33.5 dy=10.6（期望 左下）
+2026-09-11T05:07:36.0804231Z PASS  pet-gaze-all-quadrants  0 个方位不一致
+2026-09-11T05:07:37.2951350Z PASS  pet-gaze-leave-recenters  指针离开窗口后眼位回中（样本 midX=-0.3/-0.1/0.2/0.3）
+2026-09-11T05:07:37.2952124Z PASS  pet-gaze-leave-stable  驻留平视稳定（漂移 0.58px，无 wander 游走）
+2026-09-11T05:07:38.0817190Z PASS  pet-click-opens-bubble  贴士「想从某一步换条路重走？悬…」输入框 true
+2026-09-11T05:07:38.4778023Z PASS  pet-ask-rules-hit  答：Ctrl+F 搜索当前世界线 · Ctrl+G 打开画廊 ·…
+2026-09-11T05:07:38.9876286Z PASS  pet-ask-cloud-brain  云端大脑接管闲聊：（云端测试大脑）收到：「量子力学怎么入门」…
+2026-09-11T05:07:39.1921364Z PASS  pet-bubble-closes-outside
+2026-09-11T05:07:39.7553131Z PASS  pet-menu-opens  右键弹出菜单
+2026-09-11T05:07:39.7554477Z PASS  pet-menu-items  菜单项齐备：戳一戳 / 帮助气泡 / 换到另一侧 / 回到默认位置 / 休息 / 唤醒 / 接入本地小模型 · 约 400MB
+2026-09-11T05:07:40.1599463Z PASS  pet-menu-flip-side  x 1098 → 78（换到左侧）
+2026-09-11T05:07:40.1600056Z PASS  pet-menu-closes-after-action  菜单点选后自动关闭
+2026-09-11T05:07:41.1093583Z PASS  pet-menu-reset-pos  归位后回到右侧带（x=1098）
+2026-09-11T05:07:41.9248083Z PASS  pet-menu-sleep  休息：data-state=sleep
+2026-09-11T05:07:44.7224544Z PASS  pet-menu-wake  唤醒回 idle（data-state=idle）
+2026-09-11T05:07:45.4377003Z PASS  pet-menu-esc-closes  Esc 关闭菜单
+2026-09-11T05:07:45.7862179Z PASS  pet-drag-moves  x 1098 → 248，记忆 x=248
+2026-09-11T05:07:45.7862976Z PASS  pet-pos-remembered  localStorage 与实际位置一致
+2026-09-11T05:07:48.5216041Z PASS  pet-pos-survives-reload
+2026-09-11T05:07:48.9856957Z PASS  pet-busy-thinking  生成期间 data-state=thinking
+2026-09-11T05:07:50.3206136Z PASS  pet-done-recovers  完成后 data-state=notify
+2026-09-11T05:07:50.3221633Z PASS  pet-regression-placeholder  （岛/空态还原由下方显式检查）
+2026-09-11T05:07:50.3355475Z PASS  island-reverted-no-bloub-hooks  灵动岛无 bloub 覆盖规则（呼吸圆点还原）
+2026-09-11T05:07:50.8496468Z PASS  pet-hides-on-narrow  窄窗（700px，边距<140）自动隐藏
+2026-09-11T05:07:51.3593055Z PASS  pet-returns-on-wide
+2026-09-11T05:07:55.6751548Z PASS  classic-pet-mounted  经典方案桌宠存在 data 端渲染
+2026-09-11T05:07:55.6752628Z PASS  classic-pet-visible  display=block box=[1038,576,104,104]
+2026-09-11T05:07:55.6753549Z PASS  classic-pet-in-margin  桌宠在右半区（x=1038，vw=1200）
+2026-09-11T05:07:56.4001699Z PASS  pet-model-chip  「接入本地小模型 · 约 400MB」（只说大小，无型号）
+2026-09-11T05:07:56.8295527Z PASS  pet-model-confirm-size-only  确认文案含大小、无型号、双按钮
+2026-09-11T05:07:57.2765574Z PASS  pet-model-downloading  phase=downloading 30% · 0MB/0MB
+2026-09-11T05:07:58.2923932Z PASS  pet-model-ready  假源下载 → 自动接入 → ready
+2026-09-11T05:07:58.6425983Z PASS  pet-model-ready-rules-first  就绪后规则优先：Ctrl+F 搜索当前世界线 · Ctrl+G …
+2026-09-11T05:07:58.6438389Z PASS  pet-brain-default-cloud  本地就绪 + 云端已配置 → 默认大脑 cloud
+2026-09-11T05:07:58.6450493Z PASS  pet-brain-zone-label  接入区显示双大脑：云端大脑（你的模型）+ 本地小模型 · 双大脑在线
+2026-09-11T05:07:59.1633748Z PASS  pet-brain-cloud-answers  云端大脑作答：（云端测试大脑）收到：「讲个笑话」…
+2026-09-11T05:07:59.1634650Z PASS  pet-brain-cloud-typewriter  云端回答同样走打字机逐字（途中半截 true）
+2026-09-11T05:07:59.1657426Z PASS  pet-brain-toggle-local  偏好切到 local → brain() = local
+2026-09-11T05:07:59.6727409Z PASS  pet-brain-local-answers  本地大脑作答：（测试大脑）收到：「再讲一个」…
+2026-09-11T05:07:59.6728340Z PASS  pet-brain-local-typewriter  本地回答打字机逐字（途中半截 true）
+2026-09-11T05:08:00.6540105Z PASS  agent-zone-chips  智能体快捷按钮齐备：这一幕选哪个 / 托管 3 轮 / 哪幕值得配图
+2026-09-11T05:08:00.6541499Z PASS  agent-zone-no-prompt-chip-without-illust  生图端点未配置时不显示「优化生图提示词」（3 个按钮）
+2026-09-11T05:08:01.1011185Z PASS  agent-recommend-note  推荐结果：我推荐【B】闭门不开——（测试大脑）B 最能推进主线替我选…（附替我选按钮）
+2026-09-11T05:08:02.1787945Z PASS  agent-play-choice-round  代选【B】完成一轮剧情生成
+2026-09-11T05:08:02.8924099Z PASS  agent-autopilot-runs  托管 2 轮跑完：我推荐【B】闭门不开——（测试大脑）B 最能推进主线替我选|替你选了【B】闭门不…
+2026-09-11T05:08:02.8925668Z PASS  agent-autopilot-shows-stop  托管期间显示「停止托管」（MutationObserver 捕获瞬态）
+2026-09-11T05:08:02.8926551Z PASS  agent-autopilot-picks  每轮报告选择与理由（FAKE 决策固定选 A）
+2026-09-11T05:08:03.3503020Z PASS  agent-illust-note  配图建议：最值得配图的是「【甲龙历 407.03.01｜清晨｜布耶纳村…
+2026-09-11T05:08:03.7234393Z PASS  agent-illust-guard  未配置插图端点时守卫提示（不盲发请求）
+2026-09-11T05:08:04.2417934Z PASS  agent-prompt-optimize  提示词优化结果：优化后的生图提示词：masterpiece, (test brain) …
+2026-09-11T05:08:04.2426480Z PASS  agent-prompt-actions  操作按钮：用这个生图 / 复制
+2026-09-11T05:08:06.0943448Z 
+2026-09-11T05:08:06.0946684Z bloub-pet-e2e：65 通过，0 失败
+2026-09-11T05:08:06.1113249Z 
+2026-09-11T05:08:06.1113913Z 全部 25 个测试程序通过。
+2026-09-11T05:08:06.7343613Z ##[group]Run npm run dist
+2026-09-11T05:08:06.7343997Z [36;1mnpm run dist[0m
+2026-09-11T05:08:06.7412275Z shell: C:\Program Files\PowerShell\7\pwsh.EXE -command ". '{0}'"
+2026-09-11T05:08:06.7412669Z ##[endgroup]
+2026-09-11T05:08:07.5043585Z 
+2026-09-11T05:08:07.5044282Z > six-worlds-codex@1.5.3 dist
+2026-09-11T05:08:07.5048532Z > node -e "fs.rmSync('dist',{recursive:true,force:true})" && electron-builder --win nsis portable --publish never
+2026-09-11T05:08:07.5049046Z 
+2026-09-11T05:08:08.2609665Z   • electron-builder  version=26.15.3 os=10.0.26100
+2026-09-11T05:08:08.2654897Z   • loaded configuration  file=package.json ("build" field)
+2026-09-11T05:08:10.0959188Z   • executing @electron/rebuild  electronVersion=44.0.0 arch=x64 buildFromSource=false workspaceRoot=D:\a\Undecided-Sequel.Chapter\Undecided-Sequel.Chapter projectDir=./ appDir=./
+2026-09-11T05:08:10.0961355Z   • installing native dependencies  arch=x64
+2026-09-11T05:08:10.3274084Z   • completed installing native dependencies
+2026-09-11T05:08:10.3345223Z   • packaging       platform=win32 arch=x64 electron=44.0.0 appOutDir=dist\win-unpacked
+2026-09-11T05:08:10.3354989Z   • using custom unpacked Electron distribution  electronDist=node_modules\electron\dist
+2026-09-11T05:08:10.3356809Z   • copying unpacked Electron  source=D:\a\Undecided-Sequel.Chapter\Undecided-Sequel.Chapter\node_modules\electron\dist destination=D:\a\Undecided-Sequel.Chapter\Undecided-Sequel.Chapter\dist\win-unpacked
+2026-09-11T05:08:10.4942029Z   • searching for node modules  pm=npm searchDir=D:\a\Undecided-Sequel.Chapter\Undecided-Sequel.Chapter
+2026-09-11T05:08:17.7504980Z   • duplicate dependency references  dependencies=["debug@4.4.3","fs-extra@11.4.0","yargs@17.7.3","async-retry@1.3.3","filenamify@6.0.0","fs-extra@11.4.0","stdout-update@4.0.1","log-symbols@7.0.1","debug@4.4.3","debug@4.4.3","strip-ansi@7.2.0","string-width@4.2.3","string-width@4.2.3","strip-ansi@6.0.1","strip-ansi@6.0.1"]
+2026-09-11T05:08:23.7653960Z   • updating asar integrity executable resource  executablePath=dist\win-unpacked\六面世界.exe
+2026-09-11T05:08:24.0918113Z   • signing with signtool.exe  path=dist\win-unpacked\六面世界.exe
+2026-09-11T05:08:24.1283106Z   • building        target=nsis file=dist\SixWorlds-Setup-1.5.3.exe archs=x64 oneClick=false perMachine=false
+2026-09-11T05:08:24.3441376Z   • downloaded      label=nsis-3.0.4.1.7z progress=100%
+2026-09-11T05:08:24.5988523Z   • downloaded      label=7zip-win-x64.tar.gz progress=100%
+2026-09-11T05:08:27.2567809Z   • signing with signtool.exe  path=dist\win-unpacked\resources\elevate.exe
+2026-09-11T05:09:33.7649773Z   • downloaded      label=nsis-resources-3.4.1.7z progress=100%
+2026-09-11T05:09:35.5207121Z   • signing with signtool.exe  path=dist\SixWorlds-Setup-1.5.3.__uninstaller.exe
+2026-09-11T05:09:37.3937821Z   • signing with signtool.exe  path=dist\SixWorlds-Setup-1.5.3.exe
+2026-09-11T05:09:37.3939735Z   • building block map  blockMapFile=dist\SixWorlds-Setup-1.5.3.exe.blockmap
+2026-09-11T05:09:44.3362387Z   • building        target=portable file=dist\SixWorlds-Portable-1.5.3.exe archs=x64
+2026-09-11T05:09:45.3244162Z   • signing with signtool.exe  path=dist\SixWorlds-Portable-1.5.3.exe
+2026-09-11T05:09:45.4107062Z ##[group]Run npm run test:packaged
+2026-09-11T05:09:45.4107625Z [36;1mnpm run test:packaged[0m
+2026-09-11T05:09:45.4174848Z shell: C:\Program Files\PowerShell\7\pwsh.EXE -command ". '{0}'"
+2026-09-11T05:09:45.4175271Z ##[endgroup]
+2026-09-11T05:09:46.0822609Z 
+2026-09-11T05:09:46.0823334Z > six-worlds-codex@1.5.3 test:packaged
+2026-09-11T05:09:46.0824002Z > node scripts-dev/test-packaged.cjs
+2026-09-11T05:09:46.0824367Z 
+2026-09-11T05:09:46.4875383Z Error: app.asar 缺少全息查看器资产 holo/card.glb（查看器打开即白屏）
+2026-09-11T05:09:46.4876175Z     at main (D:\a\Undecided-Sequel.Chapter\Undecided-Sequel.Chapter\scripts-dev\test-packaged.cjs:19:62)
+2026-09-11T05:09:46.4877083Z     at Object.<anonymous> (D:\a\Undecided-Sequel.Chapter\Undecided-Sequel.Chapter\scripts-dev\test-packaged.cjs:132:1)
+2026-09-11T05:09:46.4877791Z     at Module._compile (node:internal/modules/cjs/loader:1929:14)
+2026-09-11T05:09:46.4878315Z     at Object..js (node:internal/modules/cjs/loader:2060:10)
+2026-09-11T05:09:46.4878905Z     at Module.load (node:internal/modules/cjs/loader:1651:32)
+2026-09-11T05:09:46.4879396Z     at Module._load (node:internal/modules/cjs/loader:1443:12)
+2026-09-11T05:09:46.4879853Z     at wrapModuleLoad (node:internal/modules/cjs/loader:261:19)
+2026-09-11T05:09:46.4880425Z     at Module.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:154:5)
+2026-09-11T05:09:46.4880950Z     at node:internal/main/run_main_module:33:47
+2026-09-11T05:09:46.5688111Z ##[error]Process completed with exit code 1.
+2026-09-11T05:09:46.5957915Z Node 20 is being deprecated. This workflow is running with Node 24 by default. If you need to temporarily use Node 20, you can set the ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION=true environment variable. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+2026-09-11T05:09:46.5959201Z Post job cleanup.
+2026-09-11T05:09:46.7592566Z [command]"C:\Program Files\Git\bin\git.exe" version
+2026-09-11T05:09:46.7879002Z git version 2.55.0.windows.5
+2026-09-11T05:09:46.7955602Z Temporarily overriding HOME='D:\a\_temp\ea9e802e-281a-4a91-b3ea-4b8949df67c8' before making global git config changes
+2026-09-11T05:09:46.7956967Z Adding repository directory to the temporary git global config as a safe directory
+2026-09-11T05:09:46.7967001Z [command]"C:\Program Files\Git\bin\git.exe" config --global --add safe.directory D:\a\Undecided-Sequel.Chapter\Undecided-Sequel.Chapter
+2026-09-11T05:09:46.8366349Z [command]"C:\Program Files\Git\bin\git.exe" config --local --name-only --get-regexp core\.sshCommand
+2026-09-11T05:09:46.8695627Z [command]"C:\Program Files\Git\bin\git.exe" submodule foreach --recursive "sh -c \"git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :\""
+2026-09-11T05:09:47.4088319Z [command]"C:\Program Files\Git\bin\git.exe" config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-09-11T05:09:47.4378883Z http.https://github.com/.extraheader
+2026-09-11T05:09:47.4436935Z [command]"C:\Program Files\Git\bin\git.exe" config --local --unset-all http.https://github.com/.extraheader
+2026-09-11T05:09:47.4881682Z [command]"C:\Program Files\Git\bin\git.exe" submodule foreach --recursive "sh -c \"git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :\""
+2026-09-11T05:09:48.0815697Z [command]"C:\Program Files\Git\bin\git.exe" config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-09-11T05:09:48.1122492Z [command]"C:\Program Files\Git\bin\git.exe" submodule foreach --recursive "git config --local --show-origin --name-only --get-regexp remote.origin.url"
+2026-09-11T05:09:48.6736185Z Cleaning up orphan processes
+2026-09-11T05:09:48.7432123Z ##[warning]Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4, actions/setup-node@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
