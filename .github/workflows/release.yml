@@ -81,7 +81,7 @@ jobs:
           distribution: temurin
           java-version: 17
           cache: gradle
-      - uses: android-actions/setup-android@v3
+      - uses: android-actions/setup-android@v4
       # Release APK 必须真签名（未签名无法安装）——密钥库 base64 解到 runner 临时目录，
       # 路径经 GITHUB_ENV 传给后续步骤，密钥库本体与密码绝不落仓库
       - name: 解码签名密钥库

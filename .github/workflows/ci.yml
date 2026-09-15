@@ -35,7 +35,7 @@ jobs:
           distribution: temurin
           java-version: 17
           cache: gradle
-      - uses: android-actions/setup-android@v3
+      - uses: android-actions/setup-android@v4
       - run: chmod +x mobile/gradlew
       - run: npm run test:android
       - run: mobile/gradlew -p mobile assembleDebug
