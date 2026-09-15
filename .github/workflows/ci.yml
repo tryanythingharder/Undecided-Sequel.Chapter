@@ -35,7 +35,11 @@ jobs:
           distribution: temurin
           java-version: 17
           cache: gradle
+      # packages 默认 'tools platform-tools'，但 Google 仓库已下架 legacy 'tools' 包
+      # （2026-09-15 起 sdkmanager 报 Failed to find package 'tools'）——只装 platform-tools
       - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
       - run: chmod +x mobile/gradlew
       - run: npm run test:android
       - run: mobile/gradlew -p mobile assembleDebug
