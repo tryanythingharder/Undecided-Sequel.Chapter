@@ -726,6 +726,37 @@ async function main() {
   check('comic-bubble-overlaid-in-cell', !!geo && geo.bubbleInCell, '气泡应叠在分格内')
   const counterText = await win.locator('#comic-view .comic-counter').textContent().catch(() => '')
   check('comic-view-counter', /第 1 \/ 1 页/.test(counterText), 'counter=' + counterText)
+
+  // ---- 阅读模式：翻页（默认）⇄ 连续（条漫式下拉）切换 ----
+  // 切换器存在且默认高亮「翻页」
+  check('comic-mode-switch-shown', (await win.locator('#comic-view .comic-mode-switch').count()) === 1)
+  check('comic-mode-default-paged', (await win.locator('#comic-view #comic-mode-paged.on').count()) === 1, '默认应为翻页模式')
+  // 切到「连续」：整部连成长流（1 页也在流里），翻页按钮隐藏，stage 变滚动容器
+  await win.click('#comic-view #comic-mode-scroll')
+  await win.waitForTimeout(300)
+  check('comic-mode-scroll-active', (await win.locator('#comic-view #comic-mode-scroll.on').count()) === 1, '连续按钮应高亮')
+  check('comic-scroll-flow-shown', (await win.locator('#comic-view .comic-scroll-flow').count()) === 1, '应渲染连续长流')
+  check('comic-scroll-flow-cells', (await win.locator('#comic-view .comic-scroll-flow .comic-cell').count()) === 2, '连续流里应含全部分格')
+  check('comic-scroll-mode-class', await win.locator('#comic-view').evaluate((el) => el.classList.contains('mode-scroll')))
+  check('comic-scroll-nav-hidden', await win.locator('#comic-view .comic-nav-prev').isHidden())
+  // 连续模式记进 localStorage；重开阅读器应沿用
+  const scrollModeSaved = await win.evaluate(() => localStorage.getItem('sixworlds.comic.readMode'))
+  check('comic-scroll-mode-saved', scrollModeSaved === 'scroll', 'saved=' + scrollModeSaved)
+  await win.keyboard.press('Escape')
+  await win.waitForTimeout(300)
+  await win.click('#btn-works')
+  await win.waitForTimeout(250)
+  await win.click('#works-comic')
+  await win.waitForTimeout(400)
+  check('comic-scroll-mode-restored', (await win.locator('#comic-view #comic-mode-scroll.on').count()) === 1 && (await win.locator('#comic-view .comic-scroll-flow').count()) === 1, '重开应沿用连续模式')
+  // 切回「翻页」：回到单页居中 + 翻页按钮回来
+  await win.click('#comic-view #comic-mode-paged')
+  await win.waitForTimeout(300)
+  check('comic-mode-back-to-paged', (await win.locator('#comic-view #comic-mode-paged.on').count()) === 1 && (await win.locator('#comic-view .comic-scroll-flow').count()) === 0, '切回应为翻页单页')
+  check('comic-paged-nav-back', await win.locator('#comic-view .comic-nav-prev').isVisible())
+  const pagedModeSaved = await win.evaluate(() => localStorage.getItem('sixworlds.comic.readMode'))
+  check('comic-paged-mode-saved', pagedModeSaved === 'paged', 'saved=' + pagedModeSaved)
+
   await win.click('#comic-view .comic-view-export')
   ok = false
   for (let i = 0; i < 20; i++) {
@@ -739,6 +770,8 @@ async function main() {
     check('comic-export-grid-page', exported.includes('class="page"') && exported.includes('grid-template-columns'), '导出应含分格页面')
     check('comic-export-bubble', exported.includes('class="bubble tone-normal') && exported.includes('class="bubble tone-shout'), '导出应含对白气泡')
     check('comic-export-hero-cell', exported.includes('class="cell size-hero"'), '导出应含 hero 跨列格')
+    // 导出自带阅读模式：连续（默认）⇄ 翻页切换
+    check('comic-export-mode-switch', exported.includes('id="mb-scroll"') && exported.includes('id="mb-paged"') && exported.includes('mode-scroll'), '导出应含连续/翻页模式切换')
   } else {
     check('comic-export-file-written', false, '导出文件未生成')
   }

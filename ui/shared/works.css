@@ -142,6 +142,49 @@
   .comic-view.has-list .comic-nav-prev { left: 208px; }
 }
 
+/* ---------------- 阅读模式切换器：翻页（单行本式）/ 连续（条漫式下拉） ---------------- */
+.comic-mode-switch {
+  position: absolute; top: 18px; right: 288px; z-index: 6;
+  display: flex; align-items: center; gap: 3px;
+  border: 1px solid rgba(255, 255, 255, .18); background: rgba(255, 255, 255, .08);
+  border-radius: 999px; padding: 3px;
+}
+.comic-mode-switch button {
+  border: none; background: transparent; color: rgba(242, 237, 227, .72);
+  border-radius: 999px; padding: 4px 14px; font-size: 12px; line-height: 1.4;
+  cursor: pointer; font-family: var(--sans); transition: background .14s, color .14s;
+}
+.comic-mode-switch button:hover { color: #f2ede3; background: rgba(255, 255, 255, .1); }
+.comic-mode-switch button.on { background: rgba(244, 208, 135, .92); color: #2b2823; font-weight: 600; }
+.comic-mode-switch button.on:hover { background: #f4d087; color: #2b2823; }
+
+/* 连续（条漫式）模式：stage 变成滚动容器，页与页竖向堆叠成一条长流 */
+.comic-view.mode-scroll .comic-stage {
+  overflow-y: auto; align-items: stretch; justify-content: flex-start;
+  gap: 0; padding: 0 14px 28px;
+  scrollbar-gutter: stable;
+  width: 100%; max-width: none; max-height: none;
+}
+.comic-view.mode-scroll.has-list { justify-content: flex-start; }
+.comic-view.mode-scroll .comic-scroll-flow {
+  display: flex; flex-direction: column; align-items: center;
+  gap: 34px; width: min(1180px, 100%); margin: 0 auto;
+  padding-top: 76px; /* 让出顶部按钮排（关闭/导出/模式切换/继续生成） */
+}
+.comic-view.mode-scroll .comic-scroll-flow .comic-page-grid {
+  width: 100%; max-height: none; overflow: visible; padding: 0;
+  /* 连续流里页随内容自然展开（格子保持 2 列分格比例） */
+}
+/* 连续模式下翻页按钮藏起：.comic-nav 的 display:flex 会压过 hidden 属性的 UA 规则，须显式 none */
+.comic-nav[hidden] { display: none; }
+.comic-scroll-page-head {
+  display: flex; justify-content: center; margin-bottom: -24px;
+}
+.comic-scroll-page-head .comic-counter { font-size: 11.5px; color: rgba(242, 237, 227, .6); }
+@media (max-width: 860px) {
+  .comic-mode-switch { right: 240px; }
+}
+
 /* ==================== 画廊（从两份 styles.css 抽出，单源维护；修行高压缩/骨架屏/对比度） ==================== */
 /* ============ 画廊（R70：右侧抽屉——浏览插图时保留对话上下文；Finalize Design 玻璃化） ============ */
 .gallery {

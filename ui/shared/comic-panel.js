@@ -472,6 +472,14 @@
     /* ---------- 阅读视图 ---------- */
     let viewIdx = 0
     let closeViewFn = null
+    /* 阅读模式记忆：'paged'（日本单行本式翻页）| 'scroll'（条漫式连续下拉） */
+    const MODE_LS_KEY = 'sixworlds.comic.readMode'
+    function loadReadMode() {
+      try { return localStorage.getItem(MODE_LS_KEY) === 'scroll' ? 'scroll' : 'paged' } catch { return 'paged' }
+    }
+    function saveReadMode(m) {
+      try { localStorage.setItem(MODE_LS_KEY, m) } catch {}
+    }
 
     function openView() {
       const s = curSession()
@@ -526,6 +534,23 @@
       contBtn.textContent = '继续生成'
       contBtn.title = '回到生成向导（续画 / 重新规划）'
       mask.appendChild(contBtn)
+      // 阅读模式切换：翻页（单行本式，←→）| 连续（条漫式下拉滚动）
+      const modeWrap = document.createElement('div')
+      modeWrap.className = 'comic-mode-switch'
+      modeWrap.setAttribute('role', 'group')
+      modeWrap.setAttribute('aria-label', '阅读模式')
+      const modePagedBtn = document.createElement('button')
+      modePagedBtn.id = 'comic-mode-paged'
+      modePagedBtn.type = 'button'
+      modePagedBtn.textContent = '翻页'
+      modePagedBtn.title = '单行本式：一页一屏，← → 翻页'
+      const modeScrollBtn = document.createElement('button')
+      modeScrollBtn.id = 'comic-mode-scroll'
+      modeScrollBtn.type = 'button'
+      modeScrollBtn.textContent = '连续'
+      modeScrollBtn.title = '条漫式：整部连成长条，往下滚动阅读'
+      modeWrap.appendChild(modePagedBtn); modeWrap.appendChild(modeScrollBtn)
+      mask.appendChild(modeWrap)
       document.body.appendChild(mask)
 
       const panels = s.comic.panels
@@ -550,7 +575,11 @@
         const stEl = document.createElement('span')
         stEl.className = 'comic-list-state'
         row.appendChild(idxEl); row.appendChild(titleEl); row.appendChild(stEl)
-        row.addEventListener('click', () => { viewIdx = pi; renderPage() })
+        row.addEventListener('click', () => {
+          viewIdx = pi
+          if (readMode === 'scroll') scrollToPage(pi, 'smooth')
+          else renderPage()
+        })
         list.appendChild(row)
         return { row, stEl }
       })
@@ -592,7 +621,7 @@
               if (queueRunning) { toast('队列进行中，稍后再试', 'info'); return }
               p.illustError = null
               await drawPanel(curSession(), p, ctx.stylePrompt())
-              renderPage()
+              rerender()
             })
             ph.appendChild(document.createElement('br'))
             ph.appendChild(rb)
@@ -623,36 +652,142 @@
         return cell
       }
 
-      const renderPage = () => {
-        const pg = pages[viewIdx]
-        if (!pg) return
-        stage.innerHTML = ''
-        sbCount.textContent = (viewIdx + 1) + ' / ' + pages.length
+      /* ---- 渲染 ----
+       * 两种阅读模式共享同一套分页数据与 buildPanelCell：
+       * - paged（翻页）：一页一屏居中，← → / 按钮翻页（日本单行本式）
+       * - scroll（连续）：全部页连成竖向长流一次渲染，往下滚动阅读（条漫式）；
+       *   滚动位置驱动 viewIdx（侧栏高亮/页码同步），页面顶部吸附方便定位。 */
+      let readMode = loadReadMode()
+      let scrollSyncing = false
+
+      const markListState = () => {
         listRows.forEach((r, i) => {
           r.row.classList.toggle('on', i === viewIdx)
           r.stEl.textContent = stateOfPage(pages[i])
         })
+      }
+      const buildPageEl = (pg, pi) => {
         const page = document.createElement('div')
         page.className = 'comic-page comic-page-grid'
+        page.setAttribute('data-page-no', String(pi + 1))
         const counter = document.createElement('div')
         counter.className = 'comic-counter'
         const first = pg[0]
         const last = pg[pg.length - 1]
-        counter.textContent = '第 ' + (viewIdx + 1) + ' / ' + pages.length + ' 页 · 幕 ' +
+        counter.textContent = '第 ' + (pi + 1) + ' / ' + pages.length + ' 页 · 幕 ' +
           ((first.turn ? ('#' + first.turn) : '') || '') + '–' + (last ? ('#' + last.turn) : '')
         pg.forEach((p, i) => page.appendChild(buildPanelCell(p, i + 1)))
         const scene = document.createElement('div')
         scene.className = 'comic-scene-line'
         scene.textContent = (first.sceneLine || '') + (first.sceneLine && last.sceneLine && first.sceneLine !== last.sceneLine ? ' → ' + last.sceneLine : '')
+        if (readMode === 'scroll') { // 连续流里页码/场景行嵌进每页头尾（不吸附遮挡画面）
+          const head = document.createElement('div')
+          head.className = 'comic-scroll-page-head'
+          head.appendChild(counter)
+          page.appendChild(head)
+        }
+        return { page, counter, scene }
+      }
+
+      const renderPage = () => {
+        const pg = pages[viewIdx]
+        if (!pg) return
+        stage.innerHTML = ''
+        sbCount.textContent = (viewIdx + 1) + ' / ' + pages.length
+        markListState()
+        const { page, counter, scene } = buildPageEl(pg, viewIdx)
         stage.appendChild(counter)
         stage.appendChild(page)
         stage.appendChild(scene)
       }
+
+      /* 连续流：一次渲染全部页，滚动驱动 viewIdx（page 切换标记重绘时机） */
+      let lastScrollPage = -1
+      const renderScroll = () => {
+        stage.innerHTML = ''
+        sbCount.textContent = '共 ' + pages.length + ' 页'
+        const flow = document.createElement('div')
+        flow.className = 'comic-scroll-flow'
+        pages.forEach((pg, pi) => {
+          const { page, scene } = buildPageEl(pg, pi)
+          flow.appendChild(page)
+          if (scene.textContent) {
+            const tail = document.createElement('div')
+            tail.className = 'comic-scene-line'
+            tail.textContent = scene.textContent
+            flow.appendChild(tail)
+          }
+        })
+        stage.appendChild(flow)
+        markListState()
+        lastScrollPage = -1
+        syncViewIdxFromScroll()
+      }
+
+      /* 滚动 → 当前页（视口中心线最靠近的页） */
+      const syncViewIdxFromScroll = () => {
+        const flow = stage.querySelector('.comic-scroll-flow')
+        if (!flow) return
+        const els = flow.querySelectorAll('.comic-page')
+        const mid = stage.getBoundingClientRect().top + stage.clientHeight / 2
+        let cur = viewIdx
+        els.forEach((el, i) => {
+          const r = el.getBoundingClientRect()
+          if (r.top <= mid && r.bottom >= mid) cur = i
+        })
+        if (cur !== viewIdx || cur !== lastScrollPage) {
+          viewIdx = cur
+          lastScrollPage = cur
+          markListState()
+          sbCount.textContent = (viewIdx + 1) + ' / ' + pages.length
+          // 当前页首行滚进侧栏可视区（长列表时不跳变）
+          const row = listRows[viewIdx] && listRows[viewIdx].row
+          if (row) {
+            const lr = list.getBoundingClientRect()
+            const rr = row.getBoundingClientRect()
+            if (rr.top < lr.top || rr.bottom > lr.bottom) row.scrollIntoView({ block: 'nearest' })
+          }
+        }
+      }
+      const scrollToPage = (pi, behavior) => {
+        const el = stage.querySelectorAll('.comic-scroll-flow .comic-page')[pi]
+        if (!el) return
+        scrollSyncing = true
+        el.scrollIntoView({ behavior: behavior || 'auto', block: 'start' })
+        setTimeout(() => { scrollSyncing = false }, 400)
+      }
+      const onStageScroll = () => {
+        if (readMode !== 'scroll' || scrollSyncing) return
+        syncViewIdxFromScroll()
+      }
+      stage.addEventListener('scroll', onStageScroll, { passive: true })
+
+      const applyMode = (m) => {
+        if (m !== 'scroll' && m !== 'paged') return
+        if (m === readMode) return
+        readMode = m
+        saveReadMode(m)
+        modePagedBtn.classList.toggle('on', m === 'paged')
+        modeScrollBtn.classList.toggle('on', m === 'scroll')
+        mask.classList.toggle('mode-scroll', m === 'scroll')
+        navPrev.hidden = m === 'scroll'
+        navNext.hidden = m === 'scroll'
+        if (m === 'scroll') {
+          renderScroll()
+          scrollToPage(viewIdx, 'auto')
+        } else {
+          renderPage()
+        }
+      }
+      modePagedBtn.addEventListener('click', () => applyMode('paged'))
+      modeScrollBtn.addEventListener('click', () => applyMode('scroll'))
+
       const step = (dir) => {
         const next = viewIdx + dir
         if (next < 0 || next >= pages.length) return
         viewIdx = next
-        renderPage()
+        if (readMode === 'scroll') scrollToPage(next, 'smooth')
+        else renderPage()
       }
       navPrev.addEventListener('click', () => step(-1))
       navNext.addEventListener('click', () => step(1))
@@ -662,6 +797,11 @@
         else if (e.key === 'Tab') { window.A11y && window.A11y.trapTab(mask, e) }
         else if (e.key === 'ArrowLeft') step(-1)
         else if (e.key === 'ArrowRight') step(1)
+        else if (readMode === 'scroll' && (e.key === 'ArrowUp' || e.key === 'PageUp')) {
+          e.preventDefault(); scrollToPage(Math.max(0, viewIdx - 1), 'smooth')
+        } else if (readMode === 'scroll' && (e.key === 'ArrowDown' || e.key === 'PageDown')) {
+          e.preventDefault(); scrollToPage(Math.min(pages.length - 1, viewIdx + 1), 'smooth')
+        }
       }
       const close = () => {
         mask.classList.add('closing')
@@ -678,11 +818,27 @@
       contBtn.addEventListener('click', () => { close(); openPlanner() })
       document.addEventListener('keydown', onKey)
       closeViewFn = close
+      // 按当前模式重渲染（重绘单格后不丢滚动位置/页号）
+      const rerender = () => {
+        if (readMode === 'scroll') renderScroll()
+        else renderPage()
+      }
       // 从含最新已画幕的页开始读
       let lastDone = -1
       panels.forEach((p, i) => { if (p.illust) lastDone = i })
       viewIdx = Math.max(0, Math.floor(Math.max(0, lastDone) / PAGE_SIZE))
-      renderPage()
+      // 模式初始态：切换器高亮 + 按记忆的模式渲染（连续流滚到起始页）
+      modePagedBtn.classList.toggle('on', readMode === 'paged')
+      modeScrollBtn.classList.toggle('on', readMode === 'scroll')
+      mask.classList.toggle('mode-scroll', readMode === 'scroll')
+      navPrev.hidden = readMode === 'scroll'
+      navNext.hidden = readMode === 'scroll'
+      if (readMode === 'scroll') {
+        renderScroll()
+        requestAnimationFrame(() => scrollToPage(viewIdx, 'auto'))
+      } else {
+        renderPage()
+      }
       closeBtn.focus()
     }
 
@@ -700,7 +856,7 @@
         const loaded = await api.readImageDataUrl(p.illust)
         return Object.assign({}, p, { illust: loaded && loaded.ok ? loaded.dataUrl : null })
       }))
-      // 与阅读视图同构：每页 4 格（hero 占双列），格内叠对白气泡
+      // 与阅读视图同构：每页 4 格（hero 占双列），格内叠对白气泡；导出件自带「连续 / 翻页」阅读模式切换
       const PAGE_SIZE = 4
       const pages = []
       for (let i = 0; i < hydrated.length; i += PAGE_SIZE) pages.push(hydrated.slice(i, i + PAGE_SIZE))
@@ -708,7 +864,8 @@
         .filter((d) => d && d.speaker && d.line)
         .map((d, di) => '<div class="bubble tone-' + esc(d.tone || 'normal') + ' pos-' + ((di % 4) + 1) + '"><i>' + esc(d.speaker) + '</i>' + esc(d.line) + '</div>')
         .join('')
-      const pageHtml = (pg) => '<section class="page">' + pg.map((p) => {
+      const pageHtml = (pg, pi) => '<section class="page" data-page="' + (pi + 1) + '">' +
+        '<div class="phead">第 ' + (pi + 1) + ' / ' + pages.length + ' 页</div>' + pg.map((p) => {
         const cell = '<div class="cell size-' + esc(p.size || 'square') + '">' +
           (p.illust ? ('<img src="' + esc(p.illust) + '" alt="' + esc(p.title) + '" />') : '') +
           (p.narration ? ('<div class="cap">' + esc(p.narration) + '</div>') : '') +
@@ -717,10 +874,19 @@
           '</div>'
         return cell
       }).join('') + '</section>'
-      const html = '<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>' + esc(s.title) + ' · 漫画回放</title><style>' +
+      const html = '<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>' + esc(s.title) + ' · 漫画回放</title><style>' +
         'body{font-family:"Noto Sans SC","Microsoft YaHei",sans-serif;max-width:1060px;margin:24px auto;padding:0 16px;background:#efe9de;color:#2b2823}' +
-        'h1{font-size:22px;letter-spacing:3px;text-align:center;margin:28px 0 4px}.meta{color:#8a857c;font-size:12.5px;text-align:center;margin-bottom:24px}' +
+        'h1{font-size:22px;letter-spacing:3px;text-align:center;margin:28px 0 4px}.meta{color:#8a857c;font-size:12.5px;text-align:center;margin-bottom:8px}' +
+        '.mode-bar{display:flex;justify-content:center;gap:4px;margin:14px 0 22px}.mode-bar button{border:1px solid #b7ab92;background:#fffdf9;color:#6a6050;border-radius:999px;padding:5px 18px;font-size:13px;cursor:pointer}' +
+        '.mode-bar button.on{background:#2b2823;border-color:#2b2823;color:#f4efe5}' +
         '.page{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin:0 0 22px}' +
+        '.phead{grid-column:1/-1;color:#8a857c;font-size:11.5px;letter-spacing:2px}' +
+        'body.mode-paged .page{display:none}body.mode-paged .page.cur{display:grid}' +
+        'body.mode-paged{max-width:none}body.mode-paged .page.cur{max-width:1060px;margin:0 auto 22px}' +
+        '.pager{display:none;justify-content:center;gap:14px;align-items:center;margin:20px 0 34px}' +
+        'body.mode-paged .pager{display:flex}' +
+        '.pager button{border:1px solid #b7ab92;background:#fffdf9;border-radius:8px;padding:6px 22px;font-size:15px;cursor:pointer}' +
+        '.pgno{font-size:13px;color:#6a6050}' +
         '.cell{position:relative;overflow:hidden;border:2px solid #2b2823;border-radius:4px;background:#fffdf9;min-height:220px}' +
         '.cell.size-hero{grid-column:span 2;min-height:360px}.cell.size-wide{grid-column:span 2}.cell.size-square{}.cell.size-tall{grid-row:span 1}' +
         '.cell img{width:100%;height:100%;object-fit:cover;display:block}' +
@@ -733,8 +899,28 @@
         '.bubble.tone-whisper{background:#f7f7f4;border-style:dotted;color:#6a6a60}' +
         '.tag{position:absolute;left:0;right:0;bottom:0;padding:4px 10px;background:rgba(43,40,35,.66);color:#e8e2d4;font-size:10.5px;letter-spacing:1px;z-index:2}' +
         '@media print{body{max-width:none}.page{break-inside:avoid}}' +
-        '</style></head><body><h1>' + esc(s.title) + '</h1><div class="meta">六面世界 · 漫画回放 · ' + hydrated.length + ' 幕 · ' + pages.length + ' 页 · 导出于 ' +
-        new Date().toLocaleDateString('zh-CN') + '</div>' + pages.map(pageHtml).join('\n') + '</body></html>'
+        '</style></head><body class="mode-scroll"><h1>' + esc(s.title) + '</h1><div class="meta">六面世界 · 漫画回放 · ' + hydrated.length + ' 幕 · ' + pages.length + ' 页 · 导出于 ' +
+        new Date().toLocaleDateString('zh-CN') + '</div>' +
+        '<div class="mode-bar" role="group" aria-label="阅读模式">' +
+        '<button type="button" id="mb-scroll" class="on">连续阅读</button><button type="button" id="mb-paged">翻页阅读</button></div>' +
+        pages.map(pageHtml).join('\n') +
+        '<div class="pager"><button type="button" id="pg-prev">‹ 上一页</button><span class="pgno" id="pg-no"></span><button type="button" id="pg-next">下一页 ›</button></div>' +
+        '<script>(function(){var cur=0,ps=[].slice.call(document.querySelectorAll(".page"));' +
+        'function show(){ps.forEach(function(p,i){p.classList.toggle("cur",i===cur)});' +
+        'document.getElementById("pg-no").textContent=(cur+1)+" / "+ps.length;' +
+        'document.getElementById("pg-prev").disabled=cur<=0;document.getElementById("pg-next").disabled=cur>=ps.length-1;}' +
+        'function setMode(m){document.body.className="mode-"+m;' +
+        'document.getElementById("mb-scroll").classList.toggle("on",m==="scroll");' +
+        'document.getElementById("mb-paged").classList.toggle("on",m==="paged");' +
+        'if(m==="paged"){show()}else{window.scrollTo(0,0)}}' +
+        'document.getElementById("mb-scroll").onclick=function(){setMode("scroll")};' +
+        'document.getElementById("mb-paged").onclick=function(){setMode("paged")};' +
+        'document.getElementById("pg-prev").onclick=function(){if(cur>0){cur--;show();window.scrollTo(0,0)}};' +
+        'document.getElementById("pg-next").onclick=function(){if(cur<ps.length-1){cur++;show();window.scrollTo(0,0)}};' +
+        'document.addEventListener("keydown",function(e){if(document.body.className!=="mode-paged")return;' +
+        'if(e.key==="ArrowLeft"&&cur>0){cur--;show();window.scrollTo(0,0)}' +
+        'if(e.key==="ArrowRight"&&cur<ps.length-1){cur++;show();window.scrollTo(0,0)}});' +
+        'show()})()</' + 'script></body></html>'
       const name = (s.title || 'sixworlds').replace(/[\\/:*?"<>|]/g, '_').slice(0, 60) + '-漫画.html'
       const r = await api.saveFile({ title: '导出漫画回放', defaultName: name, content: html })
       if (r && r.ok) toast('漫画已导出：' + r.path, 'ok')
