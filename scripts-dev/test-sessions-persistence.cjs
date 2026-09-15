@@ -48,10 +48,18 @@ async function main() {
   await cleanSlate()
 
   // ---- 1. 空档案：sessions.db 可用但无数据 ----
-  // （经典 UI 启动会自建默认世界线并防抖落库——先清空，回到本测试的已知态）
+  // （经典 UI 启动会自建默认世界线并防抖落库——若在防抖窗口内 clear，
+  //   启动写入会落在 clear 之后把库写回（CI 慢机偶发 exists:true）。
+  //   正确顺序：先轮询等启动落库真实落地（或确认本版启动不落库），再清空断言——此后无写入源。）
   let app = await launch()
   let win = await app.firstWindow()
   await win.waitForTimeout(1500)
+  let warmed = false
+  for (let i = 0; i < 20 && !warmed; i++) {
+    await win.waitForTimeout(400)
+    const w = await win.evaluate(() => window.api.loadSessions())
+    warmed = !!w && w.exists === true
+  }
   await win.evaluate(() => window.api.clearSessions())
   await win.waitForTimeout(600)
   let r = await win.evaluate(() => window.api.loadSessions())
