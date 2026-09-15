@@ -27,3 +27,8 @@ output/
 # 原型参考资料（本地素材，不入库）
 docs/prototype/references/
 docs/prototype/十方向对比/
+
+# CI 调试临时文件
+ci-log.txt
+ci-check.json
+ci-jobs.json
