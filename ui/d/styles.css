@@ -3378,7 +3378,7 @@ html[data-palette="contrast"] .sidebar.sb-float { backdrop-filter: blur(6px); -w
 
 /* ================= 主题抽屉（右侧 300px） ================= */
 .theme-pop {
-  top: 0; right: 0; bottom: 0; left: auto; width: 300px; margin: 0; height: auto;
+  top: 0; right: 0; bottom: 0; left: auto; width: min(420px, 94vw); margin: 0; height: auto;
   background: var(--panel); border: none; border-left: 1px solid var(--border-strong);
   border-radius: 0; box-shadow: -24px 0 60px var(--overlay, rgba(0,0,0,.5));
   max-height: none; transform: none !important; display: flex; flex-direction: column;
@@ -3392,7 +3392,7 @@ html[data-palette="contrast"] .sidebar.sb-float { backdrop-filter: blur(6px); -w
 .theme-drawer-scroll { flex: 1; overflow-y: auto; padding: 14px 16px; }
 .theme-section { margin-bottom: 18px; }
 .theme-section-title { font-size: 10.5px; letter-spacing: 3px; color: var(--text-faint); margin-bottom: 9px; }
-.theme-mode-row { display: flex; gap: 7px; flex-wrap: wrap; }
+.theme-mode-row { display: grid; gap: 8px; grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .appearance-tile {
   border: 1px solid var(--border); border-radius: 9px; padding: 7px 12px; font-size: 11.5px;
   color: var(--text-dim); transition: .12s; display: flex; align-items: center; gap: 6px; background: transparent;

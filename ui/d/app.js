@@ -432,7 +432,10 @@
       labelWrap.className = 'session-label-wrap'
       const label = document.createElement('span')
       label.className = 'session-label-text'
-      label.textContent = s.title
+      // 方案D 定制：侧栏标题只展示前 3 个字符，其余以省略号代替（悬停 tooltip 仍可见全名）
+      const fullTitle = String(s.title || '')
+      label.textContent = fullTitle.length > 3 ? fullTitle.slice(0, 3) + '…' : fullTitle
+      label.title = fullTitle
       const time = document.createElement('span')
       time.className = 'session-time'
       time.textContent = relTime(s.updatedAt)
