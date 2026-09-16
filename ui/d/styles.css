@@ -3554,3 +3554,51 @@ html[data-theme="light"] { --amber: #a06a20; }
 
 /* 检查项通过态字色：写死 #0d1a0b 在浅色 ok 深绿上不可读 → 跟随背景变量 */
 .kernel-test-list > div.pass > span:first-child { color: var(--bg); }
+
+/* ============================================================================
+   方案D 主题兼容定制：侧栏「世界线」标题 + 主题抽屉「主题/颜色预设」方框
+   展现方式对齐原型工作台（ui/proto/styles.css 同名规则移植）
+   ============================================================================ */
+/* —— 侧栏「世界线」标题行：11px mono / --text-dim / 1.5px 字距，与列表项同缘对齐 —— */
+.session-label-row { margin: 12px 0 8px; }
+.session-label { font-size: 11px; color: var(--text-dim); letter-spacing: 1.5px; padding: 0 10px; }
+
+/* —— 主题抽屉「主题」明暗模式磁贴：66px 纵向卡 + 42px 缩略预览图 + 选中圆点 —— */
+.theme-mode-row { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.theme-mode {
+  min-height: 66px; flex-direction: column; justify-content: center; gap: 6px;
+  padding: 7px; border-radius: 8px; font-size: 10.5px; position: relative;
+}
+.theme-mode:hover { transform: translateY(-1px); }
+.theme-mode.on::after {
+  content: ""; position: absolute; top: 5px; right: 5px; width: 7px; height: 7px;
+  border: 3px solid var(--surface-1); border-radius: 50%; background: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+.theme-preview { position: relative; width: 100%; height: 42px; border: 1px solid rgba(127,127,127,.26); border-radius: 5px; overflow: hidden; background: #f7f8fa; }
+.theme-preview i, .theme-preview b, .theme-preview em { position: absolute; display: block; }
+.theme-preview i { inset: 0 auto 0 0; width: 28%; background: #d9eaf4; }
+.theme-preview b { left: 36%; right: 8%; top: 8px; height: 5px; background: #a9cce2; }
+.theme-preview em { left: 36%; right: 16%; top: 19px; bottom: 7px; background: #e1eef5; }
+.theme-preview.dark { background: #111827; }
+.theme-preview.dark i { background: #1e3a5f; }
+.theme-preview.dark b { background: #3a6ca8; }
+.theme-preview.dark em { background: #172b48; }
+.theme-preview.system { background: linear-gradient(90deg, #f7f8fa 0 50%, #111827 50%); }
+.theme-preview.system i { background: linear-gradient(90deg, #d9eaf4 0 50%, #1e3a5f 50%); }
+.theme-preview.system b { background: linear-gradient(90deg, #a9cce2 0 28%, #3a6ca8 28%); }
+.theme-preview.system em { background: linear-gradient(90deg, #e1eef5 0 28%, #172b48 28%); }
+
+/* —— 主题抽屉「颜色预设」色板卡：4 列 72px 卡 + 40px 双色条 + 选中圆点 —— */
+.swatch-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.swatch {
+  min-height: 72px; flex-direction: column; justify-content: center; gap: 6px;
+  padding: 7px; border-radius: 8px; font-size: 10.5px; position: relative;
+}
+.swatch:hover { transform: translateY(-1px); }
+.swatch.on::after {
+  content: ""; position: absolute; top: 5px; right: 5px; width: 7px; height: 7px;
+  border: 3px solid var(--surface-1); border-radius: 50%; background: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+.palette-sample { width: 100%; height: 40px; display: grid; grid-template-columns: 1.2fr .8fr; border: 1px solid rgba(127,127,127,.22); border-radius: 6px; overflow: hidden; }
