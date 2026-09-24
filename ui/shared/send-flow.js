@@ -17,6 +17,7 @@
   function createSend(ctx) {
     const st = ctx.st
     const { $, api, cfg, kernel, curSession, deriveTitle, fitInput, generateIllust, illustReady, newSession, openSettings, renderMessages, renderSessionList, saveSessions, sessionDrafts, setSendButtonState, showBusyIsland, toast, touchSession, updateTitle, enginePrep, patchRetryPrompt, protocolText, onTokensUpdated } = ctx
+    const isFrozen = typeof ctx.isFrozen === 'function' ? ctx.isFrozen : () => false
     /* Codex 化输入框的可选钩子：token 计账后通知 UI 刷新底栏常显小字（经典版不注入则无操作） */
     const pingTokensUpdated = () => { if (onTokensUpdated) { try { onTokensUpdated() } catch { /* noop */ } } }
     /* R86 发送排队：生成中/补账中的点击不再拒绝，入队待本轮收尾自动续发（最多 1 条，
@@ -45,7 +46,7 @@
     function drainQueue() {
       if (queueDrainer) return
       queueDrainer = setInterval(() => {
-        if (st.busy || st.engineBusy) return
+        if (isFrozen() || st.busy || st.engineBusy) return
         clearInterval(queueDrainer)
         queueDrainer = 0
         const q = queuedSend
@@ -64,6 +65,7 @@
     }
     async function send(text, opts) {
       opts = opts || {}
+      if (isFrozen()) return
       const value = String(text || '').trim()
       if (st.busy) {
         // R86：生成中点击 → 入队（本轮结束自动发出），不再静默吞掉
@@ -71,6 +73,7 @@
           const s0 = curSession()
           queuedSend = { text: value, opts, sid: s0 ? s0.id : null }
           renderQueueChip()
+          drainQueue()
           toast('已排队：本轮结束后自动发出', 'info', 1600)
         }
         return
@@ -98,6 +101,27 @@
       }
 
       const s = curSession() || newSession()
+      if (!s) return
+      const config = Object.assign({}, cfg())
+      const activeKernel = kernel()
+      if (opts.regen && Number.isInteger(opts.regenIndex)) {
+        const index = opts.regenIndex
+        const action = s.messages[index - 1]
+        if (!action || action.role !== 'user' || !action.engineSnapshot) {
+          toast('这一幕没有可用的历史回溯点，无法安全重生成。继续故事后，新回合会自动保存回溯点', 'err', 7000)
+          return
+        }
+        st.engineBusy = true
+        st.busy = true
+        let restored
+        try { restored = await api.engineRestore({ storyId: s.id, snapshotId: action.engineSnapshot }) } catch {}
+        st.busy = false
+        st.engineBusy = false
+        if (!restored || !restored.ok) { toast('回溯点已过期或无法读取，原剧情已保留', 'err', 6000); return }
+        if (s !== curSession()) return
+        s.messages = s.messages.slice(0, index)
+        saveSessions(true)
+      }
       // 发送即清空输入框（不等回复），草稿同步清除
       if (!opts.regen) {
         $('input').value = ''
@@ -126,10 +150,30 @@
 
       // ---- 状态引擎：确保故事存在 + 检索长期记忆（任何故障静默降级为纯对话） ----
       const engineMeta = opts.regen ? await enginePrep(s, value || (s.messages.filter((m) => m.role === 'user').pop() || {}).content || '') : await enginePrep(s, value)
+      if (engineMeta && engineMeta.blocked) {
+        if (!opts.regen) { s.messages.pop(); $('input').value = value; fitInput() }
+        st.busy = false
+        if (st.busyIsland) { st.busyIsland.close(); st.busyIsland = null }
+        st.currentReqId = null
+        clearQueue()
+        setSendButtonState(false)
+        renderMessages()
+        toast(engineMeta.error, 'err', 8000)
+        return
+      }
+      if (engineMeta && engineMeta.kernelMismatch) toast('本世界线继续使用开局时的内核版本；新规则可在新世界线中使用', 'info', 5000)
 
-      const ctxN = Math.min(64, Math.max(2, Number(cfg().ctxCount) || 24))
+      const action = s.messages[s.messages.length - 1]
+      if (engineMeta && action && action.role === 'user' && !action.engineSnapshot && api.engineSnapshot) {
+        try {
+          const snap = await api.engineSnapshot({ storyId: s.id, label: '行动前回溯点', automatic: true })
+          if (snap && snap.ok) action.engineSnapshot = snap.data.snapshot_id
+        } catch {}
+      }
+      saveSessions(true)
+      const ctxN = Math.min(64, Math.max(2, Number(config.ctxCount) || 24))
       const history = s.messages.slice(-ctxN).map((m) => ({ role: m.role, content: m.content }))
-      const msgs = [{ role: 'system', content: kernel().text }]
+      const msgs = [{ role: 'system', content: engineMeta && engineMeta.kernelText || activeKernel.text }]
       if (engineMeta && engineMeta.block) msgs.push({ role: 'system', content: engineMeta.block })
       if (engineMeta && protocolText()) msgs.push({ role: 'system', content: protocolText() })
       msgs.push(...history)
@@ -143,17 +187,19 @@
         content: '（系统要求，非剧情内容，不要回应这段话也不要把它当玩家行动）本次回复必须完整包含三部分：叙事正文 → 选项区（【你需要决定】+ A/B/C/D 选项行，每幕必出）→ 最末尾状态记录块。状态记录块严格按此格式输出（最小可用示例）：\n<<<STATE_PATCH>>>\n{"turn_summary":"本回合一句话概括","scene":{"game_time":"故事内时间","location":"当前地点"},"events":[{"type":"action","description":"本回合发生的主要事件","importance":30}]}\n<<<END_PATCH>>>\nJSON 必须闭合所有括号、可被直接解析；需要记录新事实/承诺/伏笔/关系变化时按系统协议加对应键。本回合确实零状态变化时，改为最末尾输出一行 <<<NO_STATE_CHANGE>>>。'
       })
       const payload = {
-        baseUrl: cfg().baseUrl,
-        apiKey: cfg().apiKey,
-        model: cfg().model,
+        baseUrl: config.baseUrl,
+        apiKey: config.apiKey,
+        model: config.model,
         // 思考程度（提供商支持 reasoning_effort 时生效，不支持自动回退默认）
-        thinkLevel: cfg().thinkLevel || 'default',
+        thinkLevel: config.thinkLevel || 'default',
         messages: msgs,
         reqId: st.currentReqId
       }
 
-      const r = await api.sendChat(payload)
+      let r
+      try { r = await api.sendChat(payload) } catch (error) { r = { ok: false, error: String(error.message || error) } }
       const wasAborted = r && r.ok && r.aborted
+      st.engineBusy = true
       st.busy = false
       if (st.busyIsland) { st.busyIsland.close(); st.busyIsland = null } // R76：收纳忙碌灵动岛
       if (window.BloubPet) window.BloubPet.event(r && r.ok && r.content ? 'done' : 'error') // 桌宠：完成亮徽标 / 报错惊叹号
@@ -184,9 +230,10 @@
         }
         // 立即入列：committed（正常）/ committing（需补录，记账进行中）/ pending（确定性失败）
         // 可重试补录 = 有 pending 且不是确定性的 COMMIT_FAILED（后者直接亮待补录徽标，不再耗一次模型调用）
-        const retryable = !!(engineMeta && pendingId && patchStatus && patchStatus !== 'COMMIT_FAILED')
+        const retryable = !!(!wasAborted && engineMeta && pendingId && patchStatus && patchStatus !== 'COMMIT_FAILED')
         const needCommit = !!(engineMeta && pendingId)
         const msg = { role: 'assistant', content: narrative, at: Date.now(), pending: needCommit ? (pendingId || true) : undefined, committing: retryable }
+        if (engineMeta) msg.engineTurn = (engineMeta.engineTurn || 0) + (patchStatus === 'PATCH_PRESENT' ? 1 : 0)
         s.messages.push(msg)
         // 首条叙事确定会话标题
         if (s.title === '新世界线') {
@@ -204,7 +251,7 @@
           if (needCommit && retryable) {
             msg.committing = true
             renderMessages()
-            ;(async () => {
+            await (async () => {
               let pendingKept = false
               st.engineBusy = true // 补录期间禁止并发发送/重生成（消息顺序保证），但阅读与选择不受影响
               try {
@@ -222,7 +269,8 @@
                 const rr = await api.sendChat(Object.assign({}, payload, { messages: retryMsgs, reqId: 'rp' + Date.now().toString(36), silent: true }))
                 if (rr && rr.ok && rr.content) {
                   const cm2 = await api.engineCommit(Object.assign({}, commitBase, { raw: rr.content, pendingId, retryCount: 1 }))
-                  if (cm2 && cm2.data && cm2.data.committed) {
+                  if (cm2 && cm2.ok && cm2.data && (cm2.data.committed || cm2.data.patch_status === 'NO_STATE_CHANGE')) {
+                    if (cm2.data.committed) msg.engineTurn = (engineMeta.engineTurn || 0) + 1
                     toast('状态已补录（模型首轮缺状态块）', 'ok', 3200)
                   } else {
                     pendingKept = true
@@ -241,7 +289,6 @@
                   pingTokensUpdated()
                 }
               } catch { pendingKept = true }
-              st.engineBusy = false
               msg.committing = false
               msg.pending = pendingKept ? (pendingId || true) : undefined
               saveSessions()
@@ -277,23 +324,20 @@
         saveSessions()
         pingTokensUpdated()
       }
-      const keepN = Math.min(400, Math.max(8, Number(cfg().keepCount) || 80))
-      if (s.messages.length > keepN) s.messages = s.messages.slice(s.messages.length - keepN)
-      touchSession()
+      // Full history is durable; only the model context and DOM window are bounded.
+      s.updatedAt = Date.now()
+      st.engineBusy = false
+      saveSessions()
       renderMessages()
       updateTitle()
 
       // R86：本轮收尾 → 排队的下一发送自动续跑（补账中的轮次由 drainQueue 的 engineBusy 轮询接管）
-      if (!st.engineBusy && queuedSend && s.id === queuedSend.sid) {
-        const q = queuedSend
-        queuedSend = null
-        setTimeout(() => { if (!st.busy && !st.engineBusy) send(q.text, q.opts) }, 200)
-      }
+      if (queuedSend) drainQueue()
       renderQueueChip() // 本轮收尾：排队项转正（chip 变为新一轮忙碌岛）或已清空（chip 撤下）
 
       // 自动插图：为刚生成的叙事生成
       const last = s.messages.length - 1
-      if (r && r.ok && r.content && cfg().illustAuto && illustReady() && last >= 0) {
+      if (!wasAborted && s === curSession() && r && r.ok && r.content && cfg().illustAuto && illustReady() && last >= 0) {
         generateIllust(last, false, true)
       }
     }
@@ -348,26 +392,30 @@
 
   function createResolvePendingFlow(ctx) {
     const st = ctx.st
-    const { $, api, cfg, kernel, curSession, renderMessages, toast, enginePrep, patchRetryPrompt, protocolText, seedProtocolText, refreshPendingBanner, onTokensUpdated } = ctx
+    const { $, api, cfg, kernel, curSession, renderMessages, saveSessions, toast, enginePrep, patchRetryPrompt, protocolText, seedProtocolText, refreshPendingBanner, onTokensUpdated } = ctx
+    const isFrozen = typeof ctx.isFrozen === 'function' ? ctx.isFrozen : () => false
     const pingTokensUpdated = () => { if (onTokensUpdated) { try { onTokensUpdated() } catch { /* noop */ } } }
     async function resolvePendingFlow(pendingId) {
       const s = curSession()
-      if (!s || st.busy || st.engineBusy) return
+      if (isFrozen() || !s || st.busy || st.engineBusy) return
+      st.engineBusy = true
+      const config = Object.assign({}, cfg())
+      const activeKernel = kernel()
       let targets = []
       try {
         const lr = await api.enginePendings({ storyId: s.id })
         const list = (lr && lr.ok && Array.isArray(lr.data)) ? lr.data : []
         targets = list.filter((x) => !pendingId || x.pending_id === pendingId)
-      } catch { return }
-      if (!targets.length) { toast('没有待补录的回合', 'info', 2200); refreshPendingBanner(); return }
-      st.busy = true
+      } catch { st.engineBusy = false; toast('读取待补录状态失败，请重试', 'err'); return }
+      if (!targets.length) { st.engineBusy = false; toast('没有待补录的回合', 'info', 2200); refreshPendingBanner(); return }
       let okN = 0
       try {
         if (!protocolText()) { const pr = await api.engineProtocol(); if (pr && pr.ok) seedProtocolText(pr.data) }
         for (const pc of targets) {
           try {
             const prep = await enginePrep(s, pc.player_input || '')
-            const msgs2 = [{ role: 'system', content: kernel().text }]
+            if (prep && prep.blocked) { toast(prep.error, 'err', 8000); break }
+            const msgs2 = [{ role: 'system', content: prep && prep.kernelText || activeKernel.text }]
             if (prep && prep.block) msgs2.push({ role: 'system', content: prep.block })
             if (protocolText()) msgs2.push({ role: 'system', content: protocolText() })
             msgs2.push({ role: 'user', content: pc.player_input || '（玩家行动）' })
@@ -376,10 +424,13 @@
             // 仅存状态码（PATCH_MISSING 等）时没有可解释的原因，退回通用补录提示词
             const pcErr = String(pc.patch_error || '').trim()
             msgs2.push({ role: 'user', content: patchRetryPrompt(/^PATCH_[A-Z_]+$/.test(pcErr) ? null : (pcErr.slice(0, 300) || null)) })
-            const rr = await api.sendChat({ baseUrl: cfg().baseUrl, apiKey: cfg().apiKey, model: cfg().model, thinkLevel: cfg().thinkLevel || 'default', messages: msgs2, reqId: 'rp' + Date.now().toString(36), silent: true })
+            const rr = await api.sendChat({ baseUrl: config.baseUrl, apiKey: config.apiKey, model: config.model, thinkLevel: config.thinkLevel || 'default', messages: msgs2, reqId: 'rp' + Date.now().toString(36), silent: true })
             if (rr && rr.ok && rr.content) {
               const rs = await api.engineResolvePending({ storyId: s.id, pendingId: pc.pending_id, raw: rr.content })
-              if (rs && rs.ok && rs.data && rs.data.resolved) okN++
+              if (rs && rs.ok && rs.data && rs.data.resolved) {
+                okN++
+                for (const msg of s.messages) if (msg.pending === pc.pending_id) { delete msg.pending; delete msg.committing }
+              }
             }
             // 补录也是真实计费调用：计入本线用量（成本评审前被漏记）
             if (rr && rr.ok && rr.usage) {
@@ -395,7 +446,8 @@
           } catch { /* 单条失败不影响其余补录 */ }
         }
       } finally {
-        st.busy = false
+        st.engineBusy = false
+        if (saveSessions) saveSessions(true)
         toast(okN === targets.length ? ('已补录 ' + okN + ' 条回合状态') : ('补录完成 ' + okN + '/' + targets.length + '（其余保持待补录）'), okN ? 'ok' : 'err', 5000)
         refreshPendingBanner()
         renderMessages()

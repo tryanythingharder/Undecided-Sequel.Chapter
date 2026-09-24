@@ -6,6 +6,9 @@
   <title>六面世界</title>
   <link rel="stylesheet" href="styles.css" />
   <link rel="stylesheet" href="../shared/works.css" />
+  <link rel="stylesheet" href="../shared/theme-system.css" />
+  <link rel="stylesheet" href="../shared/product-tools.css" />
+  <link rel="stylesheet" href="../shared/kernel-workbench.css" data-kernel-workbench="1" />
 </head>
 <body>
   <!-- ============ R76 入场动画（Mineradio 式启动页；e2e 测试环境由 app.js 移除） ============ -->
@@ -154,7 +157,7 @@
       <button class="kernel-rail-step" data-kernel-stage="intent" type="button"><b>01</b><span>说清想法</span></button>
       <button class="kernel-rail-step" data-kernel-stage="shape" type="button"><b>02</b><span>确认体验</span></button>
       <button class="kernel-rail-step" data-kernel-stage="rules" type="button"><b>03</b><span>生成规则</span></button>
-      <button class="kernel-rail-step" data-kernel-stage="test" type="button"><b>04</b><span>运行测试</span></button>
+      <button class="kernel-rail-step" data-kernel-stage="test" type="button"><b>04</b><span>结构检查</span></button>
       <button class="kernel-rail-step" data-kernel-stage="release" type="button"><b>05</b><span>发布使用</span></button>
       <div class="kernel-rail-spacer"></div>
       <button class="kernel-rail-library" id="btn-kernel-rail-library" type="button" title="打开内核库"><svg class="ic" viewBox="0 0 16 16"><path d="M3 3.5h4v4H3zM9 3.5h4v4H9zM3 9.5h4v4H3zM9 9.5h4v4H9z"/></svg><span>内核库</span></button>
@@ -286,19 +289,19 @@
           <header class="kernel-stage-heading"><div><span class="kernel-overline">03 · 生成规则</span><h1 id="kernel-stage-rules-title">规则会从你的想法里长出来。</h1><p>下面是设计助手整理出的第一版。每一条都可以展开、修改或删除。</p></div><span class="kernel-stage-state ready"><i></i>已生成草案</span></header>
           <div class="kernel-rules-toolbar"><span>核心规则会同步到当前内核草稿</span><button class="tool-btn" id="btn-kernel-stage-rules-source" type="button">查看原始 Markdown</button></div>
           <div class="kernel-rule-list"><article><b>01</b><div><h2>世界会记住关系</h2><p>角色会根据玩家过去的承诺、帮助和伤害调整态度，关系不会因为重新开始而自动清零。</p><small>关系 · 长期记忆</small></div><button class="tool-btn" type="button" data-kernel-rule-edit>编辑</button></article><article><b>02</b><div><h2>玩家拥有最终决定权</h2><p>设计助手可以提出建议，但不会替玩家做关键选择；不可逆行动会先说明可能的影响。</p><small>玩家主导 · 安全确认</small></div><button class="tool-btn" type="button" data-kernel-rule-edit>编辑</button></article><article><b>03</b><div><h2>世界在玩家行动之外推进</h2><p>未被处理的线索会随时间变化，重要角色也会在幕后做出自己的决定。</p><small>世界推进 · 事件</small></div><button class="tool-btn" type="button" data-kernel-rule-edit>编辑</button></article><article><b>04</b><div><h2>每次行动都能解释结果</h2><p>系统会说明结果来自哪些状态、关系或规则，避免玩家面对无法理解的突然失败。</p><small>可解释 · 反馈</small></div><button class="tool-btn" type="button" data-kernel-rule-edit>编辑</button></article></div>
-          <footer class="kernel-stage-footer"><button class="kernel-text-button" data-kernel-stage="shape" type="button">返回确认体验</button><button class="primary" id="btn-kernel-stage-test" type="button">继续运行测试 <svg class="ic ic-sm" viewBox="0 0 16 16"><path d="M3 8h9M8 4l4 4-4 4"/></svg></button></footer>
+          <footer class="kernel-stage-footer"><button class="kernel-text-button" data-kernel-stage="shape" type="button">返回确认体验</button><button class="primary" id="btn-kernel-stage-test" type="button">继续结构检查 <svg class="ic ic-sm" viewBox="0 0 16 16"><path d="M3 8h9M8 4l4 4-4 4"/></svg></button></footer>
         </section>
 
         <section class="kernel-stage-page kernel-stage-test" id="kernel-stage-test" aria-labelledby="kernel-stage-test-title">
-          <header class="kernel-stage-heading"><div><span class="kernel-overline">04 · 运行测试</span><h1 id="kernel-stage-test-title">现在让它真的跑一遍。</h1><p>先用当前草稿检查开局、行动、失败和保存，确认规则不是“看起来能用”。</p></div><span class="kernel-stage-state" id="kernel-stage-test-state"><i></i>尚未检查</span></header>
-          <div class="kernel-test-grid"><section class="kernel-test-panel"><span class="kernel-section-kicker">发布前检查</span><h2>四项必须通过</h2><div class="kernel-test-list"><div><span>1</span><strong>能否正常开局<small>玩家身份、世界背景和第一步行动可出现</small></strong><em id="kernel-test-check-1">待检查</em></div><div><span>2</span><strong>行动是否有结果<small>选择会改变状态，并能看到清楚反馈</small></strong><em id="kernel-test-check-2">待检查</em></div><div><span>3</span><strong>失败是否可恢复<small>失败不会丢失进度，也不会卡死世界线</small></strong><em id="kernel-test-check-3">待检查</em></div><div><span>4</span><strong>能否保存并继续<small>重新打开后，记忆和世界状态仍然存在</small></strong><em id="kernel-test-check-4">待检查</em></div></div><button class="primary" id="btn-kernel-stage-run-test" type="button">运行一次检查 <svg class="ic ic-sm" viewBox="0 0 16 16"><path d="M3 8h9M8 4l4 4-4 4"/></svg></button></section><aside class="kernel-test-note"><span class="kernel-info-mark"><svg class="ic" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.5"/><path d="M8 7v4M8 4.8h.01"/></svg></span><strong>为什么要检查？</strong><p>结构检查能发现规则契约缺口。真正开始使用前，先把问题暴露出来，避免玩家遇到无法恢复的世界线。</p></aside></div>
+          <header class="kernel-stage-heading"><div><span class="kernel-overline">04 · 结构检查</span><h1 id="kernel-stage-test-title">检查内核草稿</h1><p>校验元数据与规则声明；模型表现、实际开局和存档恢复仍需试玩验证。</p></div><span class="kernel-stage-state" id="kernel-stage-test-state"><i></i>尚未检查</span></header>
+          <div class="kernel-test-grid"><section class="kernel-test-panel"><span class="kernel-section-kicker">发布前检查</span><h2>草稿声明检查</h2><div class="kernel-test-list"><div><span>1</span><strong>内核元数据<small>标题与开局配置是否可解析</small></strong><em id="kernel-test-check-1">待检查</em></div><div><span>2</span><strong>玩家身份与体验意图<small>草稿是否声明玩家的身份与决策边界</small></strong><em id="kernel-test-check-2">待检查</em></div><div><span>3</span><strong>运行规则与世界推进<small>草稿是否声明回合推进规则</small></strong><em id="kernel-test-check-3">待检查</em></div><div><span>4</span><strong>因果、失败与代价<small>草稿是否说明行动后果与失败代价</small></strong><em id="kernel-test-check-4">待检查</em></div></div><button class="primary" id="btn-kernel-stage-run-test" type="button">运行一次检查 <svg class="ic ic-sm" viewBox="0 0 16 16"><path d="M3 8h9M8 4l4 4-4 4"/></svg></button></section><aside class="kernel-test-note"><span class="kernel-info-mark"><svg class="ic" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.5"/><path d="M8 7v4M8 4.8h.01"/></svg></span><strong>为什么要检查？</strong><p>结构检查能发现规则契约缺口。真正开始使用前，先把问题暴露出来，实际开局和恢复仍需另行试玩验证。</p></aside></div>
           <footer class="kernel-stage-footer"><button class="kernel-text-button" data-kernel-stage="rules" type="button">返回修改规则</button><button class="tool-btn" id="btn-kernel-stage-release" type="button">查看发布条件 <svg class="ic ic-sm" viewBox="0 0 16 16"><path d="M3 8h9M8 4l4 4-4 4"/></svg></button></footer>
         </section>
 
         <section class="kernel-stage-page kernel-stage-release" id="kernel-stage-release" aria-labelledby="kernel-stage-release-title">
           <header class="kernel-stage-heading"><div><span class="kernel-overline">05 · 发布使用</span><h1 id="kernel-stage-release-title">通过检查，就可以开始。</h1><p>内核会被保存到你的内核库。之后你可以用它创建新的世界线，也可以继续迭代。</p></div><span class="kernel-stage-state ready"><i></i>准备发布</span></header>
           <section class="kernel-publish-card"><div class="kernel-publish-check"><span class="kernel-check-mark"><svg class="ic" viewBox="0 0 16 16"><path d="m3.5 8 3 3 6-6"/></svg></span><div><span class="kernel-section-kicker">发布前摘要</span><h2>你的世界内核已准备好</h2><p>结构检查通过后即可保存到我的内核库，并创建新的世界线。</p></div></div><div class="kernel-publish-meta"><div><span>名称</span><strong id="kernel-stage-release-name">当前内核</strong></div><div><span>状态</span><strong>草稿版本</strong></div><div><span>保存位置</span><strong>我的内核库</strong></div></div><div class="kernel-publish-actions"><button class="tool-btn" data-kernel-stage="rules" type="button">继续修改</button><button class="primary" id="btn-kernel-stage-publish" type="button">发布并创建世界线 <svg class="ic ic-sm" viewBox="0 0 16 16"><path d="M3 8h9M8 4l4 4-4 4"/></svg></button></div></section>
-          <footer class="kernel-stage-footer"><button class="kernel-text-button" data-kernel-stage="test" type="button">返回运行测试</button><span>发布后仍可创建新版本，不会覆盖正在进行的世界线。</span></footer>
+          <footer class="kernel-stage-footer"><button class="kernel-text-button" data-kernel-stage="test" type="button">返回结构检查</button><span>发布后仍可创建新版本，不会覆盖正在进行的世界线。</span></footer>
         </section>
       </main>
 
@@ -623,6 +626,12 @@
   <script src="../shared/bloub.js"></script>
   <script src="../shared/bloub-mount.js"></script>
   <script src="../shared/bloub-pet.js"></script>
+  <script src="../../engine/usage-ledger.js"></script>
+  <script src="../shared/runtime-tools.js"></script>
+  <script src="../shared/product-tools.js"></script>
+  <script src="../shared/author-tools.js"></script>
+  <script src="../shared/experience-tools.js"></script>
+  <script src="../shared/kernel-workbench.js"></script>
   <script src="app.js"></script>
 
 </body>

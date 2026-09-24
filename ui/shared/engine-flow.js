@@ -40,6 +40,7 @@
         const kernel = ctx.kernel()
         const en = await api.engineEnsure({ storyId: s.id, title: s.title, kernelId, kernelText: kernel ? kernel.text : '' })
         if (!en || !en.ok) return null
+        if (en.data && en.data.kernel_match === false && !en.data.kernel_text) return { blocked: true, error: '这条旧世界线绑定的内核已变化。请恢复原内核，或新建世界线使用新规则' }
         let sessionId = storySess.get(s.id)
         if (!sessionId) {
           sessionId = 'SES-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 6)
@@ -53,6 +54,8 @@
         }
         return {
           storyId: s.id,
+          kernelText: en.data && en.data.kernel_text || '',
+          kernelMismatch: !!(en.data && en.data.kernel_match === false),
           sessionId,
           // 已有结构化状态时才注入状态块（新故事第一回合无历史可注入，payload 与旧版一致）
           block: cx.data.overview && cx.data.overview.engine_turn > 0 ? cx.data.block : '',

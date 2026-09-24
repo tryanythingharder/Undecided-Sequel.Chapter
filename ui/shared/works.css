@@ -158,32 +158,78 @@
 .comic-mode-switch button.on { background: rgba(244, 208, 135, .92); color: #2b2823; font-weight: 600; }
 .comic-mode-switch button.on:hover { background: #f4d087; color: #2b2823; }
 
-/* 连续（条漫式）模式：stage 变成滚动容器，页与页竖向堆叠成一条长流 */
+/* 阅读区有确定高度，只有 stage 滚动；工具栏和目录不随正文移动。 */
+.comic-reader-toolbar {
+  position: absolute; inset: 0 0 auto; height: 64px; box-sizing: border-box;
+  display: flex; align-items: center; justify-content: flex-end; gap: 10px;
+  padding: 10px 18px; background: #10131b; z-index: 6;
+  border-bottom: 1px solid rgba(255,255,255,.1);
+}
+.comic-reader-toolbar > .comic-mode-switch,
+.comic-reader-toolbar > button { position: static; flex: none; margin: 0; }
+.comic-view .comic-sidebar { order: -1; }
+.comic-view.mode-scroll { padding-top: 64px; box-sizing: border-box; overflow: hidden; background: #090c12; }
+.comic-view.mode-scroll .comic-sidebar { margin: 16px 0 16px 16px; }
 .comic-view.mode-scroll .comic-stage {
-  overflow-y: auto; align-items: stretch; justify-content: flex-start;
-  gap: 0; padding: 0 14px 28px;
-  scrollbar-gutter: stable;
-  width: 100%; max-width: none; max-height: none;
+  height: 100%; min-height: 0; max-height: 100%; max-width: none;
+  overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain;
+  align-items: stretch; justify-content: flex-start; gap: 0; padding: 0 24px;
+  box-sizing: border-box; scrollbar-gutter: stable;
 }
-.comic-view.mode-scroll.has-list { justify-content: flex-start; }
-.comic-view.mode-scroll .comic-scroll-flow {
-  display: flex; flex-direction: column; align-items: center;
-  gap: 34px; width: min(1180px, 100%); margin: 0 auto;
-  padding-top: 76px; /* 让出顶部按钮排（关闭/导出/模式切换/继续生成） */
+.comic-scroll-flow {
+  flex: none; display: flex; flex-direction: column; gap: 100px;
+  width: min(720px, 100%); margin: 0 auto; padding: 24px 0 160px;
 }
-.comic-view.mode-scroll .comic-scroll-flow .comic-page-grid {
-  width: 100%; max-height: none; overflow: visible; padding: 0;
-  /* 连续流里页随内容自然展开（格子保持 2 列分格比例） */
+.comic-scroll-section { display: flex; flex-direction: column; gap: 100px; flex: none; }
+.comic-view.mode-scroll .comic-cell {
+  display: flex; flex-direction: column; gap: 24px; flex: none;
+  min-height: 0; overflow: visible; border: 0; border-radius: 0; background: transparent;
 }
-/* 连续模式下翻页按钮藏起：.comic-nav 的 display:flex 会压过 hidden 属性的 UA 规则，须显式 none */
+.comic-view.mode-scroll .comic-cell .comic-img {
+  order: 1; width: 100%; max-width: 100%; height: auto; max-height: none;
+  object-fit: contain; border-radius: 0;
+}
+.comic-view.mode-scroll .comic-cell .comic-placeholder {
+  position: static; order: 1; width: 100%; box-sizing: border-box; min-height: 360px;
+}
+.comic-view.mode-scroll .comic-caption {
+  position: static; order: 0; align-self: flex-start; max-width: 84%; box-sizing: border-box;
+  background: #171f2c; border-left: 2px solid #859fc1; color: #e6edf6;
+  padding: 12px 18px; font-size: 14px; line-height: 1.9;
+}
+.comic-view.mode-scroll .comic-bubble {
+  position: relative; inset: auto; order: 2; align-self: flex-end;
+  max-width: 76%; box-sizing: border-box; padding: 14px 20px;
+  border-radius: 26px; font-size: clamp(14px, 1.4vw, 17px); line-height: 1.8;
+  margin: 0 20px; overflow-wrap: anywhere;
+}
+.comic-view.mode-scroll .comic-bubble:nth-of-type(even) { align-self: flex-start; }
+.comic-view.mode-scroll .comic-bubble::before {
+  content: ''; position: absolute; top: -9px; right: 26px; width: 14px; height: 14px;
+  background: inherit; border-top: inherit; border-left: inherit; transform: rotate(45deg);
+}
 .comic-nav[hidden] { display: none; }
-.comic-scroll-page-head {
-  display: flex; justify-content: center; margin-bottom: -24px;
+@media (max-width: 680px) {
+  .comic-reader-toolbar { gap: 6px; padding: 10px 8px; }
+  .comic-reader-toolbar > button { padding: 6px 10px; }
+  .comic-mode-switch button { padding: 4px 10px; }
+  .comic-view .comic-sidebar { display: none; }
+  .comic-view.has-list .comic-nav-prev { left: 8px; }
+  .comic-view.mode-scroll .comic-stage { padding: 0 12px; }
+  .comic-scroll-flow, .comic-scroll-section { gap: 64px; }
 }
-.comic-scroll-page-head .comic-counter { font-size: 11.5px; color: rgba(242, 237, 227, .6); }
-@media (max-width: 860px) {
-  .comic-mode-switch { right: 240px; }
+@media (max-width: 390px) {
+  .comic-reader-toolbar { gap: 4px; }
+  .comic-reader-toolbar > button { padding: 6px 7px; font-size: 11px; }
+  .comic-mode-switch button { padding: 4px 7px; }
 }
+
+/* 两种阅读方式共享完整纸页，只改变页与页之间的导航方式。 */
+.comic-view:not(.mode-scroll) .comic-stage { height: calc(100vh - 88px); max-height: none; margin-top: 64px; justify-content: center; }
+.comic-view:not(.mode-scroll) .comic-paper { width: min(92%, calc((100vh - 156px) * var(--comic-ratio, .70))); }
+.comic-scroll-flow { width: min(760px, 100%); gap: 36px; }
+.comic-scroll-section { gap: 10px; align-items: stretch; }
+.comic-scroll-section .comic-counter { text-align: center; }
 
 /* ==================== 画廊（从两份 styles.css 抽出，单源维护；修行高压缩/骨架屏/对比度） ==================== */
 /* ============ 画廊（R70：右侧抽屉——浏览插图时保留对话上下文；Finalize Design 玻璃化） ============ */

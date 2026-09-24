@@ -55,12 +55,12 @@
     const s = curSession()
     if (!s) return
     const msg = s.messages[idx]
-    if (!msg || msg.role !== 'assistant' || (msg.illust && !regen) || !illustReady()) return
+    if (!msg || msg.role !== 'assistant' || msg.illustPending || (msg.illust && !regen) || !illustReady()) return
     // 长度门槛：仅自动触发时，过短不生成（手动点击代表用户明确需要）
     if (isAuto && cfg().illustMinLen > 0 && String(msg.content).length < cfg().illustMinLen) return
-    msg.illust = null
     msg.illustPending = true
     const renderPending = (attempt, retrying) => {
+      if (curSession() !== s || s.messages[idx] !== msg) return
       renderMessages()
       const box = document.getElementById('illust-slot-' + idx)
       if (box) {
@@ -83,7 +83,7 @@
       seedLock: cfg().illustSeedLock,
       seed: cfg().illustSeed,
       n: cfg().illustN
-    })
+    }).catch((error) => ({ ok: false, error: String(error.message || error) }))
 
     let r = await attemptOnce()
     // 失败自动重试一次（网络抖动 / 端点偶发 5xx 常见）
@@ -94,10 +94,29 @@
     }
     msg.illustPending = false
     if (r && r.ok) {
-      msg.illust = r.dataUrl
+      // 多图：主进程把一次生成的 n 张标准化为 dataUrls（至少一张）。旧契约只有 dataUrl——
+      // 两条路径都收敛到同一份「有效 data url 列表」，绝不把请求数 n 当作成功数。
+      const urls = Array.isArray(r.dataUrls) ? r.dataUrls.filter((u) => typeof u === 'string' && u) : []
+      if (!urls.length && r.dataUrl) urls.push(r.dataUrl)
+      if (!urls.length) {
+        msg.illustError = '图像接口没有返回可用图片'
+        saveSessions()
+        renderMessages()
+        toast('插图生成失败：' + msg.illustError, 'err')
+        return
+      }
+      msg.illusts = urls
+      msg.illust = urls[0] // 兼容：首图即 illust，旧渲染/旧存档消费点无需改动
       msg.illustAt = Date.now()
       msg.illustError = null
-      // 端点若返回计费（usage.cost / cost），累计到本线费用（右上角用量面板可见）
+      // 部分成功：至少一张可用（仍算画好），但如实提示有几张没转换成功，不谎报「全部成功」
+      if (r.partial === true || Number(r.imageErrors) > 0) {
+        const failed = Number(r.imageErrors) || 0
+        toast('插图已生成 ' + urls.length + ' 张' + (failed ? '，' + failed + ' 张未转换成功' : '（部分结果）'), 'info')
+      }
+      // 端点若返回计费（usage.cost / cost），累计到本线费用（右上角用量面板可见）。
+      // 一次 HTTP 尝试 = 一笔费用（主进程账本已按每次网络尝试记录）：无论这次返回几张图，
+      // 只按返回的 cost 累加一次，绝不用 imageCount × 单价或请求数 n 二次计价。
       const imgCost = Number(r.cost != null ? r.cost : ((r.usage && r.usage.cost) != null ? r.usage.cost : NaN))
       if (Number.isFinite(imgCost)) {
         s.tokens = s.tokens || { prompt: 0, completion: 0, total: 0 }
@@ -109,10 +128,17 @@
       saveSessions()
       renderMessages()
     } else {
-      msg.illustError = (r && r.error) || '未知错误'
+      // 失败提示要显示「实际返回/失败数」：imageCount 是成功有效图数，imageErrors 是部分转换失败数
+      // （主进程在至少一张成功时仍 ok:true，走到这里一定是完全失败）；没有这些字段就不编造数字。
+      const returned = Number((r && r.imageCount) || 0)
+      const failed = Number((r && r.imageErrors) || 0)
+      const detail = []
+      if (returned > 0) detail.push('已返回 ' + returned + ' 张')
+      if (failed > 0) detail.push('其中 ' + failed + ' 张转换失败')
+      msg.illustError = ((r && r.error) || '未知错误') + (detail.length ? '（' + detail.join('，') + '）' : '')
       saveSessions()
       renderMessages()
-      const box2 = document.getElementById('illust-slot-' + idx)
+      const box2 = curSession() === s && s.messages[idx] === msg ? document.getElementById('illust-slot-' + idx) : null
       if (box2) {
         box2.className = 'illust-error'
         box2.textContent = '插图生成失败：' + msg.illustError
@@ -133,6 +159,30 @@
     }
   }
 
+
+  /* 存档兼容：旧存档只带 illust（单张）。列表视图统一经此取「这张消息的全部图」——
+   * 有 illusts 用 illusts，没有就回落 [illust]，两边都空则空数组。
+   * 只读不写：不修改消息对象，不重复持久化数据 URL。 */
+  function illustsOf(holder) {
+    if (!holder) return []
+    const list = Array.isArray(holder.illusts) ? holder.illusts.filter((u) => typeof u === 'string' && u) : []
+    if (list.length) return list
+    return holder.illust ? [holder.illust] : []
+  }
+
+  /* 会话级展开：按消息顺序把所有消息的图摊平成一条列表（用于画廊/保存全部/导出/Lightbox 全集）。 */
+  function allIllustsOf(messages) {
+    const out = []
+    for (const m of (Array.isArray(messages) ? messages : [])) {
+      for (const u of illustsOf(m)) out.push(u)
+    }
+    return out
+  }
+
+  /* 当前会话全部插图（含每消息多图）——Lightbox 全会话导航用。 */
+  function sessionIllusts(session) {
+    return allIllustsOf(session && session.messages)
+  }
 
   function viewIllust(dataUrl, list) {
     let mask = document.getElementById('lightbox')
@@ -223,7 +273,7 @@
   }
 
 
-    return { illustReady, stylePrompt, buildIllustPrompt, generateIllust, viewIllust }
+    return { illustReady, stylePrompt, buildIllustPrompt, generateIllust, viewIllust, illustsOf, allIllustsOf, sessionIllusts }
   }
 
   window.IllustPanel = { createIllustPanel }

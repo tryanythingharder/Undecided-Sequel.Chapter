@@ -96,25 +96,31 @@
       // 实测阅读列右缘：优先量 assistant 消息（proto 里 user 气泡窄且右对齐，不能当列宽样本）；
       // 没有消息时按「列在容器内容盒居中」推算。拖动中 --read-w 变化 → 量到的是活的列缘。
       const columnRight = () => {
-        const sample = msgs.querySelector('.msg.assistant') || msgs.querySelector('.msg')
-        if (sample) {
+        // User 行可能比 assistant 行更宽（IF 工具按钮位于该行最右侧）；拖柄必须避开两者。
+        const samples = Array.from(msgs.querySelectorAll('.msg'))
+        const right = samples.reduce((edge, sample) => {
           const r = sample.getBoundingClientRect()
-          if (r.width > 0) return r.right
-        }
+          return r.width > 0 ? Math.max(edge, r.right) : edge
+        }, 0)
+        if (right > 0) return right
         const msgsRect = msgs.getBoundingClientRect()
         const cs = getComputedStyle(msgs)
-        const padX = (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.paddingRight) || 0)
-        const contentW = Math.max(0, msgsRect.width - padX)
-        return msgsRect.left + msgsRect.width / 2 + Math.min(toPx(cfg().readWidth), contentW) / 2
+        const padLeft = parseFloat(cs.paddingLeft) || 0
+        const padRight = parseFloat(cs.paddingRight) || 0
+        const contentW = Math.max(0, msgs.clientWidth - padLeft - padRight)
+        return msgsRect.left + msgs.clientLeft + padLeft + contentW / 2 + Math.min(toPx(cfg().readWidth), contentW) / 2
       }
 
-      // 锚定实际渲染的阅读列右缘。把手是 chat 的 absolute 子节点——left/top 必须用
-      // chat 原点坐标系（chat 是 position:relative）。把手「中心」压在列缘上（±8px），
-      // 抓取点即列缘，抓取无跳变。纵向只占消息区（不压 header / composer）
+      // 把整个 16px 命中区放在消息列外侧留白，不能把中心压在正文/IF 按钮上。
+      // 拖拽按指针增量计算，外移不会造成抓取跳变；右界按 clientWidth 排除滚动条。
+      // 纵向只占消息区（不压 header / composer），空间不足时保留设置里的调宽入口。
       const position = () => {
         const chatRect = chat.getBoundingClientRect()
         const msgsRect = msgs.getBoundingClientRect()
-        handle.style.left = Math.round(Math.min(columnRight(), chatRect.right - 16) - 8 - chatRect.left) + 'px'
+        const left = Math.ceil(columnRight() + 4)
+        const scrollLeft = msgsRect.left + msgs.clientLeft + msgs.clientWidth
+        handle.hidden = left + 16 > scrollLeft
+        handle.style.left = Math.round(left - chatRect.left) + 'px'
         handle.style.top = Math.max(0, Math.round(msgsRect.top - chatRect.top)) + 'px'
         handle.style.height = Math.max(0, Math.round(msgsRect.height)) + 'px'
         handle.setAttribute('aria-valuemin', String(RW_MIN))
@@ -189,11 +195,19 @@
       // 都走 applyReading —— 观察 style 属性即可在所有路径后重新贴边
       const mo = new MutationObserver(position)
       mo.observe(document.documentElement, { attributes: true, attributeFilter: ['style'] })
+      mo.observe(document.body, { attributes: true, attributeFilter: ['class'] })
+      // 消息流式补充 / 分页或工具行挂载时，消息列右缘会变化，需重新避让。
+      mo.observe(msgs, { childList: true, subtree: true, characterData: true })
+      // 消息区滚动条、选项区伸缩、侧栏收放，都可能改变列缘或消息区高度。
+      const ro = new ResizeObserver(position)
+      ro.observe(chat)
+      ro.observe(msgs)
+      msgs.addEventListener('scroll', position, { passive: true })
       position()
       return {
         el: handle,
         reposition: position,
-        destroy: () => { mo.disconnect(); window.removeEventListener('resize', position); handle.remove() }
+        destroy: () => { mo.disconnect(); ro.disconnect(); window.removeEventListener('resize', position); msgs.removeEventListener('scroll', position); handle.remove() }
       }
     }
 

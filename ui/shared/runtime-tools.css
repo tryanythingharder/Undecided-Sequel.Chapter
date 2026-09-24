@@ -1,0 +1,44 @@
+/* ======== 六面世界 · 运行时工具（用量 / 报价 / 任务 / 诊断）三方案共享样式 ========
+ * 只使用各界面 styles.css 已定义的语义变量（--panel / --text / --border / --accent …），
+ * 因此七套配色 × 明暗自动成立，无需逐主题覆盖。
+ * 挂载：<link rel="stylesheet" href="../shared/runtime-tools.css" />（缺失时 runtime-tools.js 自行注入）
+ */
+.runtime-panel { width:min(880px,100%); }
+.runtime-tabs { padding-bottom:12px; }
+.runtime-content { min-height:180px; }
+.runtime-sub { margin:18px 0 10px; font-size:13px; font-weight:650; color:var(--text); }
+
+.runtime-cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:10px; padding:4px 0 8px; }
+.runtime-card { display:flex; flex-direction:column; gap:6px; padding:12px 14px; background:var(--panel-2); border:1px solid var(--border); border-radius:var(--ui-radius); }
+.runtime-card-label { font-size:11.5px; color:var(--text-dim); }
+.runtime-card-value { font-size:19px; font-weight:650; color:var(--text); overflow-wrap:anywhere; }
+.runtime-card-note { font-size:11.5px; line-height:1.6; color:var(--text-dim); }
+.runtime-card-cost .runtime-card-value { color:var(--accent); }
+
+.runtime-hint { padding:10px 0 4px; font-size:12px; line-height:1.75; color:var(--text-dim); }
+.runtime-currency { margin:0 0 8px; padding-left:18px; font-size:12px; line-height:1.8; color:var(--text-dim); }
+
+.runtime-table { width:100%; border-collapse:collapse; font-size:12px; }
+.runtime-table th { padding:8px 10px; text-align:left; font-weight:600; color:var(--text-dim); border-bottom:1px solid var(--border-strong); white-space:nowrap; }
+.runtime-table td { padding:8px 10px; color:var(--text); border-bottom:1px solid var(--border); overflow-wrap:anywhere; }
+
+.runtime-status { white-space:nowrap; }
+.runtime-status-succeeded { color:var(--ok); }
+.runtime-status-failed { color:var(--danger); }
+.runtime-status-partial { color:var(--warn,var(--accent)); }
+.runtime-status-aborted { color:var(--text-dim); }
+.runtime-status-running { color:var(--accent); }
+
+.runtime-form { display:flex; flex-wrap:wrap; gap:12px; padding:6px 0 12px; }
+.runtime-field { display:flex; flex-direction:column; gap:6px; flex:1 1 170px; font-size:12px; color:var(--text-dim); }
+.runtime-field input, .runtime-field select { height:var(--ui-control); padding:6px 10px; background:var(--bg); color:var(--text); border:1px solid var(--border-strong); border-radius:var(--ui-radius); }
+.runtime-field input:focus-visible, .runtime-field select:focus-visible { outline:2px solid var(--accent); outline-offset:1px; }
+.runtime-pre { margin-top:12px; max-height:320px; overflow:auto; padding:12px 14px; font-size:11.5px; line-height:1.7; white-space:pre-wrap; overflow-wrap:anywhere; background:var(--panel-2); color:var(--text-dim); border:1px solid var(--border); border-radius:var(--ui-radius); }
+.runtime-pre:empty { display:none; }
+.runtime-content button:focus-visible { outline:2px solid var(--accent); outline-offset:1px; }
+
+@media(max-width:700px) {
+  .runtime-cards { grid-template-columns:1fr 1fr; }
+  .runtime-field { flex:1 1 100%; }
+  .runtime-table { display:block; overflow-x:auto; }
+}

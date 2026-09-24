@@ -112,6 +112,8 @@
 
 
   async function newWorkspace() {
+    if (isBusy()) { toast('请等当前回合结束', 'info'); return }
+    if (getSessions().length >= 200) { toast('世界线已达 200 条上限，请先整理旧世界线', 'err'); return }
     const name = await promptDialog({
       title: '新建工作区',
       body: '工作区之间完全隔离：各自拥有独立的世界线、搜索与画廊。适合存放不同的世界内核 / 不同的故事。',
@@ -119,7 +121,7 @@
       placeholder: '工作区名称',
       okText: '创建'
     })
-    if (!name) return
+    if (!name || isBusy()) return
     const w = { id: 'w' + Date.now().toString(36), name, createdAt: Date.now() }
     getWorkspaces().push(w)
     saveWorkspaces()
@@ -144,7 +146,7 @@
   async function deleteWorkspace() {
     const ws = curWs()
     if (!ws) return
-    if (busy) { toast('世界运转中，回合结束后再删除', 'info', 1800); return } // R57：生成中禁止删除工作区（防流式写入已删会话）
+    if (isBusy()) { toast('世界运转中，回合结束后再删除', 'info', 1800); return }
     if (getWorkspaces().length <= 1) { toast('至少保留一个工作区', 'info'); return }
     const cnt = getSessions().filter((s) => s.ws === ws.id).length
     const ok = await confirmDialog({
@@ -153,11 +155,17 @@
       danger: true,
       okText: '删除工作区'
     })
-    if (!ok) return
+    if (!ok || isBusy()) return
+    const backup = await api.archiveCreate({ workspaces: getWorkspaces(), current: { currentWsId: getCurrentWsId(), currentSessionId: getCurrentId() }, label: '删除工作区前' })
+    if (!backup || !backup.ok) { toast('无法创建备份，工作区未删除', 'err'); return }
     // 原地变更（getter 桥接约束：重赋值会失联）
     const sessionArr = getSessions()
     for (let i = sessionArr.length - 1; i >= 0; i--) {
-      if (sessionArr[i].ws === ws.id) sessionArr.splice(i, 1)
+      if (sessionArr[i].ws === ws.id) {
+        const removed = sessionArr.splice(i, 1)[0]
+        sessionDrafts.delete(removed.id)
+        if (api.engineDeleteStory) await api.engineDeleteStory({ storyId: removed.id }).catch(() => {})
+      }
     }
     // 删除语义立即持久化（防抖窗口内崩溃不复活已删数据）
     const wsArr = getWorkspaces()
@@ -180,6 +188,7 @@
 
 
   async function wsKernelAction() {
+    if (isBusy()) { toast('请等当前回合结束', 'info'); return }
     const ws = curWs()
     if (!ws) return
     const mode = $('ws-kernel').dataset.mode
@@ -206,14 +215,20 @@
   function branchFrom(idx) {
     const s = curSession()
     if (!s) return
-    if (isBusy()) return // 生成中不可达（工具栏 !busy 才渲染，app.js:1217）；保留守卫仅作防御
+    if (getSessions().length >= 200) { toast('世界线已达 200 条上限，请先整理旧世界线', 'err'); return }
+    const action = s.messages[idx]
+    if (!action || action.role !== 'user' || !action.engineSnapshot) {
+      toast('这一幕没有历史回溯点，无法安全开辟 IF 线。新回合会自动保存回溯点', 'err', 7000)
+      return
+    }
+    if (isBusy()) { toast('正在保存上一幕的世界记忆，请稍候再开辟 IF 线', 'info', 2400); return } // 防御性守卫；忙碌状态需明确反馈
     const act = String(s.messages[idx] ? s.messages[idx].content : '').slice(0, 30)
     confirmDialog({
       title: '开辟 IF 线？',
       body: '将以「' + s.title + '」为母线，在新世界线里复刻到这一步之前的历史，让你重新选择。你的原世界线保持不变。' + (act ? '（将撤销的行动：' + act + '…）' : ''),
       okText: '开辟 IF 线'
-    }).then((ok) => {
-      if (!ok) return
+    }).then(async (ok) => {
+      if (!ok || isBusy() || curSession() !== s || getSessions().length >= 200) return
       localStorage.setItem('sixworlds.ifhint-seen.v1', '1') // 用过 IF → 一次性发现提示永不再现（R7）
       const now = Date.now()
       const ns = {
@@ -225,16 +240,24 @@
         updatedAt: now, createdAt: now,
         ifFrom: s.id
       }
+      let cloned
+      try { cloned = await api.engineCloneStory({ storyId: s.id, targetId: ns.id, title: ns.title, snapshotId: action.engineSnapshot }) } catch {}
+      if (!cloned || !cloned.ok) { toast('历史回溯点已过期或无法读取，未创建 IF 线', 'err', 6000); return }
+      if (isBusy() || curSession() !== s) {
+        await api.engineDeleteStory({ storyId: ns.id }).catch(() => {})
+        return
+      }
       getSessions().unshift(ns) // 原地变更（getter 桥接约束）
       setCurrentIdTo(ns.id)
+      const ws = curWs()
+      if (ws) { ws.lastSessionId = ns.id; saveWorkspaces() }
+      $('input').value = ''
+      fitInput()
       saveStore()
       saveSessions()
       // IF 线状态继承（R85）：深拷贝母线引擎账本（实体/伏笔/事实/关系全量），否则 IF 线第一轮
       // 就是个「失忆世界」——模型靠历史消息记得剧情，状态引擎却谁都不认识。
       // 语义索引与快照计数不随克隆；母线尚无引擎故事（未发过言）时静默跳过
-      api.engineCloneStory({ storyId: s.id, targetId: ns.id, title: ns.title }).then((r) => {
-        if (r && r.ok) toast('IF 线已继承母线全部世界状态（实体/伏笔/事实）', 'ok', 2600)
-      }).catch(() => {})
       renderSessionList()
       renderMessages()
       updateTitle()

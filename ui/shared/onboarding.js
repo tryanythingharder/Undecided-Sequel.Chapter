@@ -19,6 +19,7 @@
     const STORE_KEY = ctx.STORE_KEY
     const OB_KEY = ctx.OB_KEY
     const PALETTES = ctx.PALETTES
+    const esc = (value) => String(value == null ? '' : value).replace(/[&<>'"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c])
 
   const WIZ_PRESETS = {
     deepseek: { name: 'DeepSeek', baseUrl: 'https://api.deepseek.com', model: 'deepseek-chat' },
@@ -78,7 +79,28 @@
       document.body.appendChild(mask)
 
       const gv = (cls) => { const el = pane.querySelector(cls); return el ? el.value.trim() : null }
-      const st = { theme: 'dark', palette: cfg().palette || 'classic', preset: 'deepseek', imgPreset: 'off' }
+      /* ---- 沿用现有配置（P1「更短的首玩路径」）----
+       * 向导不再用预设默认值覆盖玩家已有的配置：地址 / 密钥 / 模型只要已存在就带进来，
+       * 预设只作为「还没填过」时的空白起点。预设名称与模型名来自玩家自己选择的服务，
+       * 软件不替玩家挑选或推荐任何厂商模型。 */
+      const cfgNow = cfg() || {}
+      const presetKeys = Object.keys(WIZ_PRESETS)
+      const imgPresetKeys = Object.keys(WIZ_IMG_PRESETS)
+      const st = {
+        theme: 'dark',
+        palette: cfgNow.palette || 'classic',
+        preset: presetKeys.includes(cfgNow.preset) ? cfgNow.preset : 'deepseek',
+        imgPreset: imgPresetKeys.includes(cfgNow.illustPreset) ? cfgNow.illustPreset : 'off',
+        exampleOpen: false
+      }
+      if (cfgNow.baseUrl) st.baseUrl = String(cfgNow.baseUrl)
+      if (cfgNow.apiKey) st.apiKey = String(cfgNow.apiKey)
+      if (cfgNow.model) st.model = String(cfgNow.model)
+      if (cfgNow.illustBaseUrl) st.imgBaseUrl = String(cfgNow.illustBaseUrl)
+      if (cfgNow.illustApiKey) st.imgApiKey = String(cfgNow.illustApiKey)
+      if (cfgNow.illustModel) st.imgModel = String(cfgNow.illustModel)
+      // 已有一份可直接使用的对话模型配置 → 提供一步走完的入口（不再重复填写）
+      const hasExistingTextConfig = !!(cfgNow.baseUrl && cfgNow.apiKey && cfgNow.model)
       const wizModels = { text: [], img: [] } // 拉取到的模型列表
       const origTheme = cfg().theme // 实时预览用：跳过时还原
       const origPalette = cfg().palette // 配色预览同理：跳过时还原
@@ -89,15 +111,72 @@
         const isText = kind === 'text'
         const list = isText ? wizModels.text : wizModels.img
         const valCls = isText ? '.wizard-model' : '.wizard-imgmodel'
-        const cur = gv(valCls) || ''
+        const preset = isText ? WIZ_PRESETS[st.preset] : WIZ_IMG_PRESETS[st.imgPreset]
+        const cur = (isText ? st.model : st.imgModel) ?? gv(valCls) ?? (preset && preset.model) ?? ''
         if (list.length) {
           let h = '<select class="' + (isText ? 'wizard-model' : 'wizard-imgmodel') + ' wizard-model-select">'
-          if (!list.includes(cur) && cur) h += '<option value="' + cur + '" selected>' + cur + '（手填）</option>'
-          for (const m of list) h += '<option value="' + m + '"' + (m === cur ? ' selected' : '') + '>' + m + '</option>'
+          if (!list.includes(cur) && cur) h += '<option value="' + esc(cur) + '" selected>' + esc(cur) + '（手填）</option>'
+          for (const m of list) h += '<option value="' + esc(m) + '"' + (m === cur ? ' selected' : '') + '>' + esc(m) + '</option>'
           h += '</select>'
           return h
         }
-        return '<input type="text" class="' + (isText ? 'wizard-model' : 'wizard-imgmodel') + '" value="' + cur + '" placeholder="' + (isText ? '点右侧按钮拉取，或手填' : '点右侧按钮拉取，或手填') + '">'
+        return '<input type="text" class="' + (isText ? 'wizard-model' : 'wizard-imgmodel') + '" value="' + esc(cur) + '" placeholder="点右侧按钮拉取，或手填">'
+      }
+
+      /* ---- 离线示例（P1「第一段故事的最短路径」）----
+       * 未填密钥也能看清「六面世界一回合长什么样」：纯内置静态文本，
+       * 不联网、不调用任何模型、不产生任何费用；标注放在示例块顶部，不做视觉隐藏。 */
+      const OFFLINE_EXAMPLE = {
+        scene: '【甲龙历 407.03.01｜清晨｜布耶纳村】',
+        text: '薄雾还没散，木门被敲了三下。\n' +
+          '你拉开门，门外站着一位灰袍旅人。他的斗篷下摆沾着林地的泥，右手握着一根包铜的短杖。\n' +
+          '「抱歉打扰。」他说，「我在找通往北边旧驿道的路。听说这条村路能通到林子另一头——是真的吗？」\n' +
+          '他的目光越过你的肩膀，在你身后的屋子里停了一瞬。',
+        choices: '【A】为他指路，顺便问问外面的消息\n【B】关门，隔着门板回绝他\nC. 反问他为什么知道这条村路'
+      }
+
+      // 示例块（内联样式：不依赖各界面 styles.css，三套 UI 一致）
+      // max-height + overflow：示例较长，限制高度避免向导在小窗口里被撑出可视区
+      function exampleBlock() {
+        const box = 'margin:2px 0 8px;padding:12px 14px;border:1px solid var(--border-strong);border-radius:10px;background:var(--panel-2);text-align:left;max-height:min(300px,38vh);overflow:auto'
+        return '<div class="wizard-example" data-example-block="1" style="' + box + '">' +
+          '<div class="wizard-example-badge" style="display:inline-block;margin-bottom:8px;padding:2px 8px;border-radius:999px;border:1px solid var(--border-strong);font-size:10.5px;letter-spacing:.4px;color:var(--text-dim)">离线示例 · 未联网 · 未调用模型 · 不产生费用</div>' +
+          '<div class="wizard-example-scene" style="font-size:11.5px;color:var(--text-faint);margin-bottom:6px">' + esc(OFFLINE_EXAMPLE.scene) + '</div>' +
+          '<div class="wizard-example-text" style="font-size:12.5px;line-height:1.8;color:var(--text);white-space:pre-wrap">' + esc(OFFLINE_EXAMPLE.text) + '</div>' +
+          '<div class="wizard-example-choices" style="margin-top:10px;font-size:12px;line-height:1.8;color:var(--text-dim);white-space:pre-wrap">' + esc(OFFLINE_EXAMPLE.choices) + '</div>' +
+          '<div class="wizard-example-note" style="margin-top:10px;font-size:11px;line-height:1.7;color:var(--text-faint)">' +
+          '这段文字是软件内置的示例，用来展示一回合的排版与选项，不是你自己的模型生成的内容。' +
+          '填好上面的 API 地址与密钥后，真实故事将由你配置的第三方模型生成并计费。</div>' +
+          '<div class="wizard-example-actions" style="margin-top:10px"><button type="button" class="wizard-example-close">收起示例</button></div>' +
+          '</div>'
+      }
+
+      /* ---- 连接测试反馈（P1「连接失败可就地修复」）----
+       * 把端点/网络错误翻译成「发生了什么 + 怎么办」，并标明是否值得重试。
+       * 只解释、不猜测：无法归类时原样透出错误文本。 */
+      function explainProbe(r, ms) {
+        const took = (Number.isFinite(ms) ? '（用时 ' + Math.round(ms) + ' ms）' : '')
+        if (r && r.ok) {
+          const n = Number(r.count != null ? r.count : (r.models ? r.models.length : 0)) || 0
+          if (n > 0) return { cls: 'ok', message: '连接成功' + took + ' · 端点返回 ' + n + ' 个模型，可直接选择或继续手填', retry: false }
+          return { cls: 'ok', message: '连接成功' + took + ' · 但端点没有返回模型列表（部分服务不开放 /models）——可以手填模型名继续', retry: false }
+        }
+        const raw = String((r && r.error) || '').trim()
+        const m = raw.toLowerCase()
+        const rule = (re) => re.test(raw) || re.test(m)
+        if (rule(/abort|超时|timed?\s?out|etimedout|esockettimedout/i)) return { cls: 'err', message: '连接超时：服务器在 15 秒内没有响应。地址可能正确但网络不通，或服务暂时繁忙。' + raw, retry: true }
+        if (rule(/401|unauthorized/i)) return { cls: 'err', message: '密钥被拒绝（401）：地址是通的，但这个 Key 无效、已过期或不属于该服务。请到提供商控制台核对，注意对话 Key 与图像 Key 可能不同。' + raw, retry: true }
+        if (rule(/403|forbidden/i)) return { cls: 'err', message: '密钥无权限（403）：该 Key 不能访问这个端点或模型，请检查账号权限或换一个 Key。' + raw, retry: false }
+        if (rule(/404|not found/i)) return { cls: 'err', message: '地址不存在（404）：多数情况是缺少路径后缀，OpenAI 兼容端点通常需要以 /v1 结尾。' + raw, retry: true }
+        if (rule(/429|rate limit|too many/i)) return { cls: 'err', message: '请求过于频繁（429）：密钥有效但被限流，稍等片刻后重试。' + raw, retry: true }
+        if (rule(/50\d|internal server|bad gateway|service unavailable/i)) return { cls: 'err', message: '服务端错误（5xx）：问题在提供商一侧，可稍后重试或换用其它端点。' + raw, retry: true }
+        if (rule(/enotfound|getaddrinfo|dns/i)) return { cls: 'err', message: '域名解析失败：地址拼写可能有误，请核对主机名。' + raw, retry: true }
+        if (rule(/econnrefused|无法连接/i)) return { cls: 'err', message: '无法连接到服务器：地址或端口不对，或该服务未在运行（本地部署时常见）。' + raw, retry: true }
+        if (rule(/econnreset|epipe|socket hang up|网络连接中断/i)) return { cls: 'err', message: '连接被中断：网络不稳定或中间设备拦截，可重试。' + raw, retry: true }
+        if (rule(/certificate|ssl|tls/i)) return { cls: 'err', message: '证书校验失败：地址不是有效的 https 站点，或系统时间不正确。' + raw, retry: false }
+        if (rule(/仅支持 http/i)) return { cls: 'err', message: '地址格式不受支持：只接受以 http:// 或 https:// 开头的地址。' + raw, retry: false }
+        if (!raw) return { cls: 'err', message: '连接失败：端点没有返回可用的模型列表。请核对地址、密钥与网络后重试。', retry: true }
+        return { cls: 'err', message: '连接失败：' + raw, retry: true }
       }
 
       // 迷你界面模拟预览（R75）：CSS 画的侧栏 + 正文小窗，代替纯色块
@@ -141,6 +220,9 @@
           h += '</div>'
           h += '</div>'
           h += '<div class="wizard-hint">随时可以在右上角主题按钮或设置中更改</div>'
+          // 推荐本地内核（P1「更短的首玩路径」）：默认内核随应用分发，不需要联网下载，
+          // 也不引导玩家去外部站点取内核；软件只说明现状，不替玩家挑内容。
+          h += '<div class="wizard-hint wizard-kernel-hint">开局默认使用随应用分发的本地内核（六面世界），无需联网下载；之后可在内核库中切换或自建</div>'
         } else if (step === 1) {
           const p = WIZ_PRESETS[st.preset] || WIZ_PRESETS.custom
           const cb = st.baseUrl !== undefined ? st.baseUrl : p.baseUrl
@@ -148,14 +230,25 @@
           // R75b：表单步内容整体垂直居中（与第 1 步视觉逻辑统一，消除底部大片留白）
           h += '<div class="wizard-form">'
           h += '<div class="wizard-title">配置对话模型</div><p class="wizard-sub">驱动故事生成的文本模型——填好地址与密钥后，可直接拉取可用模型列表</p>'
+          if (hasExistingTextConfig) {
+            // 已有可用配置：向导直接带出来，玩家可以什么都不改就继续（不必重新填一遍）
+            h += '<div class="wizard-hint wizard-existing-hint">已载入你现有的对话模型配置（' + esc(st.baseUrl || '') + ' · ' + esc(st.model || '') +
+              '）。直接点「下一步」即沿用，不需要重新填写。</div>'
+          }
           h += '<div class="wizard-preset-row cols-4">'
           for (const k in WIZ_PRESETS) h += '<button class="wizard-preset-opt' + (k === st.preset ? ' sel' : '') + '" data-p="'+ k + '"><span class="wizard-preset-dot">' + (k === 'custom' ? '＋' : WIZ_PRESETS[k].name[0]) + '</span>' + WIZ_PRESETS[k].name + '</button>'
           h += '</div>'
-          h += '<div class="wizard-field"><label>API 地址</label><input class="wizard-baseurl" type="text" value="' + cb + '" placeholder="https://api.deepseek.com"></div>'
-          h += '<div class="wizard-field"><label>API Key</label><input class="wizard-apikey" type="password" value="' + ck + '" placeholder="sk-…（在提供商控制台获取）"></div>'
+          h += '<div class="wizard-hint wizard-preset-hint">预设只是帮你少填地址的起点，其中的模型名是占位示例——能否使用以你账号实际拉取到的列表为准，软件不推荐任何厂商或型号</div>'
+          h += '<div class="wizard-field"><label>API 地址</label><input class="wizard-baseurl" type="text" value="' + esc(cb) + '" placeholder="https://api.deepseek.com"></div>'
+          h += '<div class="wizard-field"><label>API Key</label><input class="wizard-apikey" type="password" value="' + esc(ck) + '" placeholder="sk-…（在提供商控制台获取）"></div>'
           h += '<div class="wizard-field"><label>模型</label><div class="wizard-fetch-row">' + modelControl('text')
           h += '<button class="wizard-fetch-btn" data-fetch="text">拉取模型</button></div></div>'
           h += '<div class="wizard-status" data-status="text"></div>'
+          // 没填密钥也能先看清一回合长什么样：离线示例（纯内置文本，不联网、不计费）
+          h += '<div class="wizard-example-toggle-row" style="display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:2px 0 8px">' +
+            '<button type="button" class="wizard-example-toggle" data-example="text" style="padding:6px 12px;font-size:12px;border:1px solid var(--border-strong);border-radius:8px;background:var(--panel-2);color:var(--text);cursor:pointer">' + (st.exampleOpen ? '收起离线示例' : '不填密钥，先看一段离线示例') + '</button>' +
+            '<span class="wizard-example-toggle-hint" style="font-size:11px;color:var(--text-faint)">不需要密钥 · 不会调用任何模型</span></div>'
+          h += st.exampleOpen ? exampleBlock() : ''
           h += '</div>'
         } else {
           const p = WIZ_IMG_PRESETS[st.imgPreset] || WIZ_IMG_PRESETS.off
@@ -172,8 +265,8 @@
               '<span class="wizard-empty-title">暂不启用插图</span>' +
               '<span class="wizard-empty-desc">不影响文字游玩；之后可以随时在设置中开启并配置图像模型</span></div>'
           } else {
-            h += '<div class="wizard-field"><label>API 地址</label><input class="wizard-imgbaseurl" type="text" value="' + cb + '" placeholder="https://api.openai.com/v1"></div>'
-            h += '<div class="wizard-field"><label>API Key</label><input class="wizard-imgapikey" type="password" value="' + ck + '" placeholder="留空则复用对话模型的 Key"></div>'
+            h += '<div class="wizard-field"><label>API 地址</label><input class="wizard-imgbaseurl" type="text" value="' + esc(cb) + '" placeholder="https://api.openai.com/v1"></div>'
+            h += '<div class="wizard-field"><label>API Key</label><input class="wizard-imgapikey" type="password" value="' + esc(ck) + '" placeholder="留空则复用对话模型的 Key"></div>'
             h += '<div class="wizard-field"><label>模型</label><div class="wizard-fetch-row">' + modelControl('img')
             h += '<button class="wizard-fetch-btn" data-fetch="img">拉取模型</button></div></div>'
           }
@@ -210,34 +303,58 @@
           wizModels.img = []
           render()
         }))
-        // 拉取模型按钮
+        // 离线示例开关：纯本地展开/收起，不触发任何网络请求
+        pane.querySelectorAll('.wizard-example-toggle, .wizard-example-close').forEach((b) => b.addEventListener('click', () => {
+          cacheStep(+mask.dataset.step || 0)
+          st.exampleOpen = !st.exampleOpen
+          render()
+        }))
+        // 拉取模型按钮（＝连接测试）：解释性反馈 + 明确标注可否重试
         const fb = pane.querySelector('.wizard-fetch-btn')
         if (fb) fb.addEventListener('click', async () => {
           const kind = fb.dataset.fetch
           const isText = kind === 'text'
           const baseUrl = isText ? gv('.wizard-baseurl') : gv('.wizard-imgbaseurl')
-          let apiKey = isText ? gv('.wizard-apikey') : (gv('.wizard-imgapikey') || gv('.wizard-apikey'))
+          const apiKey = isText ? gv('.wizard-apikey') : (gv('.wizard-imgapikey') || st.apiKey)
           const status = pane.querySelector('[data-status="' + kind + '"]')
-          if (!baseUrl || !apiKey) { if (status) { status.textContent = '请先填写 API 地址与密钥'; status.className = 'wizard-status err' } return }
+          const setStatus = (explain) => {
+            const el = pane.querySelector('[data-status="' + kind + '"]')
+            if (!el) return
+            el.className = 'wizard-status ' + explain.cls
+            el.textContent = explain.message
+          }
+          if (!baseUrl || !apiKey) {
+            if (status) { status.className = 'wizard-status err'; status.textContent = '请先填写 API 地址与密钥（两者都不能为空；本地部署且确实无需密钥时可任意填写占位字符）' }
+            return
+          }
           fb.disabled = true
           const old = fb.textContent
-          fb.textContent = '获取中…'
+          fb.textContent = '测试中…'
           if (status) { status.textContent = ''; status.className = 'wizard-status' }
-          const r = await api.testEndpoint({ baseUrl, apiKey })
+          const t0 = Date.now()
+          const r = await api.testEndpoint({ baseUrl, apiKey }).catch((error) => ({ ok: false, error: String(error.message || error) }))
+          const explain = explainProbe(r, Date.now() - t0)
           fb.disabled = false
           fb.textContent = old
           if (r && r.ok && r.models && r.models.length) {
             if (isText) wizModels.text = r.models; else wizModels.img = r.models
             // render 重建 DOM 前先缓存当前表单值（否则地址/密钥被预设默认覆盖）
             cacheStep(isText ? 1 : 2)
-            if (status) { status.textContent = '已获取 ' + r.models.length + ' 个模型'; status.className = 'wizard-status ok' }
             render()
-            // render 重建了 status 元素，重新标记
-            const status2 = pane.querySelector('[data-status="' + kind + '"]')
-            if (status2) { status2.textContent = '已获取 ' + r.models.length + ' 个模型'; status2.className = 'wizard-status ok' }
+            setStatus(explain) // render 重建了 status 元素，按同一份解释重新标记
           } else {
-            const msg = (r && r.error) || '端点未返回模型列表，可手填模型名'
-            if (status) { status.textContent = msg; status.className = 'wizard-status err' }
+            setStatus(explain)
+            // 可重试的失败：就地给一个重试按钮，不用重新找入口
+            if (explain.retry && status) {
+              const retry = document.createElement('button')
+              retry.type = 'button'
+              retry.className = 'wizard-retry-btn'
+              retry.textContent = '重试连接测试'
+              retry.style.cssText = 'margin-left:6px;padding:2px 8px;font-size:11px;border:1px solid var(--border-strong);border-radius:6px;background:var(--panel-2);color:var(--text);cursor:pointer'
+              retry.addEventListener('click', () => fb.click())
+              status.appendChild(document.createTextNode(' '))
+              status.appendChild(retry)
+            }
           }
         })
         const s = +mask.dataset.step || 0

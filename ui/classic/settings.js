@@ -326,7 +326,7 @@
     $('set-illust-prompt-prefix-enable').checked = cfg.illustPrefixEnable
     $('set-illust-prompt-prefix').value = cfg.illustPrefix
     $('set-ctx').value = cfg.ctxCount
-    $('set-keep').value = cfg.keepCount
+    $('set-keep').value = '完整保留'
     syncCustomStyleVisibility()
     refreshPlainHttpWarn()
   }
@@ -816,8 +816,7 @@
     cfg.illustPrefix = $('set-illust-prompt-prefix').value.trim()
     const cN = Number($('set-ctx').value)
     cfg.ctxCount = Number.isFinite(cN) ? Math.min(64, Math.max(2, cN)) : 24
-    const kN = Number($('set-keep').value)
-    cfg.keepCount = Number.isFinite(kN) ? Math.min(400, Math.max(8, kN)) : 80
+    delete cfg.keepCount
 
     persistCfg()
     api.settingsChanged({ persisted: true })

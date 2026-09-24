@@ -185,6 +185,8 @@
       localStorage.setItem(WORKSPACES_KEY, JSON.stringify(workspaces))
       saveFailWarned = false
     } catch { warnSaveFail('工作区设置') }
+    // 工作区绑定属于 desktop-context 的一部分；只写 localStorage 会在重启时被磁盘正本覆盖。
+    return saveSessions(true)
   }
   function curWs() { return workspaces.find((w) => w.id === currentWsId) || null }
   // 当前工作区的会话（隔离视图）
@@ -256,19 +258,27 @@
   /* ---- 会话数据层（读取合并迁移 + 防抖保存）——双界面方案共享实现：
    *    shared/sessions-client.js 是唯一实现处；此处只绑定本方案的可变状态与提示回调，
    *    归属修复/迁移逻辑的改动不再需要双边人工同步。 ---- */
-  const sessionsLib = SessionsClient.createSessionsPersistence({ getSessions: () => sessions }, {
-    api, warnSaveFail, onSaved: () => { saveFailWarned = false }
+  const sessionsLib = SessionsClient.createSessionsPersistence({ getSessions: () => sessions, getContext: () => ({ workspaces, current: { currentWsId, currentSessionId: currentId } }) }, {
+    api, warnSaveFail, onSaved: () => { saveFailWarned = false },
+    onOverLimit: (total) => toast('当前有 ' + total + ' 条世界线，超过 200 条保存上限。原存档已保留；请先导出备份并删除一些旧世界线', 'err', 10000)
   })
   sessionsLib.bindAutoFlush() // 页面隐藏/关闭强制冲刷（规范八：不丢尾部消息）
   async function loadSessions() {
     const r = await sessionsLib.loadSessions(() => workspaces, currentWsId)
+    if (r.context) {
+      workspaces = r.context.workspaces
+      currentWsId = r.context.current?.currentWsId || workspaces[0]?.id || null
+    }
     sessions = r.sessions
+    if (r.context?.current?.currentSessionId && sessions.some((s) => s.id === r.context.current.currentSessionId && s.ws === currentWsId)) currentId = r.context.current.currentSessionId
     if (r.needsSave) saveSessions() // 归属修复（无 ws / 孤儿会话）后一次防抖落盘
   }
   const saveSessions = sessionsLib.saveSessions
+  sessionsLib.bindFreeze(() => busy || engineBusy)
   function curSession() { return sessions.find((s) => s.id === currentId) || null }
 
   function newSession() {
+    if (sessions.length >= 200) { toast('世界线已达 200 条上限，请先导出备份并删除不需要的世界线', 'err', 6000); return null }
     const now = Date.now()
     const s = { id: 's' + now.toString(36), ws: currentWsId, title: '新世界线', messages: [], updatedAt: now, createdAt: now }
     sessions.unshift(s)
@@ -355,17 +365,16 @@
     dragEl.classList.remove('dragging')
     // 计算落点：被标记的目标（插前/插后）——必须先取标记再清理（R36 修复：原顺序相反，落点永远落空，拖拽恒移末尾）
     const marked = document.querySelector('.session-item.drop-before, .session-item.drop-after')
+    const afterMarked = !!marked && marked.classList.contains('drop-after')
     clearDropMarks()
     dragSession = null
     justDraggedSession = true
-    let insertBeforeId = null, afterMarked = false
+    let insertBeforeId = null
     if (marked) {
-      afterMarked = marked.classList.contains('drop-after')
-      const els = Array.from(document.querySelectorAll('.session-item'))
+      const els = Array.from(document.querySelectorAll('.session-item')).filter((el) => el !== dragEl)
       const markedIdx = els.indexOf(marked)
-      const dragIdx = els.indexOf(dragEl)
       // 拖拽条目仍在列表中：标记位在拖拽条目之后且插后 → 目标要跳过拖拽条目自身
-      const targetEl = els[afterMarked ? markedIdx + (markedIdx > dragIdx ? 1 : 0) : markedIdx]
+      const targetEl = els[markedIdx + (afterMarked ? 1 : 0)]
       insertBeforeId = targetEl ? targetEl.dataset.sid : null
     }
     // 重排 sessions 数组
@@ -444,7 +453,7 @@
         hits.title = '正文中共 ' + hitCounts.get(s.id) + ' 处命中，点击进入后自动定位'
         labelWrap.appendChild(hits)
       }
-      const illustCount = s.messages.filter((m) => m.illust).length
+      const illustCount = s.messages.reduce((n, m) => n + illustsOf(m).length, 0)
       label.title = s.title + '（' + s.messages.length + ' 条 · ' + illustCount + ' 插图 · 双击重命名 · 拖动排序）'
       labelWrap.appendChild(label)
       labelWrap.appendChild(time)
@@ -460,17 +469,24 @@
       del.title = '删除该世界线'
       del.addEventListener('click', (e) => {
         e.stopPropagation()
-        if (busy) { toast('世界运转中，回合结束后再删除', 'info', 1800); return } // R57：生成中禁止删除世界线（防流式写入已删会话）
+        if (busy || engineBusy) { toast('世界运转中，回合结束后再删除', 'info', 1800); return }
         confirmDialog({
           title: '删除这条世界线？',
-          body: '「' + s.title + '」的 ' + s.messages.length + ' 条对话、' + illustCount + ' 张插图与世界记忆将被永久删除，无法恢复。',
+          body: '将删除「' + s.title + '」的 ' + s.messages.length + ' 条对话、' + illustCount + ' 张插图与世界记忆。删除前会自动创建完整存档，可从存档中心恢复。',
           danger: true,
           okText: '删除'
-        }).then((ok) => {
-          if (!ok) return
+        }).then(async (ok) => {
+          if (!ok || busy || engineBusy) return
+          const flushed = await saveSessions(true)
+          if (!flushed?.ok) { toast('存档尚未保存，已取消删除', 'err'); return }
+          if (busy || engineBusy) return
+          const previous = sessions
           sessions = sessions.filter((x) => x.id !== s.id)
+          const saved = await saveSessions(true)
+          if (!saved?.ok) { sessions = previous; toast('备份或保存失败，世界线未删除', 'err'); return }
+          sessionDrafts.delete(s.id)
           if (currentId === s.id) {
-            currentId = sessions.length ? sessions[0].id : null
+            currentId = (sessions.find((x) => x.ws === currentWsId) || {}).id || null
             if (!currentId) newSession()
           }
           saveStore()
@@ -486,7 +502,7 @@
       item.appendChild(del)
       item.addEventListener('click', () => {
         if (justDraggedSession) { justDraggedSession = false; return }
-        if (busy) { toast('世界运转中，回合结束后即可切换', 'info', 1800); return } // R56：生成中点选其它线给出反馈（与新建按钮一致，不再静默无响应）
+        if (busy || engineBusy) { toast('世界运转中，回合结束后即可切换', 'info', 1800); return }
         if (s.id === currentId) return
         // 保存当前输入草稿，切换后恢复目标会话草稿
         const inputEl2 = $('input')
@@ -571,7 +587,7 @@ const WsPanel = window.WorkspacePanel.createWorkspacePanel({
     workspaces: () => workspaces,
     wsMenu,
     wsOutsideClose, wsEscClose,
-    busy: () => busy,
+    busy: () => busy || engineBusy,
     sessions: () => sessions, sessionDrafts,
     currentId: () => currentId, setCurrentId: (v) => { currentId = v },
     currentWsId: () => currentWsId, setCurrentWsId: (v) => { currentWsId = v },
@@ -581,6 +597,7 @@ const WsPanel = window.WorkspacePanel.createWorkspacePanel({
     newSession, fitInput, loadKernel,
     confirmDialog, promptDialog, toast,
     currentKernelRef,
+    curSession, cancelHideAnim, hideWithAnim,
   })
   const renderWsMenu = () => WsPanel.renderWsMenu()
   const openWsMenu = () => WsPanel.openWsMenu()
@@ -852,6 +869,9 @@ const Illust = window.IllustPanel.createIllustPanel({
   const buildIllustPrompt = (text) => Illust.buildIllustPrompt(text)
   const generateIllust = (idx, regen, isAuto, customPrompt) => Illust.generateIllust(idx, regen, isAuto, customPrompt)
   const viewIllust = (dataUrl, list) => Illust.viewIllust(dataUrl, list)
+  // 多图兼容：illustsOf 读单条消息的全部图（旧存档回落 [illust]），sessionIllusts 全会话摊平
+  const illustsOf = (holder) => Illust.illustsOf(holder)
+  const sessionIllusts = (session) => Illust.sessionIllusts(session)
 
   // 从叙事文本提炼图像提示词：去掉选项/状态等结构化内容，取叙事主体
 
@@ -1031,7 +1051,7 @@ const Illust = window.IllustPanel.createIllustPanel({
       }
 
       // 消息工具栏（悬停出现）：复制 / 重生成 / 插图 / 下载
-      const showTools = !busy && !String(m.content).startsWith('⚠️')
+      const showTools = !busy && !engineBusy && !String(m.content).startsWith('⚠️')
       if (showTools) {
         const tools = document.createElement('span')
         tools.className = 'msg-tools'
@@ -1055,7 +1075,7 @@ const Illust = window.IllustPanel.createIllustPanel({
         }
         // 插图
         if (m.role === 'assistant' && illustReady()) {
-          if (!m.illust && !m.illustPending) {
+          if (!m.illust && !illustsOf(m).length && !m.illustPending) {
             const ib = document.createElement('button')
             ib.className = 'tool-btn'
             ib.textContent = '插图'
@@ -1080,13 +1100,22 @@ const Illust = window.IllustPanel.createIllustPanel({
           ifb.addEventListener('click', () => branchFrom(i))
           tools.appendChild(ifb)
         }
-        // 下载插图
+        // 下载插图：多图时一次保存这条消息的全部图（不丢），单图沿用原单张路径
         if (m.illust) {
+          const shots = illustsOf(m)
           const dl = document.createElement('button')
           dl.className = 'tool-btn'
-          dl.textContent = '保存'
-          dl.title = '保存这张插图到本地'
-          dl.addEventListener('click', () => downloadIllust(m.illust, i))
+          dl.textContent = shots.length > 1 ? ('保存 ' + shots.length + ' 张') : '保存'
+          dl.title = shots.length > 1 ? ('保存这条消息的全部 ' + shots.length + ' 张插图到本地') : '保存这张插图到本地'
+          dl.addEventListener('click', async () => {
+            if (shots.length <= 1) { downloadIllust(m.illust, i); return }
+            const nameBase = (s && s.title ? s.title : 'illust') + '-' + (i + 1)
+            const r = await api.saveAllImages({ items: shots.map((dataUrl) => ({ dataUrl })), nameBase })
+            if (r && r.ok) {
+              toast('已保存 ' + r.saved + ' 张插图到 ' + r.path, 'ok')
+              if (r.failed && r.failed.length) toast(r.failed.length + ' 张保存失败', 'err')
+            } else if (r && r.error) toast('保存失败：' + r.error, 'err')
+          })
           tools.appendChild(dl)
         }
         role.appendChild(tools)
@@ -1134,17 +1163,19 @@ const Illust = window.IllustPanel.createIllustPanel({
         body.textContent = m.content
       }
 
-      if (m.role === 'assistant' && (m.illust || m.illustPending)) {
+      if (m.role === 'assistant' && (m.illust || illustsOf(m).length || m.illustPending)) {
         const il = document.createElement('div')
         il.className = 'illust'
-        if (m.illust) {
+        const illustShots = illustsOf(m)
+        const firstShot = illustShots[0] || null
+        if (firstShot) {
           const img = document.createElement('img')
-          img.src = m.illust
+          img.src = firstShot
           img.alt = '场景插图'
           img.title = '点击查看大图'
-          // 传入当前会话全部插图，Lightbox 中可 ← → 切换
-          const allIllusts = all.filter((x) => x.illust).map((x) => x.illust)
-          img.addEventListener('click', () => viewIllust(m.illust, allIllusts))
+          // 传入当前会话全部插图（含每消息多图），Lightbox 中可 ← → 切换
+          const allIllusts = sessionIllusts(s)
+          img.addEventListener('click', () => viewIllust(firstShot, allIllusts))
           // R33b 键盘可达：Enter/Space 打开大图
           img.tabIndex = 0
           img.setAttribute('role', 'button')
@@ -1152,6 +1183,14 @@ const Illust = window.IllustPanel.createIllustPanel({
             if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); img.click() }
           })
           il.appendChild(img)
+          // 多图：显示「1 / N」角标（列表只显示首图，完整列表在 Lightbox 与保存/导出里）
+          if (illustShots.length > 1) {
+            const badge = document.createElement('span')
+            badge.className = 'illust-count'
+            badge.textContent = '1 / ' + illustShots.length
+            badge.title = '这条消息共 ' + illustShots.length + ' 张，点击图片可切换'
+            il.appendChild(badge)
+          }
         } else if (m.illustPending) {
           il.className = 'illust-pending'
           il.innerHTML = '<span class="dots">正在绘制这一幕的插图</span>'
@@ -1562,7 +1601,7 @@ const Illust = window.IllustPanel.createIllustPanel({
 
 const sendSt = {
     get busy() { return busy }, set busy(v) { busy = v },
-    get engineBusy() { return engineBusy }, set engineBusy(v) { engineBusy = v },
+    get engineBusy() { return engineBusy }, set engineBusy(v) { engineBusy = v; ipcSendBusy(busy || v) },
     get busyIsland() { return busyIsland }, set busyIsland(v) { busyIsland = v },
     get currentReqId() { return currentReqId }, set currentReqId(v) { currentReqId = v },
     get streaming() { return streaming }, set streaming(v) { streaming = v },
@@ -1578,6 +1617,7 @@ const sendSt = {
     renderMessages, renderSessionList, saveSessions, sessionDrafts,
     setSendButtonState, showBusyIsland, toast, touchSession, updateTitle,
     enginePrep, patchRetryPrompt, protocolText: () => EngineFlow.protocolText(),
+    isFrozen: () => sessionsLib.isFrozen(),
     // R86：流式选项渐进渲染——【你需要决定】一出现即可点选（点击经排队发送，不等 JSON 尾巴）
     onStreamChoices: (shownText) => renderStreamingChoices(shownText),
   })
@@ -1586,10 +1626,11 @@ const sendSt = {
   const resolvePendingFlow = window.SendFlow.createResolvePendingFlow({
     st: sendSt, $, api,
     cfg: () => cfg, kernel: () => kernel,
-    curSession, renderMessages, toast,
+    curSession, renderMessages, saveSessions, toast,
     enginePrep, patchRetryPrompt, protocolText: () => EngineFlow.protocolText(),
     seedProtocolText: (t) => EngineFlow.seedProtocolText(t),
     refreshPendingBanner,
+    isFrozen: () => sessionsLib.isFrozen(),
   })
   // 中途取消当前生成
   function stopGeneration() {
@@ -1611,10 +1652,8 @@ const sendSt = {
       toast('只能重新生成世界回应', 'info')
       return
     }
-    s.messages = s.messages.slice(0, idx)
-    saveSessions()
     // send 会取最后一条 user 作为上下文（regen=true 不会再 push user）
-    send(null, { regen: true })
+    send(null, { regen: true, regenIndex: idx })
   }
 
   // ============ Pending Commit（条款 18/19/26/27/30） ============
@@ -1697,7 +1736,7 @@ const sendSt = {
     try { ipcSendBusy(!!isBusy) } catch {}
   }
   // ipcRenderer 单向通知（经 preload 暴露的 sendBusy）
-  function ipcSendBusy(v) { if (window.api && window.api.sendBusy) window.api.sendBusy(v) }
+  function ipcSendBusy(v) { if (window.api && window.api.sendBusy) window.api.sendBusy(v || busy || engineBusy) }
 
   function updateTitle() {
     const s = curSession()
@@ -1755,11 +1794,11 @@ const sendSt = {
     let allTok = 0, allCost = 0, allImgs = 0
     for (const x of sessions) {
       if (x.tokens) { allTok += x.tokens.total || 0; allCost += x.tokens.cost || 0 }
-      allImgs += x.messages.filter((m) => m.illust).length
+      allImgs += x.messages.reduce((n, m) => n + illustsOf(m).length, 0)
     }
     const provider = PRESETS[cfg.preset] ? PRESETS[cfg.preset].name : cfg.preset
     const st = (s && s.tokens) ? s.tokens : { prompt: 0, completion: 0, total: 0, cost: 0 }
-    const sessImgs = s ? s.messages.filter((m) => m.illust).length : 0
+    const sessImgs = s ? s.messages.reduce((n, m) => n + illustsOf(m).length, 0) : 0
     const row = (k, v) => {
       const d = document.createElement('div'); d.className = 'mp-row'
       const k1 = document.createElement('span'); k1.className = 'mp-k'; k1.textContent = k
@@ -2008,13 +2047,26 @@ const sendSt = {
       return
     }
     // 进度包导入完成（设置窗口触发，主进程已合并落库）：重载内存态并校正当前选中世界线
+    if (data.archiveRestored) {
+      workspaces = data.workspaces || []
+      sessions = data.sessions || []
+      currentWsId = data.current?.currentWsId || workspaces[0]?.id
+      currentId = data.current?.currentSessionId || sessions.find((s) => s.ws === currentWsId)?.id || null
+      saveWorkspaces(); saveStore(); saveSessions(true)
+      await loadKernel()
+      renderWsBtn(); renderSessionList(); renderMessages(); updateTitle()
+      return
+    }
     if (data.progressImported) {
-      loadWorkspaces() // 导入的工作区（若有）先就位，孤儿会话自愈才能正确归属
-      await loadSessions()
-      const wsS = wsSessions()
-      if (!wsS.length) newSession()
-      else if (!wsS.some((s) => s.id === currentId)) currentId = wsS[0].id
-      saveStore()
+      // 主进程已经完成统一规划、落盘和 desktop-context 提交；这里必须直接采用
+      // 同一份完整快照，不能再从旧 localStorage 合并或二次保存覆盖导入结果。
+      workspaces = Array.isArray(data.workspaces) ? data.workspaces : []
+      sessions = Array.isArray(data.sessions) ? data.sessions : []
+      currentWsId = data.current?.currentWsId || workspaces[0]?.id || null
+      currentId = data.current?.currentSessionId || sessions.find((s) => s.ws === currentWsId)?.id || null
+      cfg.currentWsId = currentWsId
+      cfg.currentSessionId = currentId
+      await loadKernel()
       renderWsBtn()
       renderSessionList()
       renderMessages()
@@ -2160,7 +2212,7 @@ const KData = window.KernelData.createKernelData({
     if (kernelStage === 'intent') {
       renderKernelAiMessages()
       renderKernelDesignSurface()
-      window.setTimeout(() => $('kernel-ai-input') && $('kernel-ai-input').focus(), 40)
+      if (!hub.classList.contains('library-open') && !hub.classList.contains('source-open')) $('kernel-ai-input')?.focus()
     }
   }
 
@@ -2365,11 +2417,12 @@ const KData = window.KernelData.createKernelData({
     scrim.hidden = false
     if (kind === 'library') {
       markKernelWelcomeSeen()
-      window.setTimeout(() => $('kernel-search') && $('kernel-search').focus(), 30)
+      $('kernel-search')?.focus()
     } else {
       setKernelSourceView('editor')
       renderKernelAudit(kernelValidation.result)
-      window.setTimeout(() => $('kernel-edit-text') && $('kernel-edit-text').focus(), 30)
+      // 可见性与 inert 已同步更新；延迟聚焦会把正在填写的名称送进正文。
+      $('kernel-edit-text')?.focus()
     }
   }
 
@@ -2619,7 +2672,7 @@ const KData = window.KernelData.createKernelData({
     if (!ws) { toast('请先创建一条世界线', 'info'); return }
     ws.kernelId = id
     ws.kernelPath = ''
-    saveWorkspaces()
+    await saveWorkspaces()
     const ok = await loadKernel()
     toast(ok ? '已绑定内核并重新加载' : '内核加载失败', ok ? 'ok' : 'err')
     renderKernelHub()
@@ -3045,7 +3098,17 @@ const KData = window.KernelData.createKernelData({
     const checks = result.checks || []
     checks.slice(0, 4).forEach((check, index) => {
       const el = $('kernel-test-check-' + (index + 1))
-      if (el) { el.textContent = check.present ? '已通过' : '待补全'; el.className = check.present ? 'passed' : 'pending' }
+      if (el) {
+        const label = el.parentElement.querySelector('strong')
+        if (label) {
+          label.textContent = check.title
+          const detail = document.createElement('small')
+          detail.textContent = check.detail
+          label.appendChild(detail)
+        }
+        el.textContent = check.present ? '已声明' : '待补全'
+        el.className = check.present ? 'passed' : 'pending'
+      }
     })
     const state = $('kernel-stage-test-state')
     if (state) { state.className = 'kernel-stage-state ' + (result.blocking ? 'error' : result.attention ? 'warning' : 'ready'); state.innerHTML = '<i></i>' + (result.blocking ? '需要补全' : result.attention ? '有待决定' : '检查通过') }
@@ -3192,7 +3255,8 @@ const KData = window.KernelData.createKernelData({
     const sel = $('gallery-session')
     const s = sessions.find((x) => x.id === (sel && sel.value))
     if (!s) return
-    const items = s.messages.filter((m) => m.illust).map((m) => ({ dataUrl: m.illust }))
+    const items = []
+    for (const m of s.messages) for (const dataUrl of illustsOf(m)) items.push({ dataUrl })
     if (!items.length) { toast('这条世界线还没有插图', 'info'); return }
     const r = await api.saveAllImages({ items, nameBase: s.title || 'illust' })
     if (r && r.ok) {
@@ -3211,14 +3275,21 @@ const KData = window.KernelData.createKernelData({
     if (!s.messages.length) { toast('这条世界线还没有内容', 'info'); return }
     const esc = (t) => String(t || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
     const archivedMessages = await Promise.all(s.messages.map(async (m) => {
-      if (!m.illust || !String(m.illust).startsWith('sixworlds-asset:') || !api.readImageDataUrl) return m
-      const loaded = await api.readImageDataUrl(m.illust)
-      return Object.assign({}, m, { illust: loaded && loaded.ok ? loaded.dataUrl : null })
+      // 多图：逐张水合（外置 sixworlds-asset 引用读回 data URL），导出里一张都不丢
+      const list = illustsOf(m)
+      if (!list.length || !api.readImageDataUrl) return Object.assign({}, m, { illusts: list, illust: list[0] || null })
+      const hydrated = await Promise.all(list.map(async (u) => {
+        if (!String(u).startsWith('sixworlds-asset:')) return u
+        const loaded = await api.readImageDataUrl(u)
+        return loaded && loaded.ok ? loaded.dataUrl : null
+      }))
+      const ok = hydrated.filter(Boolean)
+      return Object.assign({}, m, { illusts: ok, illust: ok[0] || null })
     }))
     const turns = archivedMessages.map((m) => {
       const role = m.role === 'user' ? '你' : '世界'
-      const img = m.illust ? '<figure><img src="' + esc(m.illust) + '" alt="插图" /></figure>' : ''
-      return '<section class="turn ' + (m.role === 'user' ? 'you' : 'world') + '"><h3>' + role + '</h3>' + img + '<p>' + esc(m.content) + '</p></section>'
+      const imgs = illustsOf(m).map((u) => '<figure><img src="' + esc(u) + '" alt="插图" /></figure>').join('')
+      return '<section class="turn ' + (m.role === 'user' ? 'you' : 'world') + '"><h3>' + role + '</h3>' + imgs + '<p>' + esc(m.content) + '</p></section>'
     }).join('\n')
     const date = new Date(s.createdAt || Date.now()).toLocaleDateString('zh-CN')
     const html = '<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>' + esc(s.title) + ' · 六面世界存档</title><style>' +
@@ -3938,6 +4009,47 @@ const Onboarding = window.Onboarding.createOnboarding({
   const showSetupWizard = () => Onboarding.showSetupWizard()
   const showDisclaimer = () => Onboarding.showDisclaimer()
   Onboarding.splashBoot()
+  const ProductTools = window.ProductTools.create({
+    api, session: curSession, busy: () => busy || engineBusy, saveSessions,
+    context: () => ({ workspaces, current: { currentWsId, currentSessionId: currentId } }),
+    toast, confirm: confirmDialog, prompt: promptDialog,
+    jump: (index) => {
+      const s = curSession(); if (!s) return
+      renderWindow = Math.max(RENDER_WINDOW, s.messages.length - index + RENDER_CHUNK)
+      renderMessages()
+      requestAnimationFrame(() => document.querySelector('.msg[data-mi="' + index + '"]')?.scrollIntoView({ block: 'center' }))
+    }
+  })
+
+  /* ---- 产品工具（作者 / 体验）：复用既有内核设计区状态与配置来源，不新增业务实现 ----
+   * 用量/费用：主进程（main.cjs runtimeAttempt）是真实 chat/image 尝试的唯一记账源，
+   * 每个 attempt 完成即落盘并广播快照；本层只读快照 + 提交报价，不包装 sendChat / generateImage、
+   * 不调用 startCall/finishCall/recordCall，也不推送账本全量快照覆盖主进程。
+   * RuntimeTools 由本层创建一次（autoMount:false，不新增冗余入口），并注入 ExperienceTools 复用同一账本。
+   * 当前实际内核：取内核设计画布正在编辑的内核（与「发布」按钮同源：kernelHubEditingId /
+   * kernelHubSourceId）。画布为空（未新建/未选择内核）时返回 null，由各工具自行提示。 */
+  function getCurrentKernel() {
+    const text = $('kernel-edit-text') ? $('kernel-edit-text').value : ''
+    if (!String(text || '').trim()) return null
+    const meta = parseKernelMeta(text)
+    const name = (meta && meta.title) || ($('kernel-edit-name') && $('kernel-edit-name').value.trim()) || '未命名内核'
+    return { id: kernelHubEditingId || kernelHubSourceId || currentKernelRef(), name, text }
+  }
+  const AuthorTools = window.AuthorTools.create({
+    api, shell: ProductTools, toast, confirm: confirmDialog, prompt: promptDialog,
+    busy: () => busy || engineBusy,
+    kernel: getCurrentKernel,
+  })
+  AuthorTools.mount()
+  const RuntimeTools = window.RuntimeTools.create({
+    api, cfg: () => cfg, toast, options: { autoMount: false },
+  })
+  const ExperienceTools = window.ExperienceTools.create({
+    api, shell: ProductTools, toast, cfg: () => cfg, runtime: RuntimeTools,
+  })
+  ExperienceTools.mount()
+  /* 内核工作台由 ui/shared/kernel-workbench.js 加载时自建默认实例并自挂到 .kernel-workbench-actions，
+   * 这里不再 create/mount（否则按钮 onclick 仍指向自动实例，传入的 options 不生效）。 */
 
   // ---- 启动 ----
   ;(async function boot() {
@@ -3951,7 +4063,7 @@ const Onboarding = window.Onboarding.createOnboarding({
     const ws = curWs()
     const wsS = wsSessions()
     if (!wsS.length) newSession()
-    else currentId = wsS.some((s) => s.id === ws.lastSessionId)
+    else if (!wsS.some((s) => s.id === currentId)) currentId = wsS.some((s) => s.id === ws.lastSessionId)
       ? ws.lastSessionId
       : (wsS.some((s) => s.id === cfg.currentSessionId) ? cfg.currentSessionId : wsS[0].id)
     renderWsBtn()
