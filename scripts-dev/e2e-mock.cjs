@@ -38,6 +38,8 @@ async function waitEngineSettled(win, timeout) {
 function startMock() {
   let imageMode = 'b64' // b64 | url
   let chatCalls = 0
+  const imageRequests = []
+  const comicPlans = []
   const server = http.createServer((req, res) => {
     let body = ''
     req.on('data', (c) => { body += c })
@@ -50,19 +52,29 @@ function startMock() {
         const { user, systemMsg } = (() => { try { const p = JSON.parse(body); const u = p.messages.filter((m) => m.role === 'user' && !String(m.content).startsWith('（系统要求')).pop(); const sys = p.messages.filter((m) => m.role === 'system').map((m) => String(m.content)).join(''); return { user: u ? u.content : '', systemMsg: sys } } catch { return { user: '', systemMsg: '' } } })()
         const wantsStream = (() => { try { return JSON.parse(body).stream === true } catch { return false } })()
         // 漫画分镜师任务（pet:agent comic，非流式）：正文带【按回合分组的剧情素材】时，
-        // 从素材行提取回合号，每回合返回一幕（确定性；续画轮次只包含新回合，便于断言追加）
+        // 本次素材中的所有回合融合成一张完整漫画页；续画只读新素材，不复用第 2 回合。
         if (user.includes('【按回合分组的剧情素材】')) {
-          const turns = [...new Set([...user.matchAll(/第(\d+)幕/g)].map((m) => Number(m[1])))].sort((a, b) => a - b).slice(0, 40)
-          const panels = turns.map((t) => ({
-            turn: t,
-            title: t === 1 ? '清晨的到访' : (t === 2 ? '走向森林' : '第' + t + '幕·继续旅程'),
-            narration: '第' + t + '幕的叙事旁白。',
+          const source = user.split('【按回合分组的剧情素材】')[1]
+          const turns = [...new Set([...source.matchAll(/第(\d+)幕/g)].map((m) => Number(m[1])))].sort((a, b) => a - b).slice(0, 40)
+          const lastTurn = turns[turns.length - 1]
+          const panels = turns.length ? [{
+            fullPage: true,
+            turn: lastTurn,
+            title: turns[0] === 1 ? '清晨的到访' : '第' + lastTurn + '幕·继续旅程',
+            narration: '将第' + turns.join('、') + '幕融合成连贯的一页漫画。',
             participants: ['主角'],
-            sceneLine: '【甲龙历407.03.0' + t + '｜清晨｜布耶纳村】',
-            size: t === 1 ? 'hero' : 'square',
-            dialogue: [{ speaker: '主角', line: '第' + t + '句台词。', tone: t === 1 ? 'normal' : 'shout' }]
-          }))
-          return json(200, { choices: [{ message: { role: 'assistant', content: JSON.stringify({ cast: [{ name: '主角', look: 'young man with brown hair, plain village clothes' }], panels }) } }] })
+            sceneLine: '【甲龙历407.03.0' + lastTurn + '｜清晨｜布耶纳村】',
+            composition: '上方大格建立环境，下方动作格推进剧情，竖版整页，气泡与中文台词融入画面。',
+            beats: turns.map((t) => ({
+              turn: t,
+              description: '第' + t + '幕画面：' + (t === 1 ? '灰袍旅人在薄雾中的家门口问路。' : (t === 2 ? '主角沿村口小路走向森林。' : '主角在森林深处发现遗迹。')),
+              size: t === 1 ? 'hero' : 'square',
+              dialogue: [{ speaker: '主角', line: '第' + t + '句台词。', tone: t === 1 ? 'normal' : 'shout' }]
+            }))
+          }] : []
+          const plan = { cast: [{ name: '主角', look: 'young man with brown hair, plain village clothes' }], panels }
+          comicPlans.push(plan)
+          return json(200, { choices: [{ message: { role: 'assistant', content: JSON.stringify(plan) } }] })
         }
         // 角色闪卡设计师任务（pet:agent card，非流式）：system 带任务标识，从素材提取角色名，返回确定性卡面规划
         if (systemMsg.includes('收藏卡设计师')) {
@@ -102,6 +114,7 @@ function startMock() {
         return json(200, { choices: [{ message: { role: 'assistant', content: reply } }], usage })
       }
       if (req.url.endsWith('/images/generations')) {
+        imageRequests.push(JSON.parse(body))
         // revised_prompt：gpt-image 系真实行为（内部改写提示词）——e2e 校验透传链路
         if (imageMode === 'b64') {
           return json(200, { data: [{ b64_json: PNG_1PX, revised_prompt: '(mock revised) scene as requested' }] })
@@ -122,7 +135,7 @@ function startMock() {
     })
   })
   return new Promise((resolve) => {
-    server.listen(0, '127.0.0.1', () => resolve({ server, port: server.address().port, setMode: (m) => { imageMode = m } }))
+    server.listen(0, '127.0.0.1', () => resolve({ server, imageRequests, comicPlans, port: server.address().port, setMode: (m) => { imageMode = m } }))
   })
 }
 
@@ -150,7 +163,9 @@ async function main() {
       SIXWORLDS_TEST_SAVE_PATH: path.join(__dirname, 'tmp-comic-export.html')
     }
   })
-  let win = await app.firstWindow()
+  let win
+  try {
+  win = await app.firstWindow()
   await win.waitForTimeout(1500)
   // 方案矩阵（绞杀者迁移闸门）：SIXWORLDS_UI_SCHEME=proto 整轮跑在原型工作台——
   // 双方案 DOM id 一致，断言天然双有效；切换会整窗重建，重取句柄再续
@@ -670,9 +685,27 @@ async function main() {
   await win.waitForTimeout(400)
   check('comic-planner-opens', await win.locator('#comic-planner').isVisible().catch(() => false))
   check('comic-planner-estimates', /预计绘制/.test(await win.locator('.comic-planner-estimate').textContent().catch(() => '')))
+  const loadComic = () => win.evaluate(async (sid) => {
+    const r = await window.api.loadSessions()
+    const s = r && r.sessions && r.sessions.find((x) => x.id === sid)
+    return s && s.comic
+  }, curSid)
+  const checkPageRequest = (label, requests, page) => {
+    check(label + '-one-image-request', requests.length === 1, 'requests=' + requests.length)
+    const request = requests[0] || {}
+    const prompt = String(request.prompt || '')
+    check(label + '-one-image-output', request.n === 1, 'n=' + request.n)
+    check(label + '-prompt-all-beats', !!page && page.beats.length > 0 && page.beats.every(b => prompt.includes(b.description) && b.dialogue.every(d => prompt.includes(d.speaker) && prompt.includes(d.line) && prompt.includes(d.tone))))
+    check(label + '-prompt-fused-page', /ONE.*PAGE/.test(prompt) && prompt.includes(page && page.composition))
+    check(label + '-no-text-prohibition', !!prompt && !/no[ -](?:text|letters|speech bubbles|captions)|without (?:text|lettering)|dialogue is overlaid separately|禁止文字|不要文字/i.test(JSON.stringify(request)))
+    const dims = /^(\d+)x(\d+)$/.exec(request.size || '')
+    check(label + '-portrait-dimensions', !!dims && Number(dims[1]) > 0 && Number(dims[2]) > Number(dims[1]), 'size=' + request.size)
+  }
+  const imageCountBeforeComic = mock.imageRequests.length
+  const planCountBeforeComic = mock.comicPlans.length
   await win.click('#comic-start')
   await win.waitForTimeout(300)
-  // AI 分镜规划（mock /chat/completions 的 comic 分支）→ 队列逐幕绘制（mock /images/generations b64）
+  // 一张 fullPage 含两拍，实际 HTTP 生图请求只能有一次。
   ok = false
   for (let i = 0; i < 40; i++) {
     const st = await win.evaluate(async (sid) => {
@@ -680,10 +713,10 @@ async function main() {
       const s = r && r.sessions && r.sessions.find((x) => x.id === sid)
       return s && s.comic ? { n: s.comic.panels.length, done: s.comic.panels.filter((p) => p.illust).length } : null
     }, curSid).catch(() => null)
-    if (st && st.done >= 2) { ok = true; break }
+    if (st && st.n === 1 && st.done === 1) { ok = true; break }
     await win.waitForTimeout(400)
   }
-  check('comic-panels-drawn', ok, '两幕绘制完成')
+  check('comic-full-page-drawn', ok, '两拍融合成一张完整漫画页')
   // 进度岛应已收尾离场
   ok = false
   for (let i = 0; i < 10; i++) {
@@ -691,6 +724,10 @@ async function main() {
     await win.waitForTimeout(300)
   }
   check('comic-island-closed', ok)
+  const initialComic = await loadComic()
+  const initialPage = initialComic && initialComic.panels[0]
+  check('comic-planner-one-page-two-beats', mock.comicPlans.length === planCountBeforeComic + 1 && !!initialPage && initialComic.panels.length === 1 && initialPage.fullPage === true && initialPage.turn === 2 && initialPage.beats.map(b => b.turn).join(',') === '1,2')
+  checkPageRequest('comic-initial', mock.imageRequests.slice(imageCountBeforeComic), initialPage)
 
   // 阅读视图：作品菜单 →「漫画回放」（已有分镜直接进阅读器）→ 幕图 → 分幕侧栏 → 翻页 → 关闭 → 导出
   await win.click('#btn-works')
@@ -699,31 +736,22 @@ async function main() {
   await win.waitForTimeout(400)
   check('comic-view-opens', await win.locator('#comic-view').isVisible().catch(() => false))
   check('comic-sidebar-shown', await win.locator('#comic-view .comic-sidebar').isVisible().catch(() => false))
-  // 真漫画页：2 幕切 1 页（4 幕/页），一页上 2 个分格并排（hero 跨双列）
+  // 新生成页只展示融合图，不再由阅读器拼格、叠字或绘制墨线。
   const comicRows = await win.locator('#comic-view .comic-list-row').count()
   check('comic-sidebar-rows-pages', comicRows === 1, 'pages=' + comicRows)
   const rowState = (await win.locator('#comic-view .comic-list-state').allTextContents()).join('')
-  check('comic-sidebar-states-done', rowState === '✓', 'rowState=' + rowState + '（页面聚合：4格全✓则页显示单✓）')
-  check('comic-page-grid-cells', (await win.locator('#comic-view .comic-cell').count()) === 2, 'cells=' + (await win.locator('#comic-view .comic-cell').count()))
-  check('comic-cell-hero-spans', (await win.locator('#comic-view .comic-cell.size-hero').count()) === 1)
-  check('comic-view-shows-img', (await win.locator('#comic-view .comic-img').count()) === 2)
-  // 对白气泡：mock 规划给每幕 1 条台词 → 页上 2 个气泡（喊话语气带 tone-shout）
-  check('comic-bubbles-shown', (await win.locator('#comic-view .comic-bubble').count()) === 2, 'bubbles=' + (await win.locator('#comic-view .comic-bubble').count()))
-  check('comic-bubble-shout-tone', (await win.locator('#comic-view .comic-bubble.tone-shout').count()) === 1)
-  check('comic-caption-shown', (await win.locator('#comic-view .comic-caption').count()) === 2)
-  // 布局几何：hero 格宽 ≈ 2×方格（跨双列）；气泡叠在格内（气泡盒在 cell 盒内）
+  check('comic-sidebar-states-done', rowState === '✓', 'rowState=' + rowState)
+  check('comic-view-one-full-page', (await win.locator('#comic-view .comic-full-page').count()) === 1 && (await win.locator('#comic-view .comic-cell').count()) === 1)
+  check('comic-view-one-image', (await win.locator('#comic-view .comic-full-page img').count()) === 1 && (await win.locator('#comic-view .comic-paper img').count()) === 1)
+  check('comic-view-no-overlays', (await win.locator('#comic-view .comic-lettering, #comic-view .comic-bubble, #comic-view .comic-caption, #comic-view .comic-ink-outline, #comic-view .comic-paper svg').count()) === 0)
   const geo = await win.evaluate(() => {
-    const hero = document.querySelector('#comic-view .comic-cell.size-hero')
-    const square = document.querySelector('#comic-view .comic-cell.size-square')
-    const bubble = document.querySelector('#comic-view .comic-bubble')
-    if (!hero || !square || !bubble) return null
-    const hr = hero.getBoundingClientRect(), sr = square.getBoundingClientRect()
-    const br = bubble.getBoundingClientRect()
-    const cr = bubble.parentElement.getBoundingClientRect() // 气泡自己的分格
-    return { heroW: Math.round(hr.width), squareW: Math.round(sr.width), bubbleInCell: br.left >= cr.left - 2 && br.right <= cr.right + 2 && br.top >= cr.top - 2 && br.bottom <= cr.bottom + 2 }
+    const cell = document.querySelector('#comic-view .comic-full-page')
+    const img = cell && cell.querySelector('img')
+    if (!cell || !img) return null
+    const cr = cell.getBoundingClientRect(), pr = cell.closest('.comic-paper').getBoundingClientRect()
+    return { width: pr.width, height: pr.height, fillsPaper: Math.abs(cr.width - pr.width) < 3 && Math.abs(cr.height - pr.height) < 3, fit: getComputedStyle(img).objectFit, clip: getComputedStyle(img).clipPath }
   })
-  check('comic-hero-cell-double-width', !!geo && geo.heroW >= geo.squareW * 1.8, JSON.stringify(geo))
-  check('comic-bubble-overlaid-in-cell', !!geo && geo.bubbleInCell, '气泡应叠在分格内')
+  check('comic-full-page-portrait', !!geo && geo.width > 0 && geo.height > geo.width && geo.fillsPaper && geo.fit === 'contain' && geo.clip === 'none', JSON.stringify(geo))
   const counterText = await win.locator('#comic-view .comic-counter').textContent().catch(() => '')
   check('comic-view-counter', /第 1 \/ 1 页/.test(counterText), 'counter=' + counterText)
 
@@ -736,7 +764,7 @@ async function main() {
   await win.waitForTimeout(300)
   check('comic-mode-scroll-active', (await win.locator('#comic-view #comic-mode-scroll.on').count()) === 1, '连续按钮应高亮')
   check('comic-scroll-flow-shown', (await win.locator('#comic-view .comic-scroll-flow').count()) === 1, '应渲染连续长流')
-  check('comic-scroll-flow-cells', (await win.locator('#comic-view .comic-scroll-flow .comic-cell').count()) === 2, '连续流里应含全部分格')
+  check('comic-scroll-flow-pages', (await win.locator('#comic-view .comic-scroll-flow .comic-full-page img').count()) === 1, '连续流里应含一张完整漫画页')
   check('comic-scroll-mode-class', await win.locator('#comic-view').evaluate((el) => el.classList.contains('mode-scroll')))
   check('comic-scroll-nav-hidden', await win.locator('#comic-view .comic-nav-prev').isHidden())
   // 连续模式记进 localStorage；重开阅读器应沿用
@@ -757,6 +785,7 @@ async function main() {
   const pagedModeSaved = await win.evaluate(() => localStorage.getItem('sixworlds.comic.readMode'))
   check('comic-paged-mode-saved', pagedModeSaved === 'paged', 'saved=' + pagedModeSaved)
 
+  fs.rmSync(path.join(__dirname, 'tmp-comic-export.html'), { force: true })
   await win.click('#comic-view .comic-view-export')
   ok = false
   for (let i = 0; i < 20; i++) {
@@ -766,17 +795,28 @@ async function main() {
   if (ok) {
     const exported = fs.readFileSync(path.join(__dirname, 'tmp-comic-export.html'), 'utf8')
     check('comic-export-selfcontained', exported.includes('data:image/png') && /漫画回放/.test(exported), 'len=' + exported.length)
-    // 导出为漫画页布局：分格 grid + 气泡 + hero 跨双列
-    check('comic-export-grid-page', exported.includes('class="page"') && exported.includes('grid-template-columns'), '导出应含分格页面')
-    check('comic-export-bubble', exported.includes('class="bubble tone-normal') && exported.includes('class="bubble tone-shout'), '导出应含对白气泡')
-    check('comic-export-hero-cell', exported.includes('class="cell size-hero"'), '导出应含 hero 跨列格')
+    // 解析实际 DOM，不能把兼容旧存档的 CSS 选择器当成存在叠字节点。
+    const exportDom = await win.evaluate((html) => {
+      const doc = new DOMParser().parseFromString(html, 'text/html')
+      const pages = [...doc.querySelectorAll('.page')]
+      return {
+        pages: pages.length,
+        oneImagePerPage: pages.every(p => p.querySelectorAll('img').length === 1 && p.querySelectorAll('.comic-full-page img').length === 1),
+        fused: pages.every(p => p.classList.contains('comic-fused-paper')),
+        overlays: doc.querySelectorAll('.comic-lettering, .comic-bubble, .comic-caption, .comic-ink-outline, .page svg').length,
+        portrait: pages.every(p => { const [w, h = 1] = p.style.aspectRatio.split('/').map(Number); return w > 0 && h > w })
+      }
+    }, exported)
+    check('comic-export-one-image-per-page', exportDom.pages === 1 && exportDom.oneImagePerPage && exportDom.fused, JSON.stringify(exportDom))
+    check('comic-export-no-overlays', exportDom.overlays === 0)
+    check('comic-export-portrait', exportDom.portrait)
     // 导出自带阅读模式：连续（默认）⇄ 翻页切换
     check('comic-export-mode-switch', exported.includes('id="mb-scroll"') && exported.includes('id="mb-paged"') && exported.includes('mode-scroll'), '导出应含连续/翻页模式切换')
   } else {
     check('comic-export-file-written', false, '导出文件未生成')
   }
   fs.rmSync(path.join(__dirname, 'tmp-comic-export.html'), { force: true })
-  // 阅读视图截图（人工视觉验收：分格网格 + 旁白条 + 对白气泡的排版效果）
+  // 阅读视图截图（整页融合图；mock 占位图不验证模型画出的字形）
   await win.evaluate(() => { document.getElementById('comic-view') && document.querySelector('#comic-view .comic-nav-prev') })
   fs.rmSync(path.join(__dirname, 'shot-comic-page.png'), { force: true })
   await win.screenshot({ path: path.join(__dirname, 'shot-comic-page.png') })
@@ -784,7 +824,7 @@ async function main() {
   await win.waitForTimeout(300)
   check('comic-view-closes', !(await win.locator('#comic-view').count()))
 
-  // ---- 续画（增量）：再播种第 3 回合 → 一键续画 → 只追加 1 幕（前 2 幕保留不重画）----
+  // ---- 续画（增量）：第 3 回合只追加一整页，原第 1/2 回合融合页保持不变 ----
   const seedExtra = await win.evaluate(async ({ sid }) => {
     const raw = '【甲龙历407.03.03｜清晨｜森林】第3回合的叙事正文。\n<<<STATE_PATCH>>>\n' + JSON.stringify({
       turn_summary: '第3幕：主角深入森林',
@@ -803,6 +843,8 @@ async function main() {
   await win.click('#comic-view .comic-view-continue')
   await win.waitForTimeout(500)
   check('comic-resume-dialog-shown', await win.locator('.confirm-mask').isVisible().catch(() => false))
+  const imageCountBeforeResume = mock.imageRequests.length
+  const planCountBeforeResume = mock.comicPlans.length
   await win.click('.confirm-foot .primary') // 续画
   ok = false
   for (let i = 0; i < 40; i++) {
@@ -811,16 +853,27 @@ async function main() {
       const s = r && r.sessions && r.sessions.find((x) => x.id === sid)
       return s && s.comic ? { n: s.comic.panels.length, done: s.comic.panels.filter((p) => p.illust).length } : null
     }, curSid).catch(() => null)
-    if (st && st.n >= 3 && st.done >= 3) { ok = true; break }
+    if (st && st.n === 2 && st.done === 2) { ok = true; break }
     await win.waitForTimeout(400)
   }
-  check('comic-resume-appends-only-new', ok, '续画后应有 3 幕全画完')
-  const firstPanelKept = await win.evaluate(async (sid) => {
-    const r = await window.api.loadSessions()
-    const s = r && r.sessions && r.sessions.find((x) => x.id === sid)
-    return s && s.comic ? s.comic.panels[0].title : null
-  }, curSid).catch(() => null)
-  check('comic-resume-keeps-old-panels', firstPanelKept === '清晨的到访', 'first=' + firstPanelKept)
+  check('comic-resume-appends-only-new', ok, '续画后应有 2 张整页图，不是 3 张逐拍图')
+  await win.waitForFunction(() => !document.querySelector('#comic-island'), null, { timeout: 6000 })
+  const resumedComic = await loadComic()
+  const resumedPage = resumedComic && resumedComic.panels[1]
+  check('comic-resume-new-source-turn-3', mock.comicPlans.length === planCountBeforeResume + 1 && !!resumedPage && resumedPage.fullPage === true && resumedPage.turn === 3 && resumedPage.beats.map(b => b.turn).join(',') === '3')
+  check('comic-resume-keeps-old-page', !!resumedComic && JSON.stringify(resumedComic.panels[0]) === JSON.stringify(initialPage))
+  checkPageRequest('comic-resume', mock.imageRequests.slice(imageCountBeforeResume), resumedPage)
+  const resumedPrompt = String((mock.imageRequests[imageCountBeforeResume] || {}).prompt || '')
+  check('comic-resume-no-old-beats', !!initialPage && initialPage.beats.every(b => !resumedPrompt.includes(b.description) && b.dialogue.every(d => !resumedPrompt.includes(d.line))))
+  await win.click('#btn-works')
+  await win.waitForTimeout(250)
+  await win.click('#works-comic')
+  await win.waitForSelector('#comic-view .comic-full-page img', { timeout: 6000 })
+  check('comic-resume-sidebar-two-pages', (await win.locator('#comic-view .comic-list-row').count()) === 2)
+  await win.click('#comic-view #comic-mode-scroll')
+  check('comic-resume-reader-two-images', (await win.locator('#comic-view .comic-scroll-flow .comic-full-page img').count()) === 2 && (await win.locator('#comic-view .comic-lettering, #comic-view .comic-bubble, #comic-view .comic-caption, #comic-view .comic-paper svg').count()) === 0)
+  await win.keyboard.press('Escape')
+  await win.waitForTimeout(300)
   // 画廊保持关闭：漫画入口已从画廊工具条迁到顶栏「作品」菜单（画廊不再被漫画流程牵连）
   check('gallery-stays-closed-after-comic', await win.locator('#gallery').evaluate((el) => el.hidden))
 
@@ -1039,8 +1092,31 @@ async function main() {
   check('delete-session', (await win.locator('.session-item').count()) === 1)
 
   await win.screenshot({ path: path.join(__dirname, 'shot-e2e-mock.png') })
-  await app.close()
-  mock.server.close()
+  } finally {
+    const child = app.process()
+    console.log('ELECTRON_CLOSE_START pid=' + child.pid + ' exitCode=' + child.exitCode)
+    let timer
+    try {
+      await Promise.race([
+        app.close(),
+        new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('Electron close timed out after 10000ms; pid=' + child.pid + ' exitCode=' + child.exitCode + ' signalCode=' + child.signalCode)), 10000) })
+      ])
+      console.log('ELECTRON_CLOSE_DONE exitCode=' + child.exitCode)
+    } catch (err) {
+      check('electron-close-completes', false, err.message)
+      if (child.exitCode === null && child.signalCode === null) {
+        const { spawnSync } = require('node:child_process')
+        if (process.platform === 'win32') {
+          const killed = spawnSync('taskkill', ['/PID', String(child.pid), '/T', '/F'], { timeout: 5000, encoding: 'utf8' })
+          console.error('ELECTRON_FORCE_CLOSE status=' + killed.status + ' error=' + (killed.error ? killed.error.message : '') + ' output=' + String(killed.stdout || killed.stderr || '').trim())
+        } else child.kill('SIGKILL')
+      }
+    } finally {
+      clearTimeout(timer)
+      mock.server.closeAllConnections()
+      mock.server.close()
+    }
+  }
   console.log(fails.length === 0 ? 'ALL_PASS' : 'FAILED: ' + fails.join(', '))
   process.exit(fails.length === 0 ? 0 : 1)
 }

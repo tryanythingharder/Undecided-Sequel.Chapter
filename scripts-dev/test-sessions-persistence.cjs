@@ -76,15 +76,18 @@ async function main() {
   const PNG_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=='
   const comicSession = {
     id: 'sess-test-comic', wsId: 'ws-a', title: '漫画线', updatedAt: 1700000000090, turn: 1,
-    messages: [{ role: 'user', content: '开局' }],
+    messages: [
+      { role: 'user', content: '开局' },
+      { role: 'assistant', content: '多图回应', illusts: ['data:image/png;base64,' + PNG_B64, 'data:image/png;base64,' + PNG_B64] }
+    ],
     comic: {
       version: 1, createdAt: 1700000000090, updatedAt: 1700000000090,
       cast: [{ name: '主角', look: 'young man' }],
       panels: [
-        { idx: 0, turn: 1, title: '开场', narration: '故事开始', participants: ['主角'], sceneLine: '【历｜清晨｜村】', prompt: '', illust: 'data:image/png;base64,' + PNG_B64, illustAt: 1700000000100 },
+        { idx: 0, turn: 1, title: '开场', narration: '故事开始', participants: ['主角'], sceneLine: '【历｜清晨｜村】', prompt: '', illusts: ['data:image/png;base64,' + PNG_B64, 'data:image/png;base64,' + PNG_B64], illustAt: 1700000000100 },
         { idx: 1, turn: 2, title: '第二幕', narration: '继续', participants: ['主角'], sceneLine: '', prompt: '', illust: null, illustPending: false, illustError: null }
       ],
-      progress: { state: 'done', done: 1, failed: 0 }
+      progress: { state: 'done', done: 2, failed: 0 }
     }
   }
   const comicSave = await win.evaluate((s) => (window.api.saveSessions(s)), [comicSession])
@@ -93,14 +96,59 @@ async function main() {
   // 外置后：磁盘上出现图片文件；加载水合回 asset URL；未绘制的 panel 2 不产生文件
   r = await win.evaluate(() => window.api.loadSessions())
   const cs = r.sessions && r.sessions.find((x) => x.id === 'sess-test-comic')
-  check('comic-panel-hydrated', !!cs && /^sixworlds-asset:\/\/image\//.test(String(cs.comic.panels[0].illust || '')),
-    JSON.stringify(cs && cs.comic && cs.comic.panels[0] && { illust: String(cs.comic.panels[0].illust || '').slice(0, 40) }))
+  const multiMessage = cs && cs.messages.find((m) => m.role === 'assistant')
+  check('message-multi-image-hydrated', !!multiMessage && Array.isArray(multiMessage.illusts) && multiMessage.illusts.length === 2 && multiMessage.illusts.every((u) => /^sixworlds-asset:\/\/image\//.test(String(u))),
+    JSON.stringify(multiMessage && { count: multiMessage.illusts && multiMessage.illusts.length, first: String(multiMessage.illusts?.[0] || '').slice(0, 40) }))
+  check('message-first-image-compat-alias', !!multiMessage && multiMessage.illust === multiMessage.illusts[0])
+  const multiPanel = cs && cs.comic && cs.comic.panels[0]
+  check('comic-panel-multi-image-hydrated', !!multiPanel && Array.isArray(multiPanel.illusts) && multiPanel.illusts.length === 2 && multiPanel.illusts.every((u) => /^sixworlds-asset:\/\/image\//.test(String(u))),
+    JSON.stringify(multiPanel && { count: multiPanel.illusts && multiPanel.illusts.length, first: String(multiPanel.illusts?.[0] || '').slice(0, 40) }))
+  check('comic-panel-first-image-compat-alias', !!multiPanel && multiPanel.illust === multiPanel.illusts[0])
   check('comic-panel-structure-kept', !!(cs && cs.comic.cast.length === 1 && cs.comic.panels.length === 2 && cs.comic.panels[1].illust == null),
     JSON.stringify(cs && cs.comic && { cast: cs.comic.cast.length, panels: cs.comic.panels.length }))
   // 二次保存（水合后的 asset URL 再落盘）：不产生新文件、引用仍有效（幂等）
   const comicSave2 = await win.evaluate((s) => (window.api.saveSessions(s)), r.sessions)
   await win.waitForTimeout(600)
   check('comic-asset-roundtrip-idempotent', !!(comicSave2 && comicSave2.ok), JSON.stringify(comicSave2))
+
+  // 历史引用超过原累计上限后，仍须允许全量保存和重启读取。
+  const repeatedUrl = 'data:image/png;base64,' + PNG_B64
+  const longSession = {
+    ...sample('long-images'),
+    messages: Array.from({ length: 1001 }, (_, i) => ({ role: 'assistant', content: '回合 ' + i, illusts: [repeatedUrl, repeatedUrl] }))
+  }
+  const longSave = await win.evaluate((s) => window.api.saveSessions(s), [longSession])
+  check('long-session-over-2000-image-references-saves', longSave.ok === true, JSON.stringify(longSave))
+  r = await win.evaluate(() => window.api.loadSessions())
+  const loadedLong = r.sessions?.find((s) => s.id === 'sess-test-long-images')
+  check('long-session-over-2000-image-references-loads', loadedLong?.messages.length === 1001 && loadedLong.messages.every((m) => m.illusts?.length === 2),
+    JSON.stringify(loadedLong && { messages: loadedLong.messages.length, firstImages: loadedLong.messages[0].illusts?.length }))
+  const longSaveAgain = await win.evaluate((s) => window.api.saveSessions(s), r.sessions)
+  check('long-session-over-2000-historical-references-resaves', longSaveAgain.ok === true, JSON.stringify(longSaveAgain))
+
+  const countFiles = (dir) => !fs.existsSync(dir) ? 0 : fs.readdirSync(dir, { withFileTypes: true }).reduce((n, entry) => {
+    const full = path.join(dir, entry.name)
+    return n + (entry.isDirectory() ? countFiles(full) : 1)
+  }, 0)
+  const imageFilesBeforeRejectedSave = countFiles(path.join(DATA, 'images'))
+  const tooManyNewImages = {
+    ...sample('too-many-new-images'),
+    messages: [{ role: 'assistant', content: '超限新图', illusts: Array.from({ length: 2001 }, (_, i) => 'data:image/png;base64,' + Buffer.from('new-image-' + i).toString('base64')) }]
+  }
+  const rejectedImages = await win.evaluate((s) => window.api.saveSessions(s), [tooManyNewImages])
+  check('over-2000-new-images-rejected-explicitly', rejectedImages.ok === false && /新增插图超过上限/.test(rejectedImages.error || ''), JSON.stringify(rejectedImages))
+  check('rejected-image-save-leaves-no-partial-files', countFiles(path.join(DATA, 'images')) === imageFilesBeforeRejectedSave)
+
+  // 批量导出跨越原单批 100 张限制：preload 分批调用真实主进程 IPC。
+  const imageExportDir = path.join(PROFILE, 'image-export')
+  fs.mkdirSync(imageExportDir, { recursive: true })
+  const imageBatch = await win.evaluate(({ dataUrl, directory }) => window.api.saveAllImages({
+    items: Array.from({ length: 101 }, () => ({ dataUrl })), nameBase: 'batch-regression', __testDirectory: directory
+  }), { dataUrl: repeatedUrl, directory: imageExportDir })
+  const exportedNames = fs.readdirSync(imageExportDir)
+  const expectedNames = Array.from({ length: 101 }, (_, i) => 'batch-regression-' + String(i + 1).padStart(2, '0') + '.png')
+  check('image-save-all-over-100-succeeds-through-real-ipc', imageBatch.ok === true && imageBatch.saved === 101 && imageBatch.failed.length === 0, JSON.stringify(imageBatch))
+  check('image-save-all-over-100-writes-contiguous-files', exportedNames.length === 101 && expectedNames.every((name) => exportedNames.includes(name)), JSON.stringify({ count: exportedNames.length, missing: expectedNames.filter((name) => !exportedNames.includes(name)).slice(0, 5) }))
 
   // ---- 3. clear 清两处 ----
   await win.evaluate(() => window.api.clearSessions())

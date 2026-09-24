@@ -11,11 +11,14 @@ if (path.basename(profile) !== 'test-profile-storage') throw new Error('拒绝�
 fs.rmSync(profile, { recursive: true, force: true })
 
 async function main() {
+  const appEnv = { ...process.env, ELECTRON_DISABLE_SECURITY_WARNINGS: 'true', SIXWORLDS_STORAGE_TEST: '1' }
+  // Exercise production migration behavior while keeping userData redirected by STORAGE_TEST + APPDATA.
+  delete appEnv.SIXWORLDS_TEST
   const app = await electron.launch({
     executablePath: electronExecutable,
     args: ['.'],
     cwd: root,
-    env: { ...process.env, ELECTRON_DISABLE_SECURITY_WARNINGS: 'true', SIXWORLDS_STORAGE_TEST: '1' }
+    env: appEnv
   })
   try {
     const win = await app.firstWindow()

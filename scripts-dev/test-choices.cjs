@@ -216,6 +216,8 @@ async function main() {
     const users = await win.evaluate(() => document.querySelectorAll('.msg.user .msg-body').length)
     check('stop-clears-queue', !busyAfter, '停止后无自动续发（队列已清）')
   } else check('stop-clears-queue', true, '（流式太快未捕获窗口，跳过）')
+  await win.waitForFunction(() => !document.querySelector('.msg-committing-chip') && !document.querySelector('#btn-send').classList.contains('stop'), null, { timeout: 30000 })
+  await win.waitForTimeout(300)
   srv.close()
   await app.close().catch(() => {})
 

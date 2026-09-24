@@ -5,9 +5,10 @@ const { _electron: electron } = require('playwright')
 
 async function main() {
   const root = path.join(__dirname, '..')
-  const executable = path.join(root, 'dist', 'win-unpacked', '六面世界.exe')
+  const packageDir = process.env.SIXWORLDS_PACKAGE_DIR ? path.resolve(process.env.SIXWORLDS_PACKAGE_DIR) : path.join(root, 'dist')
+  const executable = path.join(packageDir, 'win-unpacked', '六面世界.exe')
   if (!fs.existsSync(executable)) throw new Error('打包目录不存在，请先运行 npm run dist')
-  const resources = path.join(root, 'dist', 'win-unpacked', 'resources')
+  const resources = path.join(packageDir, 'win-unpacked', 'resources')
 
   // ---- 打包产物静态检查：原型方案已入 asar；sqlite-vec dll 已解包 ----
   const asarBuf = fs.readFileSync(path.join(resources, 'app.asar'))
@@ -63,12 +64,27 @@ async function main() {
   if (!/owner:\s*tryanythingharder/.test(upd) || !/repo:\s*Undecided-Sequel\.Chapter/.test(upd)) throw new Error('app-update.yml 的 owner/repo 不符：\n' + upd)
   console.log('  自动更新元数据：app-update.yml（github provider）已打包 ✓')
   // NSIS 安装包产物也须带 latest.yml（electron-updater 检查更新拉取的清单），dist 根目录
-  if (!fs.existsSync(path.join(root, 'dist', 'latest.yml'))) throw new Error('dist/latest.yml 缺失（Release 上传后客户端无法检查更新）')
+  if (!fs.existsSync(path.join(packageDir, 'latest.yml'))) throw new Error('latest.yml 缺失（Release 上传后客户端无法检查更新）')
 
-  const app = await electron.launch({
-    executablePath: executable,
-    env: { ...process.env, ELECTRON_DISABLE_SECURITY_WARNINGS: 'true', SIXWORLDS_TEST: '1' }
-  })
+  const testRuns = path.join(root, 'output', 'test-runs')
+  fs.mkdirSync(testRuns, { recursive: true })
+  const testRoot = fs.mkdtempSync(path.join(testRuns, 'packaged-'))
+  const appData = path.join(testRoot, 'appdata')
+  const temp = path.join(testRoot, 'tmp')
+  const profile = path.join(testRoot, 'profile')
+  for (const dir of [appData, temp, profile]) fs.mkdirSync(dir, { recursive: true })
+  const env = {
+    ...process.env,
+    ELECTRON_DISABLE_SECURITY_WARNINGS: 'true',
+    SIXWORLDS_TEST: '1',
+    SIXWORLDS_TEST_USER_DATA: profile,
+    APPDATA: appData,
+    TEMP: temp,
+    TMP: temp,
+    TMPDIR: temp
+  }
+  delete env.ELECTRON_RUN_AS_NODE
+  const app = await electron.launch({ executablePath: executable, env })
   let win = null
   try {
     win = await app.firstWindow()
