@@ -73,6 +73,7 @@ class StoryChatController(
 
     private var sessionId: String? = null
     private var protocolText: String? = null
+    private class KernelMismatch(message: String) : IllegalStateException(message)
 
     init {
         viewModelScope.launch {
@@ -99,6 +100,7 @@ class StoryChatController(
     fun sessionTitle(): String = sessionStore.current().title
 
     fun deleteMessageAt(index: Int) {
+        if (_busy.value || _engineBusy.value) return
         val s = sessionStore.current()
         if (index in s.messages.indices) {
             s.messages.removeAt(index)
@@ -123,6 +125,7 @@ class StoryChatController(
     }
 
     fun newWorkspace(name: String, kernelFile: String?) {
+        if (_busy.value || _engineBusy.value) { showToast("生成中，请稍候"); return }
         sessionStore.newWorkspace(name.ifBlank { "新世界集" }, kernelFile)
         sessionId = null
         _messages.value = emptyList()
@@ -175,7 +178,7 @@ class StoryChatController(
         val s = sessionStore.sessions.firstOrNull { it.id == id } ?: return
         s.title = title.ifBlank { s.title }
         sessionStore.persist()
-        _messages.value = s.messages.toList()
+        if (s.id == sessionStore.currentId) _messages.value = s.messages.toList()
         bumpWs()
     }
 
@@ -200,19 +203,21 @@ class StoryChatController(
 
     fun regen() {
         if (_busy.value || _engineBusy.value) return
+        val cfg = _settings.value
+        if (cfg.baseUrl.isBlank() || cfg.apiKey.isBlank() || cfg.model.isBlank()) {
+            showToast("请先在设置中填写 API 地址、密钥与模型。")
+            return
+        }
         viewModelScope.launch {
             val s = sessionStore.current()
             val last = s.messages.lastOrNull() ?: return@launch
             if (last.role != "assistant") return@launch
+            val action = s.messages.getOrNull(s.messages.size - 2) ?: return@launch
+            if (!restoreAction(s, action)) return@launch
             s.messages.removeAt(s.messages.size - 1)
             sessionStore.persist()
             _messages.value = s.messages.toList()
             runCatching { bridge.discardTurn(s.id, "regen", last.content.take(400)) }
-            val cfg = _settings.value
-            if (cfg.baseUrl.isBlank() || cfg.apiKey.isBlank() || cfg.model.isBlank()) {
-                showToast("请先在设置中填写 API 地址、密钥与模型。")
-                return@launch
-            }
             val playerInput = s.messages.lastOrNull { it.role == "user" }?.content ?: ""
             doSend(playerInput, cfg, appendUser = false)
         }
@@ -221,9 +226,17 @@ class StoryChatController(
     /** 编辑历史行动 → 丢弃其后全部消息 → 以新行动重新生成（S5 回溯分叉） */
     fun forkFrom(msgIndex: Int, newText: String) {
         if (_busy.value || _engineBusy.value) { showToast("请等待当前回合结束"); return }
+        if (newText.isBlank()) return
+        val cfg = _settings.value
+        if (cfg.baseUrl.isBlank() || cfg.apiKey.isBlank() || cfg.model.isBlank()) {
+            showToast("请先在设置中填写 API 地址、密钥与模型。")
+            return
+        }
         viewModelScope.launch {
             val s = sessionStore.current()
             if (msgIndex !in s.messages.indices || s.messages[msgIndex].role != "user") return@launch
+            val action = s.messages[msgIndex]
+            if (!restoreAction(s, action)) return@launch
             val removed = s.messages.drop(msgIndex + 1)
             runCatching {
                 removed.filter { it.role == "assistant" }.forEach {
@@ -231,20 +244,30 @@ class StoryChatController(
                 }
             }
             val kept = s.messages.subList(0, msgIndex).toMutableList()
-            kept.add(ChatMessage("user", newText.trim(), System.currentTimeMillis()))
+            kept.add(action.copy(content = newText.trim(), at = System.currentTimeMillis()))
             s.messages.clear()
             s.messages.addAll(kept)
             s.updatedAt = System.currentTimeMillis()
             sessionStore.persist()
             _messages.value = s.messages.toList()
             _choices.value = emptyList()
-            val cfg = _settings.value
-            if (cfg.baseUrl.isBlank() || cfg.apiKey.isBlank() || cfg.model.isBlank()) {
-                showToast("请先在设置中填写 API 地址、密钥与模型。")
-                return@launch
-            }
             doSend(newText.trim(), cfg, appendUser = false)
         }
+    }
+
+    private suspend fun restoreAction(s: StorySession, action: ChatMessage): Boolean {
+        if (action.role != "user" || action.engineSnapshot.isBlank()) {
+            showToast("这一幕没有历史回溯点，原剧情已保留。新回合会自动保存回溯点")
+            return false
+        }
+        _busy.value = true
+        return try {
+            bridge.restore(s.id, action.engineSnapshot)
+            true
+        } catch (e: Exception) {
+            showToast("回溯点已过期或无法读取，原剧情已保留")
+            false
+        } finally { _busy.value = false }
     }
 
     // ---- 搜索 ----
@@ -279,10 +302,11 @@ class StoryChatController(
 
     /** 单条补录：静默请求补状态块并 resolvePending（对齐桌面 resolvePendingFlow 的单次循环体） */
     fun resolveSingle(pending: JSONObject, onDone: (Boolean) -> Unit) {
-        if (_busy.value) { showToast("请等待当前回合结束"); return }
+        if (_busy.value || _engineBusy.value) { showToast("请等待当前回合结束"); return }
+        _busy.value = true
         viewModelScope.launch {
-            val ok = runCatching { resolveOne(pending) }.getOrDefault(false)
-            onDone(ok)
+            try { onDone(runCatching { resolveOne(pending) }.getOrDefault(false)) }
+            finally { _busy.value = false }
         }
     }
 
@@ -312,9 +336,10 @@ class StoryChatController(
     private suspend fun resolveOne(pc: JSONObject): Boolean {
         val cfg = _settings.value
         val s = sessionStore.current()
+        if (pc.optString("story_id") != s.id) return false
         if (protocolText == null) protocolText = bridge.protocol()
         val meta = enginePrep(s, pc.optString("player_input"))
-        val msgs = mutableListOf(ChatClient.Message("system", kernelTextLoader(effectiveKernelFile())))
+        val msgs = mutableListOf(ChatClient.Message("system", meta?.kernelText ?: kernelTextLoader(effectiveKernelFile())))
         if (meta != null && meta.block.isNotEmpty()) msgs.add(ChatClient.Message("system", meta.block))
         val proto = protocolText
         if (!proto.isNullOrEmpty()) msgs.add(ChatClient.Message("system", proto))
@@ -413,6 +438,24 @@ class StoryChatController(
             .toString()
     }
 
+    suspend fun progressBundle(): String {
+        check(!_busy.value && !_engineBusy.value) { "请等待当前回合保存完成后导出" }
+        val s = sessionStore.current()
+        val ws = sessionStore.currentWorkspace()
+        val kernelFile = effectiveKernelFile()
+        val world = JSONObject().put("id", ws.id).put("name", ws.name).put("createdAt", ws.createdAt)
+            .put("kernelId", "builtin:" + kernelFile)
+        val session = JSONObject().put("id", s.id).put("ws", s.wsId).put("title", s.title)
+            .put("createdAt", s.createdAt).put("updatedAt", s.updatedAt)
+            .put("messages", JSONArray().apply {
+                s.messages.forEach { put(JSONObject().put("role", it.role).put("content", it.content)
+                    .put("at", it.at).put("pending", it.pending).put("engineSnapshot", it.engineSnapshot)) }
+            })
+        return JSONObject().put("type", "sixworlds-progress").put("v", 1).put("world", world)
+            .put("workspaces", JSONArray().put(world)).put("sessions", JSONArray().put(session))
+            .put("engine", JSONObject().put("files", engineRuntime.exportFiles(s.id))).toString()
+    }
+
     /** 进度包导入：会话 + 引擎状态 + 引擎重启（桌面 ↔ 移动端接续；兼容旧续玩码） */
     fun importProgress(json: String, onDone: (Boolean, String) -> Unit) {
         viewModelScope.launch {
@@ -468,6 +511,7 @@ class StoryChatController(
     private data class EngineMeta(
         val storyId: String, val sessionId: String, val block: String,
         val retrievedIds: List<String>, val contextSize: Int, val playerInput: String,
+        val kernelText: String,
     )
 
     private suspend fun doSend(value: String, cfg: ChatSettings, appendUser: Boolean) {
@@ -481,6 +525,16 @@ class StoryChatController(
         _streaming.value = ""
         try {
             val meta = enginePrep(s, value)
+            if (meta != null && s.messages.lastOrNull()?.engineSnapshot.isNullOrBlank()) {
+                runCatching {
+                    val snap = bridge.snapshot(s.id, "行动前回溯点", automatic = true)
+                    val index = s.messages.lastIndex
+                    if (index >= 0 && s.messages[index].role == "user") {
+                        s.messages[index] = s.messages[index].copy(engineSnapshot = snap.getString("snapshot_id"))
+                        sessionStore.persist()
+                    }
+                }
+            }
             val msgs = buildMessages(s, meta, cfg)
             // R78 合批：高频率 delta 按 50ms 窗口刷入状态，减少重组压力
             var buf = ""
@@ -497,6 +551,11 @@ class StoryChatController(
             if (buf.isNotEmpty()) _streaming.value += buf
             handleResult(s, meta, msgs, r, cfg)
         } catch (e: Exception) {
+            if (e is KernelMismatch && appendUser) {
+                s.messages.removeLastOrNull()
+                sessionStore.persist()
+                _messages.value = s.messages.toList()
+            }
             showToast("出错了：${e.message ?: e.javaClass.simpleName}")
         } finally {
             _busy.value = false
@@ -510,7 +569,8 @@ class StoryChatController(
         val kernelText = kernelTextLoader(kernelFile)
         val en = bridge.ensure(s.id, s.title, "builtin:$kernelFile", kernelText)
         if (!en.optBoolean("kernel_match", true)) {
-            showToast("注意：世界内核与建线时不一致，引擎记忆可能错位")
+            if (en.optString("kernel_text").isBlank()) throw KernelMismatch("旧世界线缺少原内核，请恢复开局内核或新建世界线")
+            showToast("当前世界线继续使用开局时的内核版本")
         }
         val sid = sessionId ?: ("SES-" + java.lang.Long.toString(System.currentTimeMillis(), 36) + "-" + (1000..9999).random())
             .also { sessionId = it }
@@ -527,8 +587,9 @@ class StoryChatController(
             storyId = s.id, sessionId = sid,
             block = if (turn > 0) cx.optString("block") else "",
             retrievedIds = ids, contextSize = cx.optInt("context_size"), playerInput = playerInput,
+            kernelText = en.optString("kernel_text").ifBlank { kernelText },
         )
-    }.getOrNull()
+    }.getOrElse { if (it is KernelMismatch) throw it; null }
 
     private suspend fun refreshScene() {
         runCatching {
@@ -546,7 +607,7 @@ class StoryChatController(
     }
 
     private fun buildMessages(s: StorySession, meta: EngineMeta?, cfg: ChatSettings): List<ChatClient.Message> {
-        val out = mutableListOf(ChatClient.Message("system", kernelTextLoader(effectiveKernelFile())))
+        val out = mutableListOf(ChatClient.Message("system", meta?.kernelText ?: kernelTextLoader(effectiveKernelFile())))
         if (meta != null && meta.block.isNotEmpty()) out.add(ChatClient.Message("system", meta.block))
         val proto = protocolText
         if (meta != null && !proto.isNullOrEmpty()) out.add(ChatClient.Message("system", proto))
@@ -575,7 +636,7 @@ class StoryChatController(
                     cm.optStr("narrative")?.let { if (it.isNotEmpty()) narrative = it }
                     pendingId = cm.optStr("pending_id")
                     val status = cm.optString("patch_status")
-                    if (!cm.optBoolean("committed") && (status == "PATCH_MISSING" || status == "PATCH_INVALID")) {
+                    if (!r.aborted && !cm.optBoolean("committed") && (status == "PATCH_MISSING" || status == "PATCH_INVALID")) {
                         _engineBusy.value = true
                         try {
                             val retryMsgs = msgs +
@@ -592,7 +653,7 @@ class StoryChatController(
                                         .put("pendingId", pendingId ?: JSONObject.NULL)
                                         .put("retryCount", 1)
                                 )
-                                if (cm2.optBoolean("committed")) {
+                                if (cm2.optBoolean("committed") || cm2.optString("patch_status") == "NO_STATE_CHANGE") {
                                     _toast.value = "状态已补录（模型首轮缺状态块）"
                                 } else {
                                     pendingKept = cm2.optStr("pending_id") != null || pendingId != null
@@ -621,7 +682,7 @@ class StoryChatController(
             sessionStore.persist()
             _messages.value = s.messages.toList()
             if (r.aborted) showToast(if (r.partial) "网络中断，已保留部分内容" else "已停止生成（保留已生成内容）")
-            autoGenerateIllust(narrative)
+            if (!r.aborted) autoGenerateIllust(s, s.messages.last())
             notifyCallback?.invoke(s.title, "叙事已生成")
         } else if (r is ChatClient.Result.Ok) {
             showToast("已停止生成")
@@ -693,9 +754,11 @@ class StoryChatController(
                     // dataUrl 直接存储；远程 URL 先下载转 dataUrl
                     val dataUrl = if (url.startsWith("data:")) url
                     else client.fetchAsDataUrl(url) ?: url
-                    s.messages[msgIndex] = s.messages[msgIndex].copy(illustDataUrl = dataUrl)
+                    val targetIndex = s.messages.indexOfFirst { it === msg }
+                    if (targetIndex < 0 || sessionStore.sessions.none { it === s }) return@launch
+                    s.messages[targetIndex] = msg.copy(illustDataUrl = dataUrl)
                     sessionStore.persist()
-                    _messages.value = s.messages.toList()
+                    if (s.id == sessionStore.currentId) _messages.value = s.messages.toList()
                     _toast.value = "插图已生成"
                 } else {
                     _toast.value = "插图生成失败：${err ?: "未知错误"}"
@@ -707,9 +770,10 @@ class StoryChatController(
     }
 
     /** 提交成功后自动生成插图（如果启用） */
-    private fun autoGenerateIllust(narrative: String) {
+    private fun autoGenerateIllust(s: StorySession, msg: ChatMessage) {
+        val narrative = msg.content
         val cfg = _settings.value
-        if (!cfg.illust.enabled || !cfg.illust.auto) return
+        if (!cfg.illust.enabled || !cfg.illust.auto || _illustBusy.value) return
         if (narrative.length < cfg.illust.minLen) return
         viewModelScope.launch {
             _illustBusy.value = true
@@ -724,12 +788,11 @@ class StoryChatController(
                 if (url != null) {
                     val dataUrl = if (url.startsWith("data:")) url
                     else client.fetchAsDataUrl(url) ?: return@launch
-                    val idx = sessionStore.current().messages.indexOfLast { it.role == "assistant" }
-                    if (idx >= 0) {
-                        sessionStore.current().messages[idx] =
-                            sessionStore.current().messages[idx].copy(illustDataUrl = dataUrl)
+                    val idx = s.messages.indexOfFirst { it === msg }
+                    if (idx >= 0 && sessionStore.sessions.any { it === s }) {
+                        s.messages[idx] = msg.copy(illustDataUrl = dataUrl)
                         sessionStore.persist()
-                        _messages.value = sessionStore.current().messages.toList()
+                        if (s.id == sessionStore.currentId) _messages.value = s.messages.toList()
                     }
                 }
             } finally { _illustBusy.value = false }

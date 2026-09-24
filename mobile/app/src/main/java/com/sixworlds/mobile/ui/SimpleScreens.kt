@@ -21,6 +21,10 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -63,6 +67,7 @@ fun SettingsScreen(controller: StoryChatController, onBack: () -> Unit, onOpen: 
     val ctx = LocalContext.current
     var storage by remember { mutableStateOf("…") }
     var dangerStep by remember { mutableStateOf(0) }
+    val scope = rememberCoroutineScope()
 
     LaunchedEffect(Unit) {
         storage = String.format("%.0f MB", ctx.filesDir.walkTopDown().filter { it.isFile }.sumOf { it.length() } / 1048576.0)
@@ -93,6 +98,19 @@ fun SettingsScreen(controller: StoryChatController, onBack: () -> Unit, onOpen: 
     val exportCode = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
         uri ?: return@rememberLauncherForActivityResult
         ctx.contentResolver.openOutputStream(uri)?.use { it.write(controller.sessionSaveCode().toByteArray()) }
+    }
+    val exportProgress = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
+        uri ?: return@rememberLauncherForActivityResult
+        scope.launch {
+            runCatching {
+                val json = controller.progressBundle()
+                withContext(Dispatchers.IO) {
+                    requireNotNull(ctx.contentResolver.openOutputStream(uri)) { "无法写入所选文件" }
+                        .use { it.write(json.toByteArray(Charsets.UTF_8)) }
+                }
+            }.onSuccess { controller.toastPublic("进度包已导出") }
+                .onFailure { controller.toastPublic("导出失败：" + it.message) }
+        }
     }
     val importCode = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         uri ?: return@rememberLauncherForActivityResult
@@ -136,7 +154,9 @@ fun SettingsScreen(controller: StoryChatController, onBack: () -> Unit, onOpen: 
             SRow("跳过开场动画", right = { ToggleSwitch(settings.skipSplash) { v -> controller.saveSettings(settings.copy(skipSplash = v)) } })
         }
         Grp("数据") {
-            SRow("配置导入 / 导出") { exportConfig.launch("sixworlds-config.json") }
+            SRow("配置导出") { exportConfig.launch("sixworlds-config.json") }
+            SRow("配置导入") { importConfig.launch(arrayOf("application/json")) }
+            SRow("进度包导出（含世界记忆）") { exportProgress.launch("sixworlds-progress.json") }
             SRow("续玩码导出") { exportCode.launch("sixworlds-savecode.json") }
             SRow("进度包 / 续玩码导入") { importCode.launch(arrayOf("application/json")) }
             SRow("存储占用", value = storage)
@@ -153,7 +173,7 @@ fun SettingsScreen(controller: StoryChatController, onBack: () -> Unit, onOpen: 
             }
         }
         Grp("关于") {
-            SRow("版本", value = "v1.0.0-beta")
+            SRow("版本", value = "v" + ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName)
             SRow("六面世界 · 私语引擎")
         }
         SpacerH(32)

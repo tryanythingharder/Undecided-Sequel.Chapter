@@ -52,8 +52,8 @@ class EngineBridge(private val runtime: EngineRuntime) {
     suspend fun overview(storyId: String): JSONObject? =
         dataObj("overview", JSONObject().put("storyId", storyId))
 
-    suspend fun snapshot(storyId: String, label: String): JSONObject =
-        dataObj("snapshot", JSONObject().put("storyId", storyId).put("label", label)) ?: JSONObject()
+    suspend fun snapshot(storyId: String, label: String, automatic: Boolean = false): JSONObject =
+        dataObj("snapshot", JSONObject().put("storyId", storyId).put("label", label).put("automatic", automatic)) ?: JSONObject()
 
     suspend fun snapshots(storyId: String): JSONArray =
         dataArr("snapshots", JSONObject().put("storyId", storyId))

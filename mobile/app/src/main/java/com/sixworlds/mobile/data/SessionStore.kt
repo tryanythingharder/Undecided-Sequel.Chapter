@@ -12,6 +12,7 @@ data class ChatMessage(
     val pending: Boolean = false,
     val illustLabel: String = "",
     val illustDataUrl: String = "",
+    val engineSnapshot: String = "",
 )
 
 data class StorySession(
@@ -48,6 +49,7 @@ class SessionStore(context: Context) {
         if (currentWsId.isEmpty() || workspaces.none { it.id == currentWsId }) currentWsId = workspaces.first().id
         if (sessions.isEmpty()) newSession()
         if (sessions.none { it.id == currentId }) currentId = sessionsOf(currentWsId).firstOrNull()?.id ?: newSession().id
+        sessions.firstOrNull { it.id == currentId }?.let { currentWsId = it.wsId }
     }
 
     // ---- 查询 ----
@@ -87,7 +89,7 @@ class SessionStore(context: Context) {
                     require(bytes <= 2 * 1024 * 1024) { "单条消息过大" }
                     totalBytes += bytes
                     require(totalBytes <= 32 * 1024 * 1024) { "导入会话文本总量过大" }
-                    msgs.add(ChatMessage(role, content, mo.optLong("at", System.currentTimeMillis())))
+                    msgs.add(ChatMessage(role, content, mo.optLong("at", System.currentTimeMillis()), engineSnapshot = mo.optString("engineSnapshot")))
                 }
             }
             imported.add(
@@ -180,7 +182,7 @@ class SessionStore(context: Context) {
             return
         }
         if (currentId == id) {
-            currentId = sessionsOf(currentWsId).firstOrNull()?.id ?: sessions.first().id
+            currentId = sessionsOf(currentWsId).firstOrNull()?.id ?: newSession().id
         }
         persist()
     }
@@ -222,6 +224,7 @@ class SessionStore(context: Context) {
                     JSONObject()
                         .put("role", m.role).put("content", m.content)
                         .put("at", m.at).put("pending", m.pending).put("illustLabel", m.illustLabel).put("illustDataUrl", m.illustDataUrl)
+                        .put("engineSnapshot", m.engineSnapshot)
                 )
             }
             sArr.put(
@@ -257,7 +260,9 @@ class SessionStore(context: Context) {
                 )
             }
         }
-        val legacy = obj.optJSONArray("sessions") != null && workspaces.isEmpty()
+        if (workspaces.isEmpty()) {
+            workspaces.add(Workspace("w" + System.currentTimeMillis().toString(36), "默认世界", null, System.currentTimeMillis()))
+        }
         obj.optJSONArray("sessions")?.let { arr ->
             for (i in 0 until arr.length()) {
                 val so = arr.optJSONObject(i) ?: continue
@@ -273,6 +278,7 @@ class SessionStore(context: Context) {
                                 pending = mo.optBoolean("pending"),
                                 illustLabel = mo.optString("illustLabel"),
                                 illustDataUrl = mo.optString("illustDataUrl"),
+                                engineSnapshot = mo.optString("engineSnapshot"),
                             )
                         )
                     }
