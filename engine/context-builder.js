@@ -125,7 +125,7 @@ function buildContextBlock(story, retrieved, accessLevel, metaOut) {
 function stateOverview(story) {
   return {
     story_id: story.story_id, title: story.title, engine_turn: story.counters.turn,
-    kernel: story.kernel,
+    kernel: { id: story.kernel.id, version: story.kernel.version, bound_at: story.kernel.bound_at },
     scene: story.scene,
     player: story.player,
     counts: {

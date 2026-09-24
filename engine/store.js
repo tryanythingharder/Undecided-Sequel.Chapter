@@ -25,6 +25,7 @@ class StateStore {
     for (const d of [dataDir, this.storiesDir, this.snapshotsDir, this.pendingsDir, this.logsDir, this.tmpDir]) fs.mkdirSync(d, { recursive: true })
     this._cache = new Map() // storyId → { story, dirty }
     this._staging = new Map() // storyId → staged story（事务暂存）
+    this._snapshotMeta = new Map()
     /* 检索层缓存槽（规范二十四/二十五/四十三）：storyId → { version, entityIndex, queries }
      * store 只负责持有与版本递增（flushStory 即状态变更点），结构与失效策略由 retriever 管理。 */
     this._retrCache = new Map()
@@ -156,7 +157,7 @@ class StateStore {
   _writeMeta(storyId, story) {
     try {
       this._atomicWrite(this._metaPath(storyId), JSON.stringify({
-        story_id: story.story_id, title: story.title, created_at: story.created_at, updated_at: story.updated_at, kernel: story.kernel,
+        story_id: story.story_id, title: story.title, created_at: story.created_at, updated_at: story.updated_at, kernel: { id: story.kernel.id, version: story.kernel.version, bound_at: story.kernel.bound_at },
         counts: { turns: story.counters && story.counters.turn, decisions: story.decisions.length, facts: story.facts.length, events: story.events.length, entities: story.entities.length, commitments: story.commitments.length, threads: story.threads.length, sessions: story.sessions.length }
       }))
     } catch { /* 侧车失败不阻断主数据 */ }
@@ -181,9 +182,9 @@ class StateStore {
   commitTransaction(storyId) {
     const staged = this._staging.get(storyId)
     if (!staged) return false
-    this._staging.delete(storyId)
-    this._cache.set(storyId, { story: staged })
+    // Keep the original cached state until the staged data is durably written.
     this.flushStory(storyId)
+    this._staging.delete(storyId)
     return true
   }
 
@@ -234,6 +235,7 @@ class StateStore {
   }
 
   deleteStory(storyId) {
+    this._snapshotMeta.delete(storyId)
     this._cache.delete(storyId)
     this._staging.delete(storyId)
     this._dropRetrCache(storyId)
@@ -304,6 +306,11 @@ class StateStore {
     const p = this.snapshotPath(storyId, snapshotId)
     fs.mkdirSync(path.dirname(p), { recursive: true })
     this._atomicWrite(p, JSON.stringify(data))
+    const cached = this._snapshotMeta.get(storyId)
+    if (cached) {
+      const meta = { snapshot_id: data.snapshot_id, story_id: data.story_id, label: data.label, turn: data.turn, created_at: data.created_at, automatic: !!data.automatic }
+      this._snapshotMeta.set(storyId, cached.filter((s) => s.snapshot_id !== snapshotId).concat(meta))
+    }
     return p
   }
 
@@ -316,18 +323,25 @@ class StateStore {
   deleteSnapshot(storyId, snapshotId) {
     const p = this.snapshotPath(storyId, snapshotId)
     fs.rmSync(p, { force: true })
+    const cached = this._snapshotMeta.get(storyId)
+    if (cached) this._snapshotMeta.set(storyId, cached.filter((s) => s.snapshot_id !== snapshotId))
     return !fs.existsSync(p)
   }
 
   listSnapshots(storyId) {
+    const sorted = (items) => items.slice().sort((a, b) => (b.created_at || 0) - (a.created_at || 0) || String(b.snapshot_id).localeCompare(String(a.snapshot_id)))
+    const cached = this._snapshotMeta.get(storyId)
+    if (cached) return sorted(cached)
     const dir = path.join(this.snapshotsDir, String(storyId).replace(/[^a-zA-Z0-9_-]/g, '_'))
-    if (!fs.existsSync(dir)) return []
-    return fs.readdirSync(dir).filter((f) => f.endsWith('.json')).map((f) => {
+    if (!fs.existsSync(dir)) { this._snapshotMeta.set(storyId, []); return [] }
+    const items = fs.readdirSync(dir).filter((f) => f.endsWith('.json')).map((f) => {
       try {
         const s = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8'))
-        return { snapshot_id: s.snapshot_id, story_id: s.story_id, label: s.label, turn: s.turn, created_at: s.created_at }
+        return { snapshot_id: s.snapshot_id, story_id: s.story_id, label: s.label, turn: s.turn, created_at: s.created_at, automatic: !!s.automatic }
       } catch { return null }
-    }).filter(Boolean).sort((a, b) => (b.created_at || 0) - (a.created_at || 0))
+    }).filter(Boolean)
+    this._snapshotMeta.set(storyId, items)
+    return sorted(items)
   }
 
   // ---- 回合诊断日志（条款 45） ----

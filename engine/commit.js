@@ -260,6 +260,7 @@ function logTurn(store, story, result, meta, patch, committedStory) {
   try {
     store.appendTurnLog(story.story_id, {
       turn_id: result.turn_id,
+      turn: committedStory ? committedStory.counters.turn : story.counters.turn,
       story_id: story.story_id,
       session_id: result.session_id,
       timestamp: Date.now(),
