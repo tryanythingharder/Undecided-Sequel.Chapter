@@ -62,7 +62,10 @@ async function send(win, text) {
         const b = document.querySelector('#btn-send')
         const r = b.getBoundingClientRect()
         const chip = document.querySelector('.msg-committing-chip, .msg-pending-chip')
-        return [Math.round(r.x), Math.round(r.y), Math.round(r.width), Math.round(r.height), b.className, b.textContent.trim().slice(0, 8), chip ? chip.className.split(' ')[0] : '-', document.querySelectorAll('.msg.assistant').length, document.documentElement.scrollHeight]
+        const chat = document.querySelector('.chat')
+        const parts = chat ? [...chat.children].map((el) => el.tagName + (el.id ? '#' + el.id : '') + '=' + Math.round(el.getBoundingClientRect().height) + (el.className.includes('collapsed') ? '(folded)' : '')) : []
+        const opts = document.querySelector('.opts')
+        return [Math.round(r.y), b.className, b.textContent.trim().slice(0, 6), chip ? chip.className.split(' ')[0] : '-', opts ? Math.round(opts.getBoundingClientRect().height) : 0, parts.join(' ')]
       }))
       await win.waitForTimeout(300)
     }

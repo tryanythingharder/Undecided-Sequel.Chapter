@@ -3421,9 +3421,22 @@ const KData = window.KernelData.createKernelData({
     const pill = $('choices-expand')
     if (!pill) return
     const folded = choiceMode && (choicesFoldUser || choicesAutoFolded)
-    if (choiceEl.classList.contains('collapsed') !== folded) choicesFoldGuard = Date.now() + 400 // 折叠态切换：smooth 滚动动画（~300ms）触发的中间态 scroll 事件不再反向自动折叠
-    choiceEl.classList.toggle('collapsed', folded)
-    pill.classList.toggle('hidden', !folded)
+    if (choiceEl.classList.contains('collapsed') !== folded) {
+      // 折叠切换增减选项区高度（约 193px）→「距底距离」随之翻转（阈值 120px）→
+      // scroll 事件触发反向切换 → 展开↔收起 600ms 周期自激振荡（CI 慈机实测，发送按钮随之抖动）。
+      // 修复：切换后补偿 scrollTop 保持视口与距底距离不变，从根上打破反馈回路；
+      // 400ms 守卫保留，挡 smooth 滚动动画的中间态事件。
+      choicesFoldGuard = Date.now() + 400
+      const distBefore = msgEl.scrollHeight - msgEl.scrollTop - msgEl.clientHeight
+      choiceEl.classList.toggle('collapsed', folded)
+      pill.classList.toggle('hidden', !folded)
+      requestAnimationFrame(() => {
+        const distAfter = msgEl.scrollHeight - msgEl.scrollTop - msgEl.clientHeight
+        if (distAfter !== distBefore) msgEl.scrollTop = Math.max(0, msgEl.scrollTop + (distAfter - distBefore))
+      })
+    } else {
+      pill.classList.toggle('hidden', !folded)
+    }
   }
   const choicesPill = $('choices-expand')
   if (choicesPill) {
