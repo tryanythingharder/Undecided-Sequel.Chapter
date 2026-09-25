@@ -33,9 +33,22 @@ async function runScheme(scheme) {
     win = await app.firstWindow()
     watch(win)
     await win.waitForSelector('#input')
-    if (await win.evaluate(() => window.api.uiScheme()) !== scheme) await win.evaluate((s) => window.api.setUiScheme(s), scheme)
+    // 方案切换由主进程 loadFile 重载窗口：切换瞬间旧执行上下文销毁，读/设方案都可能撞上
+    // "Execution context was destroyed"——统一带重试，并在导航落地后再继续
+    let current = null
+    for (let i = 0; i < 10 && current === null; i++) {
+      try { current = await win.evaluate(() => window.api.uiScheme()) } catch (e) { await win.waitForTimeout(500) }
+    }
+    if (current !== scheme) {
+      for (let i = 0; i < 5; i++) {
+        try { await win.evaluate((sc) => window.api.setUiScheme(sc), scheme); break } catch (e) { await win.waitForTimeout(500) }
+      }
+      await win.waitForURL('**/ui/' + scheme + '/index.html')
+      await win.waitForSelector('#input')
+    }
     await win.waitForURL('**/ui/' + scheme + '/index.html')
     await win.waitForSelector('#input')
+    await win.waitForLoadState('domcontentloaded').catch(() => {})
     await win.evaluate(() => localStorage.setItem('sixworlds.codex.state.v3', JSON.stringify({ skipSplash: true, theme: 'dark', palette: 'classic' })))
     await win.reload()
     await win.waitForURL('**/ui/' + scheme + '/index.html')
