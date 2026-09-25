@@ -50,7 +50,25 @@ async function settled(win, count) {
   await win.waitForFunction((n) => document.querySelectorAll('.msg.assistant').length === n && !document.querySelector('#btn-send').classList.contains('stop') && !document.querySelector('.msg-committing-chip'), count, { timeout: 20000 })
   await win.waitForTimeout(500)
 }
-async function send(win, text) { await win.fill('#input', text); await win.click('#btn-send') }
+async function send(win, text) {
+  await win.fill('#input', text)
+  try {
+    await win.click('#btn-send')
+  } catch (e) {
+    // CI 慢机偶发按钮不稳定：采样按钮包围盒/提交芯片/滚动高度，定位振荡源后随错误输出
+    const samples = []
+    for (let i = 0; i < 14; i++) {
+      samples.push(await win.evaluate(() => {
+        const b = document.querySelector('#btn-send')
+        const r = b.getBoundingClientRect()
+        const chip = document.querySelector('.msg-committing-chip, .msg-pending-chip')
+        return [Math.round(r.x), Math.round(r.y), Math.round(r.width), Math.round(r.height), b.className, b.textContent.trim().slice(0, 8), chip ? chip.className.split(' ')[0] : '-', document.querySelectorAll('.msg.assistant').length, document.documentElement.scrollHeight]
+      }))
+      await win.waitForTimeout(300)
+    }
+    throw new Error('BTN-SEND 振荡采样: ' + JSON.stringify(samples) + ' | 原始: ' + e.message.slice(0, 120))
+  }
+}
 
 /* 真实命中检查：不把按钮提层、不 force 点击，也不通过 JS 派发点击绕过覆盖物。
  * 拖柄应完整位于消息右侧留白，不能抢按钮、正文选择或滚动条的指针事件。 */
