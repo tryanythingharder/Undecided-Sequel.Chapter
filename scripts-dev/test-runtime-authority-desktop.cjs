@@ -131,7 +131,18 @@ async function runScheme(scheme) {
   await closePanel(win)
   for (const action of ['first-runtime', 'needs-patch']) {
     const assistantsBefore = await win.locator('.msg.assistant').count()
-    await win.fill('#input', action); await win.click('#btn-send')
+    // CI 慢机上 d 方案的发送区会因后台重试型刷新（vector 补嵌重入队等）反复重建：
+    // 常规点击的稳定性检查永不满足，force 点击又可能落在重建中的死节点上（请求不发）。
+    // 故 force 点击 + 「请求抵达 mock」门校验，未达则整轮 fill+click 重试（至多 5 次）。
+    let sent = false
+    for (let attempt = 0; attempt < 5 && !sent; attempt++) {
+      await win.fill('#input', action)
+      await win.click('#btn-send', { force: true }).catch(() => {})
+      try {
+        await waitUntil(() => network.some((n) => n.scheme === scheme && n.action === action), 'UI请求抵达本地网络 mock：' + action)
+        sent = true
+      } catch (error) { if (attempt === 4) throw error }
+    }
     // Do not let a stale/pre-existing assistant node satisfy the completion gate before send starts.
     await waitUntil(() => network.some((n) => n.scheme === scheme && n.action === action), 'UI请求抵达本地网络 mock：' + action)
     if (action === 'needs-patch') {
