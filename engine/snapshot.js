@@ -3,30 +3,36 @@
  * 快照按 story_id 归属存独立文件；恢复时校验 story 归属，跨故事恢复直接拒绝。
  */
 
-const { createStory, ENGINE_VERSION } = require('./schema')
+const { ENGINE_VERSION } = require('./schema')
 
 // 快照数量上限：每个故事最多保留 30 份（每份是全量状态深拷贝，长篇下 MB 级——无上限会无限累积吃满磁盘）
 const SNAPSHOT_MAX_COUNT = 30
 
-function createSnapshot(store, story, label) {
+function createSnapshot(store, story, label, automatic) {
   if (!story || !story.story_id) throw new Error('snapshot: invalid story')
-  const snapId = 'SNP-' + String(++story.counters.snapshot).padStart(6, '0')
+  const existing = store.listSnapshots(story.story_id)
+  const highWater = existing.reduce((n, s) => Math.max(n, Number(String(s.snapshot_id).replace(/^SNP-/, '')) || 0), Number(story.counters.snapshot) || 0)
+  const snapId = 'SNP-' + String(highWater + 1).padStart(6, '0')
+  story.counters.snapshot = highWater + 1
   const data = {
     snapshot_id: snapId,
     story_id: story.story_id,
     label: String(label || ('Turn ' + story.counters.turn)).slice(0, 120),
     turn: story.counters.turn,
     created_at: Date.now(),
+    automatic: !!automatic,
     engine_version: ENGINE_VERSION,
     // 全量状态（含九大 Ledger / 实体 / 玩家 / 场景 / 计数器）
     state: JSON.parse(JSON.stringify(story, (k, v) => (k === '_nameIndex' ? undefined : v)))
   }
   store.writeSnapshot(story.story_id, snapId, data)
+  store.saveStory(story.story_id)
   // 超限淘汰最旧（created_at 最小者）；淘汰失败不影响快照创建（磁盘治理尽力而为）
   try {
-    const all = store.listSnapshots(story.story_id)
-    if (all.length > SNAPSHOT_MAX_COUNT) {
-      for (const old of all.slice(SNAPSHOT_MAX_COUNT)) store.deleteSnapshot(story.story_id, old.snapshot_id)
+    const all = store.listSnapshots(story.story_id).filter((s) => !!s.automatic === !!automatic)
+    const limit = automatic ? 60 : SNAPSHOT_MAX_COUNT
+    if (all.length > limit) {
+      for (const old of all.slice(limit)) store.deleteSnapshot(story.story_id, old.snapshot_id)
     }
   } catch { /* 列举/删除失败不阻断快照写入 */ }
   return { snapshot_id: snapId, story_id: story.story_id, label: data.label, turn: data.turn, created_at: data.created_at }

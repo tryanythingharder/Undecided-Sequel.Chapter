@@ -3,7 +3,6 @@
 // 运行：node scripts-dev/test-kernel-hub.cjs
 const path = require('node:path')
 const fs = require('node:fs')
-const os = require('node:os')
 const { _electron: electron } = require('playwright')
 const electronExecutable = require('electron')
 
@@ -31,9 +30,11 @@ async function main() {
   ].join('\n')
   const AI_REPLY = '已明确玩家身份、世界动力与失败代价，并把它们同步为可运行草稿。\n<<<KERNEL_MD>>>\n' + AI_KERNEL + '\n<<<END_KERNEL_MD>>>'
 
-  // 清档：测试档案的用户内核与 localStorage 从零开始
-  const userDataRoot = path.join(process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming'), '六面世界', 'test-profile')
-  fs.rmSync(path.join(userDataRoot, 'kernels'), { recursive: true, force: true })
+  // 每次运行新建工作区内的独立档案；重启复用同一份，不删除共享 test-profile。
+  const runsRoot = path.join(__dirname, '..', 'output', 'kernel-hub-tests')
+  fs.mkdirSync(runsRoot, { recursive: true })
+  const userDataRoot = fs.mkdtempSync(path.join(runsRoot, 'profile-'))
+  process.env.SIXWORLDS_TEST_USER_DATA = userDataRoot
 
   const app = await electron.launch({
     executablePath: electronExecutable,
@@ -172,7 +173,7 @@ async function main() {
   if (!libraryVisibleBeforeEdit) await win.click('#btn-kernel-library')
   await win.waitForTimeout(320)
   await userCard.scrollIntoViewIfNeeded()
-  await userCard.locator('.tool-btn', { hasText: '编辑' }).click({ force: true })
+  await userCard.locator('.tool-btn', { hasText: '编辑' }).click()
   await win.waitForTimeout(200)
   await win.locator('#kernel-edit-text').fill((await win.locator('#kernel-edit-text').inputValue()) + '\n\n<!-- edited-' + SUFFIX + ' -->')
   await win.click('#btn-kernel-source-save')
@@ -191,7 +192,7 @@ async function main() {
 
   // 6. 应用重启 → 绑定与内核仍在（内核状态芯片仍为自定义标题）
   await app.close()
-  const tmpMd = path.join(os.tmpdir(), 'kernel-import-' + SUFFIX + '.md')
+  const tmpMd = path.join(userDataRoot, 'kernel-import-' + SUFFIX + '.md')
   fs.writeFileSync(tmpMd, '<!--KERNEL_META\n{"title":"导入世界：测试","tagline":"导入测试内核"}\nKERNEL_META-->\n\n# 导入世界\n\n（导入测试内容）')
   const app2 = await electron.launch({
     executablePath: electronExecutable,
@@ -216,10 +217,11 @@ async function main() {
     const bindBuiltin = builtinCard.locator('.kernel-bind')
     if ((await bindBuiltin.count())) { await bindBuiltin.click(); await win2.waitForTimeout(600) }
   }
-  // 打开自定义内核编辑 → 关闭内核库抽屉 → 直接发布
+  // 绑定内置后抽屉可能已关闭；从真实入口重开再编辑，不强制点击隐藏卡片。
+  if (!(await win2.locator('#kernel-hub').evaluate((el) => el.classList.contains('library-open')))) await win2.click('#btn-kernel-library')
   const editCard2 = win2.locator('.kernel-card', { hasText: KNAME })
   await editCard2.scrollIntoViewIfNeeded()
-  await editCard2.locator('.tool-btn', { hasText: '编辑' }).click({ force: true })
+  await editCard2.locator('.tool-btn', { hasText: '编辑' }).click()
   await win2.waitForTimeout(500)
   // 编辑点击后「内核库抽屉」与「源码焦点层」都可能开着，会拦截头部按钮——Esc 逐层关闭
   for (let i = 0; i < 3; i++) {

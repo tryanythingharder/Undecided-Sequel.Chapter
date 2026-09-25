@@ -290,7 +290,7 @@
       })
       return {
         story_id: p.storyId, created: r.created,
-        kernel_version: r.kernel_version, kernel_match: r.kernel_match,
+        kernel_version: r.kernel_version, kernel_match: r.kernel_match, kernel_text: r.kernel_text,
         turn: r.story.counters.turn
       }
     },
@@ -312,7 +312,7 @@
         retrievedIds: p.retrievedIds, contextSize: p.contextSize
       })
       // 条款 15/18/19/28：未正式提交且非显式 NO_STATE_CHANGE → 落 Pending Commit
-      if (r.committed) {
+      if (r.ok && (r.committed || r.patch_status === 'NO_STATE_CHANGE')) {
         if (p.pendingId) {
           try { eng.discardPending({ storyId: p.storyId, pendingId: p.pendingId }); r.pending_resolved = true } catch (e) { }
         }
@@ -346,7 +346,7 @@
     resolvePending: function (p) { return __engineFor().resolvePending({ storyId: p.storyId, pendingId: p.pendingId, raw: p.raw }) },
     discardPending: function (p) { return __engineFor().discardPending({ storyId: p.storyId, pendingId: p.pendingId }) },
     overview: function (p) { return __engineFor().overview(p.storyId) },
-    snapshot: function (p) { return __engineFor().snapshot(p.storyId, p.label) },
+    snapshot: function (p) { return __engineFor().snapshot(p.storyId, p.label, p.automatic) },
     snapshots: function (p) { return __engineFor().listSnapshots(p.storyId) },
     restore: function (p) {
       __engineFor().restoreSnapshot(p.storyId, p.snapshotId)

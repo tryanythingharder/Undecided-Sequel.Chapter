@@ -202,6 +202,111 @@ ok(typeof Pet.agentIntent === 'function', 'BloubPet 导出 agentIntent（意图�
     const pr = extract('prompt', '{"prompt":"a calm village at dawn, golden light, masterpiece","why":"w"}', {})
     ok(pr && pr.prompt.length > 8, 'prompt 提取成功')
     ok(extract('prompt', '{"prompt":"short","why":"w"}', {}) === null, '过短 prompt → 拒绝')
+
+    // Comic layout hints must survive normalization and stay attached after turn sorting.
+    const cast = [{ name: '旅人', look: 'brown hair, travel cloak' }]
+    const panel = (turn, hints = {}) => ({ turn, title: '旅途', narration: '继续前行。', participants: ['旅人'], ...hints })
+    const comic = extract('comic', JSON.stringify({ cast, panels: [
+      panel(3, { size: 'tall', pageBreak: true }),
+      panel(1, { size: 'hero' }),
+      panel(2, { size: 'wide', pageBreak: false }),
+      panel(4, { size: 'square', pageBreak: true })
+    ] }), {})
+    ok(comic && comic.panels.map(q => q.turn).join(',') === '1,2,3,4', 'comic 保留按回合排序')
+    ok(comic.panels.map(q => q.size).join(',') === 'hero,wide,tall,square', 'comic 四种节奏尺寸均保留')
+    ok(!Object.hasOwn(comic.panels[0], 'pageBreak'), 'comic 旧数据不凭空插入换页提示')
+    ok(comic.panels[1].pageBreak === false && comic.panels[2].pageBreak === true && comic.panels[3].pageBreak === true, 'comic 布尔换页提示随对应分镜保留')
+    const malformed = extract('comic', JSON.stringify({ cast, panels:
+      ['true', 'false', 1, 0, null, {}, []].map((pageBreak, i) => panel(i + 1, { size: 'invalid', pageBreak }))
+    }), {})
+    ok(malformed.panels.every(q => !Object.hasOwn(q, 'pageBreak')), 'comic 非布尔换页提示被忽略（不做 truthy 转换）')
+    ok(malformed.panels.every(q => q.size === 'square'), 'comic 非法尺寸仍回退为 square')
+    const legacy = extract('comic', JSON.stringify({ cast, panels: [panel(1)] }), {})
+    ok(legacy.panels[0].size === 'square' && !Object.hasOwn(legacy.panels[0], 'pageBreak'), 'comic 缺省尺寸与换页兼容旧规划')
+
+    // New plans keep the storage key but each entry is one complete generated page.
+    const beat = (turn, hints = {}) => ({ turn, description: '旅人走向晨光。', size: 'wide', dialogue: [], ...hints })
+    const page = (beats, hints = {}) => panel(999, {
+      fullPage: true, sceneLine: '【清晨｜村口】', composition: '斜向分格，人物跨框叠压，背景融合。', beats, ...hints
+    })
+    const extractPages = (panels) => extract('comic', JSON.stringify({ cast, panels }), {})
+    // A full character bible must survive both legacy and fused-page extraction.
+    const bible = 'A woman of thirty, with a narrow face, straight brows and short black hair tucked behind her ears. Her compact silhouette is defined by square shoulders and a practical upright posture. She wears a plain linen shirt beneath a charcoal wool coat, with soft creases at the elbows and simple leather shoes. Keep her short blunt fringe, dark coat and square shoulder line consistent across pages. These quiet features distinguish her without ornamental weapons, invented insignia or exaggerated proportions.'
+    ok(bible.split(/\s+/).length >= 60 && bible.split(/\s+/).length <= 90 && bible.length > 300 && bible.length < 900, 'comic 测试角色设定为 60~90 英文词且超过旧 300 字符上限')
+    for (const sample of [panel(1), page([beat(1)])]) {
+      for (const look of [cast[0].look, bible, 'x'.repeat(899), 'x'.repeat(900), 'x'.repeat(901), 'x'.repeat(1600)]) {
+        const result = extract('comic', JSON.stringify({ cast: [{ name: '旅人', look }], panels: [sample] }), {})
+        ok(result && result.cast[0].name === '旅人' && result.cast[0].look === look.slice(0, 900), 'comic 新旧规划外貌完整保留至 900 字符，越界精确截断（' + look.length + '）')
+      }
+    }
+    const instant = 'Eye-level medium shot: the traveler stands at frame left facing right, one hand resting on the closed door, lips pressed and eyes lowered; soft morning window light falls across the quiet wooden room.'
+    const preserved = extractPages([page([beat(1, { description: instant, dialogue: [{ speaker: '旅人', line: '我再想一想。', tone: 'whisper' }], caption: '清晨。' })], { composition: 'Exactly one panel: a still medium shot with generous negative space.' })]).panels[0]
+    ok(preserved.beats[0].description === instant && preserved.beats[0].dialogue[0].line === '我再想一想。' && preserved.beats[0].caption === '清晨。' && preserved.composition === 'Exactly one panel: a still medium shot with generous negative space.', 'comic 英文镜头描述、构图及中文对白旁白不被改写')
+    const pages = extractPages([
+      page([beat(8), beat(5, { size: 'hero', caption: ' 清晨。 ', dialogue: [{ speaker: '旅人', line: '走吧！', tone: 'shout' }] })]),
+      page([beat(2), beat('3', { size: 'tall' }), beat(3, { size: 'square' })], { turn: -1 })
+    ])
+    ok(pages && Object.keys(pages).sort().join(',') === 'cast,panels', 'comic 整页保留顶层 cast/panels 存储契约')
+    ok(pages.panels.every(q => q.fullPage === true) && pages.panels.map(q => q.turn).join(',') === '3,8', 'comic 整页 turn 取有效 beats 最大回合并排序，不信任页码')
+    ok(pages.panels[1].beats.map(b => b.turn).join(',') === '8,5', 'comic 整页保留导演指定的 beats 阅读顺序')
+    const fused = pages.panels[1]
+    ok(fused.composition.includes('叠压') && fused.sceneLine === '【清晨｜村口】' && fused.narration === '继续前行。' && fused.participants[0] === '旅人', 'comic 整页布局、场景、梗概与角色保留')
+    ok(fused.beats[1].caption === '清晨。' && fused.beats[1].dialogue[0].line === '走吧！' && fused.beats[1].dialogue[0].tone === 'shout', 'comic 格内对白、语气与可选旁白保留')
+    ok(!Object.hasOwn(fused, 'size') && !Object.hasOwn(fused, 'dialogue') && !Object.hasOwn(fused, 'pageBreak'), 'comic 新整页不混入旧单格尺寸、对白与换页字段')
+    ok(!Object.hasOwn(fused.beats[0], 'caption'), 'comic 未提供格内旁白时不凭空插入 caption')
+    for (const beats of [undefined, null, {}, 'bad', [], [null, {}, beat(0), beat(-2), beat(1.5), beat(true), beat('Infinity'), beat(2, { description: {} }), beat(2, { description: '  ' })]]) {
+      ok(extractPages([page(beats)]) === null, 'comic fullPage:true 缺失或无有效 beats 时拒绝，不能退化为单格')
+    }
+    const sanitized = extractPages([page([
+      null, beat('Infinity'), beat(0), beat(4, {
+        description: ' ' + '画'.repeat(650) + ' ', size: 'invalid', caption: '旁'.repeat(180),
+        dialogue: [null, { speaker: {}, line: 'bad' }, { speaker: '旅人', line: {} },
+          ...Array.from({ length: 6 }, () => ({ speaker: '人'.repeat(40), line: '话'.repeat(90), tone: 'invalid' }))]
+      })
+    ], { title: '题'.repeat(50), sceneLine: '景'.repeat(100), narration: '梗'.repeat(180),
+      composition: '图'.repeat(1300), participants: [null, {}, 1, '', ' 旅人 ', ...Array(10).fill('人'.repeat(70))] })]).panels[0]
+    ok(sanitized.beats.length === 1 && sanitized.turn === 4 && sanitized.beats[0].size === 'square', 'comic 过滤坏 beats 并回退非法格尺寸')
+    ok(sanitized.title.length === 40 && sanitized.sceneLine.length === 80 && sanitized.narration.length === 160 && sanitized.composition.length === 1200, 'comic 整页文本字段按上限清洗')
+    ok(sanitized.participants.length === 8 && sanitized.participants[0] === '旅人' && sanitized.participants[1].length === 60, 'comic 角色过滤非字符串、去空白并限制长度数量')
+    const cleanedBeat = sanitized.beats[0]
+    ok(cleanedBeat.description.length === 600 && cleanedBeat.caption.length === 160 && cleanedBeat.dialogue.length === 4 && cleanedBeat.dialogue.every(d => d.speaker.length === 30 && d.line.length === 80 && d.tone === 'normal'), 'comic beats 描述、旁白、对白长度数量与语气清洗')
+    const badText = extractPages([page([beat(1, { caption: {} })], { title: {}, sceneLine: [], composition: 42, participants: {} })]).panels[0]
+    ok(badText.title === '' && badText.sceneLine === '' && badText.composition === '' && badText.participants.length === 0 && !Object.hasOwn(badText.beats[0], 'caption'), 'comic 新字段不把对象或数字转成文字')
+    for (const fullPage of [false, 'true', 'false', 1, 0, null, {}, [], undefined]) {
+      const unmarked = extractPages([page([beat(2)], { fullPage, turn: 1 })]).panels[0]
+      ok(!Object.hasOwn(unmarked, 'fullPage') && !Object.hasOwn(unmarked, 'beats') && unmarked.turn === 1 && unmarked.size === 'square', 'comic 只有严格布尔 true 启用整页，其他值仍走旧提取')
+    }
+    const mixed = extractPages([page([]), panel(2), page([beat(3)])])
+    ok(mixed.panels.length === 2 && mixed.panels[0].size === 'square' && mixed.panels[1].fullPage === true, 'comic 新旧混合规划保留有效条目并丢弃坏整页')
+    ok(extractPages([page([beat(1)], { narration: {} })]) === null, 'comic 整页仍要求非空剧情梗概')
+
+    const specMatch = mainSrc.match(/function petAgentSpec[\s\S]*?\n}/)
+    ok(!!specMatch, 'main.cjs 含 petAgentSpec 纯函数')
+    if (specMatch) {
+      const makeSpec = vm.runInContext('(' + specMatch[0] + ')', sandbox)
+      const spec = makeSpec('comic', { pageCount: 5, panelCount: 12, story: '剧情', castText: '角色档案' })
+      ok(spec.system.includes('每页只生成一张图片') && spec.system.includes('禁止为每格单独生成图片') && spec.system.includes('禁止用 CSS 或前端气泡拼装漫画页'), 'comic 提示词明确唯一整页图片而非分格图片/CSS 拼装')
+      ok(spec.system.includes('所有中文对白、气泡与旁白文字') && spec.system.includes('必须由图像模型直接画进该页唯一图片'), 'comic 提示词要求图像模型绘制全部对白与旁白')
+      ok(spec.system.includes('panels 的每个条目是一整页，不是单格') && spec.system.includes('fullPage:true（布尔值）') && ['"composition"', '"beats"', '"description"', '"caption"'].every(key => spec.system.includes(key)), 'comic 提示词定义完整新 schema 与严格布尔 fullPage')
+      ok(['hero(', 'wide(', 'tall(', 'square('].every(size => spec.system.includes(size)), 'comic 提示词保留格内四种尺寸契约')
+      ok(spec.system.includes('优先每页 2~6 个') && spec.system.includes('不要固定四宫格') && spec.system.includes('完整的叙事落点'), 'comic 提示词要求可变格数与完整叙事落点')
+      ok(['本页准确格数', '必须与 beats.length 完全一致', '布局逐格对应 beats', '不添加额外分格', '或新剧情'].every(text => spec.system.includes(text)), 'comic composition 必须与 beats 数量及内容逐格一致，不额外插格或加戏')
+      ok(['平稳镜头、留白和规整分格', '不强迫斜向分格、动作姿势或夸张透视', '只有剧情确有运动或冲突时', '安静场景保持安静'].every(text => spec.system.includes(text)), 'comic 融合构图服务剧情，安静场景不被强制动作化')
+      ok(['60~90 个英文单词', '不超过 900 字符', 'character bible', '已知年龄或年龄阶段', '脸部特征', '发型发色', '身体轮廓与比例', '服装剪裁和材质', '2~3 个', '稳定视觉锚点'].every(text => spec.system.includes(text)) && !spec.system.includes('look 为 40 词内'), 'comic 角色设定扩展为有辨识度的 60~90 词英文视觉档案')
+      ok(['以给定角色档案和剧情为依据', '不得凭角色名或模型记忆编造原作设定', '不得更改已知年龄、族裔、种族、性别', '不得把儿童画成成人', '未知年龄不猜具体岁数', '只对素材未说明的视觉细节', '克制合理设计', '不将补足当作原作事实'].every(text => spec.system.includes(text)), 'comic 角色设计尊重素材与身份事实，仅克制补足未知细节')
+      ok(['复用其固定外貌和稳定锚点', '不重新设计', '只在对应 beat 中准确体现'].every(text => spec.system.includes(text)), 'comic 续画复用已绘角色，剧情外观变化局限对应 beat')
+      ok(['beats.description 必须用英文', '一个可直接画出的瞬间', '镜头景别和视角', 'blocking', '动作或静止姿态', '细微表情与视线', '光源与明暗', '不要在一格中串联先后多个动作', '不用抽象心理或剧情总结', '不凭空添加打斗、奔跑、魔法或夸张动作'].every(text => spec.system.includes(text)), 'comic 英文 description 明确单一可画瞬间的镜头、站位、动作、表情与光照')
+      ok(spec.system.includes('look 与 description 使用英文，dialogue.line 与 caption 保持中文'), 'comic 视觉提示使用英文而对白旁白保留中文')
+      ok(spec.system.includes('本页剧情梗概') && spec.system.includes('不是需要印在画面上的旁白') && spec.system.includes('beats 的最大 turn') && spec.system.includes('不能填页码'), 'comic 提示词区分页梗概与格内旁白，并定义页结束回合')
+      ok(spec.system.includes('接近 5 页') && spec.user.includes('目标 5 页') && spec.user.includes('剧情') && spec.user.includes('角色档案'), 'comic pageCount 优先于 panelCount，素材仍传递')
+      const bounded = makeSpec('comic', { story: 's'.repeat(24001), castText: 'c'.repeat(6001) })
+      ok(bounded.user.includes('s'.repeat(24000)) && !bounded.user.includes('s'.repeat(24001)) && bounded.user.includes('c'.repeat(6000)) && !bounded.user.includes('c'.repeat(6001)), 'comic 剧情 24000 与角色输入 6000 字符上限保持不变')
+      const prior = '【已绘角色设定】旅人：' + bible + '\n【当前角色档案】旅人安静地等候。'
+      ok(makeSpec('comic', { castText: prior }).user.includes(prior), 'comic 上限内已绘设定与当前角色档案原样传入')
+      const fallback = makeSpec('comic', { panelCount: 12 })
+      ok(fallback.system.includes('接近 12 页') && fallback.user.includes('目标 12 页'), 'comic 旧 panelCount 输入回退为页数目标')
+      ok(makeSpec('comic', {}).user.includes('目标 16 页') && makeSpec('comic', { pageCount: 'bad', panelCount: 4 }).user.includes('目标 4 页'), 'comic 缺省 16 页且非法 pageCount 回退')
+    }
   }
 }
 

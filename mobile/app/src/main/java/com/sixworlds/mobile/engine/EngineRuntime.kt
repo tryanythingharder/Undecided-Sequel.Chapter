@@ -52,6 +52,25 @@ class EngineRuntime(context: Context) {
         runtime = null
     }
 
+    suspend fun exportFiles(storyId: String): JSONObject = withContext(dispatcher) {
+        runtime?.let { applyFlush(it) }
+        val result = JSONObject()
+        var total = 0
+        engineDir.walkTopDown().filter { it.isFile && it.extension == "json" }.forEach { file ->
+            val rel = file.relativeTo(engineDir).invariantSeparatorsPath
+            val included = rel == "stories/$storyId.json" || rel == "stories/$storyId.meta.json" ||
+                rel.startsWith("snapshots/$storyId/") || rel.startsWith("logs/$storyId/") || rel.startsWith("pendings/$storyId.")
+            if (included) {
+                require(file.length() <= EngineImportPolicy.MAX_FILE_BYTES) { "单个引擎文件过大，无法导出" }
+                val content = file.readText(Charsets.UTF_8)
+                total += content.toByteArray(Charsets.UTF_8).size
+                require(total <= EngineImportPolicy.MAX_TOTAL_BYTES && result.length() < EngineImportPolicy.MAX_FILES) { "进度包过大" }
+                result.put(rel, content)
+            }
+        }
+        result
+    }
+
     /** 写入进度包携带的引擎文件（严格限制在 story-engine 受支持目录），在 IO 线程调用 */
     fun importEngineFiles(files: org.json.JSONObject): Int {
         val pending = mutableListOf<Pair<File, String>>()
@@ -100,6 +119,7 @@ class EngineRuntime(context: Context) {
         val initJson = JSONObject(initResult)
         check(initJson.optBoolean("ok")) { "引擎初始化失败：${initJson.optString("error")}" }
         applyFlush(rt)
+        runtime = rt
         return rt
     }
 

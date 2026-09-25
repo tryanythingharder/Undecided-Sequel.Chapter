@@ -45,10 +45,14 @@ function createEngine(dataDir, opts) {
     const kernelVersion = kernelText ? 'sha1:' + crypto.createHash('sha1').update(String(kernelText)).digest('hex').slice(0, 12) : 'unknown'
     if (store.exists(storyId)) {
       const story = store.getStory(storyId)
-      return { story, created: false, kernel_version: story.kernel.version, kernel_match: story.kernel.version === kernelVersion, engine_version: ENGINE_VERSION }
+      const matches = story.kernel.version === kernelVersion
+      if (matches && !story.kernel.text && kernelText) { story.kernel.text = String(kernelText); store.saveStory(storyId) }
+      return { story, created: false, kernel_version: story.kernel.version, kernel_match: matches, kernel_text: story.kernel.text || '', engine_version: ENGINE_VERSION }
     }
     const story = store.createStory({ storyId, title, kernelId, kernelVersion, createdAt: Date.now() })
-    return { story, created: true, kernel_version: kernelVersion, kernel_match: true, engine_version: ENGINE_VERSION }
+    story.kernel.text = String(kernelText || '')
+    store.saveStory(storyId)
+    return { story, created: true, kernel_version: kernelVersion, kernel_match: true, kernel_text: story.kernel.text, engine_version: ENGINE_VERSION }
   }
 
   /* 显式内核迁移（须调用方明确意图） */
@@ -56,6 +60,7 @@ function createEngine(dataDir, opts) {
     const story = store.getStory(storyId)
     if (!story) throw new Error('story not found')
     story.kernel = { id: kernelId || story.kernel.id, version: 'sha1:' + crypto.createHash('sha1').update(String(kernelText || '')).digest('hex').slice(0, 12), bound_at: Date.now(), migrated_from: story.kernel.version }
+    story.kernel.text = String(kernelText || '')
     store.saveStory(storyId)
     return story.kernel
   }
@@ -71,8 +76,8 @@ function createEngine(dataDir, opts) {
    * 深拷贝若只改顶层 story_id，继承记录全部被过滤成不可见——必须逐账本重戳归属戳。
    * 派生数据不动：sessions 登记簿/懒索引清零，vector 索引由下次 flush 重建（onAfterFlush 只增不删）。 */
   const LEDGERS = ['decisions', 'commitments', 'knowledge', 'facts', 'events', 'causal', 'relationships', 'threads', 'entities']
-  engine.cloneStory = ({ storyId, targetId, title }) => {
-    const src = store.getStory(storyId)
+  engine.cloneStory = ({ storyId, targetId, title, snapshotId }) => {
+    const src = snapshotId ? restoreSnapshot(store, storyId, snapshotId) : store.getStory(storyId)
     if (!src) throw new Error('story not found: ' + storyId)
     if (store.getStory(targetId)) throw new Error('target story already exists: ' + targetId)
     const cp = JSON.parse(JSON.stringify(src))
@@ -91,6 +96,18 @@ function createEngine(dataDir, opts) {
     if (cp.scene) cp.scene.turn_started = null
     cp._nameIndex = null // JSON 克隆把 Map 退化成 {}，置空由 nameIndex() 懒重建
     store.putStory(targetId, cp) // 深拷贝对象直接入缓存并落盘（saveStory 只标脏不接收对象）
+    if (snapshotId) {
+      const boundary = store.readSnapshot(storyId, snapshotId)
+      for (const item of store.listSnapshots(storyId)) {
+        if (item.created_at > boundary.created_at || item.snapshot_id > snapshotId) continue
+        const inherited = store.readSnapshot(storyId, item.snapshot_id)
+        inherited.story_id = targetId
+        inherited.state.story_id = targetId
+        inherited.state.title = cp.title
+        for (const key of LEDGERS) for (const rec of inherited.state[key] || []) rec.story_id = targetId
+        store.writeSnapshot(targetId, item.snapshot_id, inherited)
+      }
+    }
     store._dropRetrCache(targetId) // 派生缓存已按新 story_id 就位，丢掉懒索引避免 retr 槽带着母线版本串台
     return stateOverview(cp)
   }
@@ -160,7 +177,7 @@ function createEngine(dataDir, opts) {
       narrative: String(narrative || '').slice(0, 20000),
       patch_error: String(patchError || '').slice(0, 500),
       retry_count: Number(retryCount) || 0,
-      current_state_version: Number(stateVersion) != null ? Number(stateVersion) : story.counters.turn,
+      current_state_version: stateVersion != null && Number.isFinite(Number(stateVersion)) ? Number(stateVersion) : story.counters.turn,
       turn_id: turnId || null,
       status: 'PENDING_COMMIT',
       created_at: Date.now(),
@@ -176,7 +193,7 @@ function createEngine(dataDir, opts) {
     if (!pc) throw new Error('pending not found: ' + pendingId)
     if (pc.story_id !== storyId) throw new Error('cross-story pending resolve blocked: ' + pc.story_id + ' vs ' + storyId) // 条款 27 硬闸
     const r = commitFromRaw(engine, raw, { storyId, sessionId: pc.session_id, playerInput: pc.player_input, intent: String(pc.player_input || '').slice(0, 200), rawOutput: raw })
-    if (r.ok && r.committed) {
+    if (r.ok && (r.committed || r.patch_status === 'NO_STATE_CHANGE')) {
       store.deletePending(storyId, pendingId)
       return { resolved: true, result: r }
     }
@@ -194,17 +211,24 @@ function createEngine(dataDir, opts) {
     return { discarded: true }
   }
 
-  engine.snapshot = (storyId, label) => {
+  engine.snapshot = (storyId, label, automatic) => {
     const story = store.getStory(storyId)
     if (!story) throw new Error('story not found')
-    return createSnapshot(store, story, label)
+    return createSnapshot(store, story, label, automatic)
   }
   engine.restoreSnapshot = (storyId, snapshotId) => {
     const story = restoreSnapshot(store, storyId, snapshotId)
+    const current = store.getStory(storyId)
+    story.counters.pending_seq = Math.max(story.counters.pending_seq || 0, current.counters.pending_seq || 0)
+    story.counters.snapshot = Math.max(story.counters.snapshot || 0, current.counters.snapshot || 0)
     store.replaceStory(storyId, story)
+    const boundary = store.readSnapshot(storyId, snapshotId)
+    for (const pc of store.listPendings(storyId)) {
+      if (pc.created_at >= boundary.created_at) store.deletePending(storyId, pc.pending_id)
+    }
     return story
   }
-  engine.listSnapshots = (storyId) => store.listSnapshots(storyId)
+  engine.listSnapshots = (storyId) => store.listSnapshots(storyId).filter((s) => !s.automatic)
 
   engine.turnLogs = (storyId) => store.listTurnLogs(storyId)
   engine.turnLog = (storyId, turnId) => store.readTurnLog(storyId, turnId)

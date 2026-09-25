@@ -81,10 +81,9 @@ jobs:
           distribution: temurin
           java-version: 17
           cache: gradle
-      # setup-android（含 v4）内部仍请求已被 Google 下架的 tools 包，全局性失败；
-      # runner 预装完整 SDK，这里只需接受许可证即可
-      - name: Accept Android SDK licenses
-        run: yes | "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
       # Release APK 必须真签名（未签名无法安装）——密钥库 base64 解到 runner 临时目录，
       # 路径经 GITHUB_ENV 传给后续步骤，密钥库本体与密码绝不落仓库
       - name: 解码签名密钥库

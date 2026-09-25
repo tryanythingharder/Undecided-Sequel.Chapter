@@ -14,7 +14,8 @@ protocol.registerSchemesAsPrivileged([{
 // 绝不会清掉/覆盖用户手工配置的模型与密钥。
 if (process.env.SIXWORLDS_TEST || process.env.SIXWORLDS_STORAGE_TEST) {
   const profile = process.env.SIXWORLDS_STORAGE_TEST ? 'test-profile-storage' : 'test-profile'
-  app.setPath('userData', path.join(app.getPath('userData'), profile))
+  const testRoot = (process.env.SIXWORLDS_TEST === '1' || process.env.SIXWORLDS_STORAGE_TEST === '1') && process.env.SIXWORLDS_TEST_USER_DATA
+  app.setPath('userData', testRoot ? path.resolve(testRoot) : path.join(app.getPath('userData'), profile))
 }
 
 const KERNEL_DEFAULT = path.join(__dirname, 'kernel.md')
@@ -23,12 +24,14 @@ const MAX_CONFIG_BYTES = 2 * 1024 * 1024
 const MAX_IMAGE_BYTES = 25 * 1024 * 1024
 const MAX_CHAT_RESPONSE_BYTES = 16 * 1024 * 1024
 const MAX_IMAGE_BATCH = 100
+const MAX_NEW_SESSION_IMAGES = 2000
 const MAX_SESSIONS_JSON_BYTES = 64 * 1024 * 1024
 /* 世界线上限（P2 数据丢失治理）：50 → 200。原 50 上限在渲染层是「保存时静默 slice(0,50)」——
  * 用户建到第 51 条即被无声丢弃（重启后消失），QA 数据丢失风险表 D4 实锤。实测约 8KB/条
  * （不含插图，插图为磁盘外置），200 条 ≈ 1.6MB，距 64MB 硬闸有充分余量。
  * 治理原则：上限只防无界增长，超限必须显式报错（用户可删除旧线），永不静默截断。 */
 const MAX_SESSIONS = 200
+let desktopBusy = false
 let win = null
 let settingsWin = null
 
@@ -45,6 +48,22 @@ function atomicWriteFile(file, data) {
       throw renameError
     }
   }
+}
+
+/* 进度导入的故障注入只在隔离测试档案中生效：用于验证引擎文件、SQLite、JSON 镜像和
+ * desktop-context 任一提交点失败时，归档回滚仍能恢复同一份完整状态。生产环境忽略该变量。 */
+const progressImportFailures = new Set()
+function maybeFailProgressImport(stage) {
+  if (process.env.SIXWORLDS_TEST !== '1') return
+  if (process.env.SIXWORLDS_TEST_IMPORT_FAIL !== stage || progressImportFailures.has(stage)) return
+  progressImportFailures.add(stage)
+  throw new Error('测试注入：导入写入失败（' + stage + '）')
+}
+
+async function maybeDelayProgressImport() {
+  if (process.env.SIXWORLDS_TEST !== '1') return
+  const delay = Number(process.env.SIXWORLDS_TEST_IMPORT_DELAY_MS || 0)
+  if (Number.isFinite(delay) && delay > 0 && delay <= 5000) await new Promise((resolve) => setTimeout(resolve, delay))
 }
 
 function readTextFileLimited(file, maxBytes, label) {
@@ -150,30 +169,45 @@ function externalizeSessions(input) {
   if (input.length > MAX_SESSIONS) throw new Error('世界线数量超过上限（' + MAX_SESSIONS + '）——请先删除不需要的旧世界线再保存')
   const sessions = JSON.parse(JSON.stringify(input))
   const assets = new Set()
-  let imageCount = 0
-  // 图片外置目标收集器：消息插图与漫画分镜共用同一套落盘/去重/闸门
-  // （sig 为 true 时该字段已外置过，需校验文件存在；为 false 时本次外置）
-  const collectImages = (holder, sessionDir, isAsset) => {
-    if (!holder.illust) { delete holder.illustAsset; return }
-    let rel = imageAssetRel(holder.illust)
+  const pendingImages = new Map()
+  // 图片外置目标收集器：消息插图与漫画分镜共用同一套落盘/去重/闸门。
+  // 多图：holder.illusts 是本次生成的有效图列表；holder.illust 仍作为首图别名。
+  // 外置后一律以 illustAssets（rel 数组）落盘，illustAsset 保留首图 rel（旧读取路径兼容）。
+  const collectOne = (value, sessionDir) => {
+    let rel = imageAssetRel(value)
     if (!rel) {
-      const img = dataUrlImage(holder.illust)
+      const img = dataUrlImage(value)
       const digest = hashText(img.buffer)
       rel = sessionDir + '/' + digest + '.' + img.ext
       const target = path.join(sessionImagesDir(), rel)
-      if (!fs.existsSync(target)) atomicWriteFile(target, img.buffer)
+      if (!fs.existsSync(target)) pendingImages.set(rel, img.buffer)
     } else {
       resolveImageAsset(rel)
     }
-    imageCount++
-    if (imageCount > 2000) throw new Error('插图数量超过上限（2000）')
     assets.add(rel)
-    holder.illustAsset = rel
+    if (pendingImages.size > MAX_NEW_SESSION_IMAGES) throw new Error('本次新增插图超过上限（' + MAX_NEW_SESSION_IMAGES + '）')
+    return rel
+  }
+  const collectImages = (holder, sessionDir) => {
+    // 优先 illusts（多图）；没有则回落 illust（旧存档/旧调用方）。两边都空则清掉外置引用。
+    const raw = Array.isArray(holder.illusts) && holder.illusts.length
+      ? holder.illusts.filter((u) => typeof u === 'string' && u)
+      : (holder.illust ? [holder.illust] : [])
+    if (!raw.length) {
+      delete holder.illust
+      delete holder.illustAsset
+      delete holder.illustAssets
+      return
+    }
+    const rels = raw.map((u) => collectOne(u, sessionDir))
+    holder.illustAssets = rels
+    holder.illustAsset = rels[0]
     delete holder.illust
+    delete holder.illusts
   }
   for (const session of sessions) {
     if (!session || typeof session !== 'object' || !Array.isArray(session.messages)) throw new Error('会话数据不完整')
-    if (session.messages.length > 5000) throw new Error('单条世界线消息过多')
+    if (session.messages.length > 50000) throw new Error('单条世界线消息超过 50,000 条，请先存档后另开章节世界线')
     const sessionDir = hashText(session.id || 'unknown').slice(0, 24)
     for (const message of session.messages) {
       if (!message || typeof message !== 'object') continue
@@ -189,6 +223,10 @@ function externalizeSessions(input) {
   }
   const json = JSON.stringify({ v: 1, sessions })
   if (Buffer.byteLength(json) > MAX_SESSIONS_JSON_BYTES) throw new Error('会话文本数据过大（上限 64MB，不含插图）')
+  for (const [rel, buffer] of pendingImages) {
+    const target = path.join(sessionImagesDir(), rel)
+    if (!fs.existsSync(target)) atomicWriteFile(target, buffer)
+  }
   return { sessions, assets, json }
 }
 
@@ -197,15 +235,36 @@ function hydrateSessions(stored) {
   for (const session of sessions) {
     if (!session || !Array.isArray(session.messages)) continue
     const hydrateOne = (holder) => {
-      if (!holder || !holder.illustAsset) return
-      try {
-        resolveImageAsset(holder.illustAsset)
-        holder.illust = imageAssetUrl(holder.illustAsset)
-      } catch {
-        delete holder.illust
-        delete holder.illustAsset
-        holder.illustError = '本地插图文件缺失或损坏'
+      if (!holder) return
+      // 多图：优先 illustAssets 数组；旧存档只有 illustAsset（首图）→ 视作单元素数组。
+      const rels = Array.isArray(holder.illustAssets) && holder.illustAssets.length
+        ? holder.illustAssets.slice()
+        : (holder.illustAsset ? [holder.illustAsset] : [])
+      if (!rels.length) return
+      const urls = []
+      const keptRels = []
+      let missing = 0
+      for (const rel of rels) {
+        try {
+          resolveImageAsset(rel)
+          keptRels.push(rel)
+          urls.push(imageAssetUrl(rel))
+        } catch { missing++ }
       }
+      if (!urls.length) {
+        delete holder.illust
+        delete holder.illusts
+        delete holder.illustAsset
+        delete holder.illustAssets
+        holder.illustError = '本地插图文件缺失或损坏'
+        return
+      }
+      holder.illusts = urls
+      holder.illust = urls[0] // 首图别名：旧渲染路径继续可用
+      // 只把存活的文件留在引用里，避免后续 cleanupSessionImages 反复报缺失
+      holder.illustAssets = keptRels
+      holder.illustAsset = keptRels[0]
+      if (missing) holder.illustError = missing + ' 张插图文件缺失或损坏'
     }
     for (const message of session.messages) hydrateOne(message)
     if (session.comic && Array.isArray(session.comic.panels)) {
@@ -223,7 +282,9 @@ function progressSessions(input) {
       if (!message) continue
       // 移动端进度包只同步叙事与结构化状态；插图留在桌面图库，避免数百 MB 的 base64 JSON。
       delete message.illust
+      delete message.illusts
       delete message.illustAsset
+      delete message.illustAssets
     }
   }
   return sessions
@@ -322,7 +383,7 @@ function createWindow() {
   })
   // 生成中关闭确认（渲染层 busy 时通过 'chat:busy' 查询）：避免误关丢掉正在生成的回合
   let rendererBusy = false
-  ipcMain.on('chat:busy', (_e, v) => { rendererBusy = !!v })
+  ipcMain.on('chat:busy', (_e, v) => { rendererBusy = !!v; desktopBusy = !!v })
   win.on('close', async (e) => {
     if (!rendererBusy) return
     e.preventDefault()
@@ -512,6 +573,7 @@ app.whenReady().then(() => {
       return new Response('Not found', { status: 404 })
     }
   })
+  const startupTime = Date.now()
   createWindow()
   // R85：孤儿引擎数据清理——历史版本删除会话不清理引擎侧（故事/快照/Pending/日志/向量），
   // 实测残留 10 个孤儿故事占 6.6MB。启动时对照会话库级联删除；会话库不可读/为空时跳过（保守守卫）
@@ -529,7 +591,7 @@ app.whenReady().then(() => {
       const eng = engineFor()
       for (const m of eng.listStories()) {
         const sid = m.story_id || m.id
-        if (sid && !live.has(String(sid))) eng.deleteStory(sid)
+        if (sid && !live.has(String(sid)) && Number(m.updated_at || m.created_at || 0) < startupTime) eng.deleteStory(sid)
       }
     } catch { /* 清理失败不影响启动 */ }
   }, 8000)
@@ -661,6 +723,43 @@ function sessionsDbFor() {
 }
 
 let sessionSaveQueue = Promise.resolve()
+const { createArchiveStore } = require('./engine/archive-store')
+let archiveStore = null
+const archivesFor = () => archiveStore || (archiveStore = createArchiveStore(app.getPath('userData')))
+const desktopContextFile = () => path.join(app.getPath('userData'), 'desktop-context.json')
+function readDesktopContext() {
+  try {
+    const raw = JSON.parse(fs.readFileSync(desktopContextFile(), 'utf8'))
+    const workspaces = Array.isArray(raw?.workspaces) ? raw.workspaces
+      .filter((w) => w && typeof w.id === 'string' && typeof w.name === 'string')
+      .map((w) => ({ id: w.id, name: w.name, createdAt: w.createdAt, lastSessionId: w.lastSessionId, kernelId: w.kernelId, kernelPath: w.kernelPath })) : []
+    const current = raw?.current && typeof raw.current === 'object' ? {
+      currentWsId: typeof raw.current.currentWsId === 'string' ? raw.current.currentWsId : undefined,
+      currentSessionId: typeof raw.current.currentSessionId === 'string' ? raw.current.currentSessionId : undefined
+    } : {}
+    return { workspaces, current }
+  } catch { return { workspaces: [], current: {} } }
+}
+function writeDesktopContext(value) {
+  if (!value || !Array.isArray(value.workspaces)) return
+  const context = { workspaces: value.workspaces.filter((w) => w && typeof w.id === 'string' && typeof w.name === 'string').map((w) => ({ id: w.id, name: w.name, createdAt: w.createdAt, lastSessionId: w.lastSessionId, kernelId: w.kernelId, kernelPath: w.kernelPath })), current: { currentWsId: value.current?.currentWsId, currentSessionId: value.current?.currentSessionId } }
+  atomicWriteFile(desktopContextFile(), JSON.stringify(context))
+}
+function storedSessionDocument() {
+  const db = sessionsDbFor()
+  const record = db.enabled ? db.load() : null
+  if (record) return record.doc
+  if (fs.existsSync(sessionsFile())) return JSON.parse(readTextFileLimited(sessionsFile(), MAX_SESSIONS_JSON_BYTES, '会话文件'))
+  return { v: 1, sessions: [] }
+}
+function archiveCurrent(label, kind = 'manual') {
+  const doc = storedSessionDocument()
+  return archivesFor().create({ sessions: Array.isArray(doc) ? doc : doc.sessions, ...readDesktopContext(), label, kind })
+}
+function queueSessionOperation(task) {
+  sessionSaveQueue = sessionSaveQueue.then(task, task)
+  return sessionSaveQueue.catch((error) => ({ ok: false, error: error.message || String(error) }))
+}
 ipcMain.handle('sessions:load', async () => {
   try {
     const db = sessionsDbFor()
@@ -672,7 +771,7 @@ ipcMain.handle('sessions:load', async () => {
         let stored = Array.isArray(doc) ? doc : doc && doc.sessions
         if (!Array.isArray(stored)) throw new Error('会话库格式不正确')
         if (stored.length > MAX_SESSIONS) stored = stored.slice().sort((a, b) => Number((b && b.updatedAt) || 0) - Number((a && a.updatedAt) || 0)).slice(0, MAX_SESSIONS) // 超限库（异常现场）：照常载入，按 updatedAt 截旧保新——拒载会让渲染层回退空数据
-        return { ok: true, exists: true, sessions: hydrateSessions(stored), storage: 'sqlite' }
+        return { ok: true, exists: true, sessions: hydrateSessions(stored), storage: 'sqlite', context: readDesktopContext() }
       }
       // 2) 一次性迁移：主存为空且旧 JSON 存在 → 导入主存（JSON 镜像保留不删）
       const file = sessionsFile()
@@ -683,7 +782,7 @@ ipcMain.handle('sessions:load', async () => {
         if (!Array.isArray(stored)) throw new Error('会话文件格式不正确')
         if (stored.length > MAX_SESSIONS) stored = stored.slice().sort((a, b) => Number((b && b.updatedAt) || 0) - Number((a && a.updatedAt) || 0)).slice(0, MAX_SESSIONS) // 超限库：照常载入，按 updatedAt 截旧保新
         db.importDoc(Array.isArray(doc) ? { v: 1, sessions: stored } : doc)
-        return { ok: true, exists: true, sessions: hydrateSessions(stored), storage: 'migrated' }
+        return { ok: true, exists: true, sessions: hydrateSessions(stored), storage: 'migrated', context: readDesktopContext() }
       }
       return { ok: true, exists: false, sessions: [], storage: 'empty' }
     }
@@ -695,18 +794,22 @@ ipcMain.handle('sessions:load', async () => {
     let stored = Array.isArray(doc) ? doc : doc.sessions
     if (!Array.isArray(stored)) throw new Error('会话文件格式不正确')
     if (stored.length > MAX_SESSIONS) stored = stored.slice().sort((a, b) => Number((b && b.updatedAt) || 0) - Number((a && a.updatedAt) || 0)).slice(0, MAX_SESSIONS) // 超限库：照常载入，按 updatedAt 截旧保新
-    return { ok: true, exists: true, sessions: hydrateSessions(stored), storage: 'file' }
+    return { ok: true, exists: true, sessions: hydrateSessions(stored), storage: 'file', context: readDesktopContext() }
   } catch (e) {
     return { ok: false, error: String((e && e.message) || e) }
   }
 })
 
-ipcMain.handle('sessions:save', (_evt, input) => {
+ipcMain.handle('sessions:save', (_evt, input, context) => {
   const task = async () => {
+    const old = storedSessionDocument()
+    const previous = Array.isArray(old) ? old : old.sessions || []
+    if (Array.isArray(input) && previous.some((s) => !input.some((next) => next && next.id === s.id))) archiveCurrent('删除世界线前', 'before-delete')
     const data = externalizeSessions(input)
     const db = sessionsDbFor()
     if (db.enabled) db.importDoc({ v: 1, sessions: data.sessions })
     atomicWriteFile(sessionsFile(), data.json) // JSON 镜像：兼容面保留（移动端工具/人工恢复）
+    writeDesktopContext(context)
     cleanupSessionImages(data.assets)
     return { ok: true, count: data.sessions.length, images: data.assets.size }
   }
@@ -716,6 +819,8 @@ ipcMain.handle('sessions:save', (_evt, input) => {
 
 ipcMain.handle('sessions:clear', async () => {
   const task = async () => {
+    if (desktopBusy) throw new Error('请等待当前生成与记忆保存完成')
+    if ((storedSessionDocument().sessions || []).length) archiveCurrent('清空世界线前', 'before-delete')
     const db = sessionsDbFor()
     if (db.enabled) db.clear()
     const file = sessionsFile()
@@ -726,6 +831,44 @@ ipcMain.handle('sessions:clear', async () => {
   sessionSaveQueue = sessionSaveQueue.then(task, task)
   return sessionSaveQueue.catch((e) => ({ ok: false, error: String((e && e.message) || e) }))
 })
+
+ipcMain.handle('archives:list', () => { try { return { ok: true, items: archivesFor().list() } } catch (error) { return { ok: false, error: error.message } } })
+ipcMain.handle('archives:create', (_event, payload) => queueSessionOperation(async () => {
+  if (desktopBusy) throw new Error('请等待当前生成与记忆保存完成')
+  writeDesktopContext(payload)
+  return { ok: true, archive: archiveCurrent(payload?.label || '手动存档') }
+}))
+ipcMain.handle('archives:restore', (_event, payload) => queueSessionOperation(async () => {
+  if (desktopBusy) throw new Error('请等待当前生成与记忆保存完成')
+  const current = storedSessionDocument()
+  const restored = archivesFor().restore(payload.id, { sessions: Array.isArray(current) ? current : current.sessions, ...readDesktopContext() }, (doc) => {
+    const db = sessionsDbFor()
+    if (db.enabled) db.importDoc({ v: 1, sessions: doc.sessions })
+    atomicWriteFile(sessionsFile(), JSON.stringify({ v: 1, sessions: doc.sessions }))
+    writeDesktopContext(doc)
+  }, () => { if (storyEngine) { storyEngine.close(); storyEngine = null } })
+  const restoredPayload = { archiveRestored: true, sessions: hydrateSessions(restored.doc.sessions), workspaces: restored.doc.workspaces, current: restored.doc.current }
+  if (win && !win.isDestroyed()) win.webContents.send('cfg:updated', restoredPayload)
+  return { ok: true, rollbackId: restored.rollbackId }
+}))
+ipcMain.handle('archives:export', async (event, payload) => {
+  try {
+    const testPath = process.env.SIXWORLDS_TEST === '1' && (payload.__testPath || process.env.SIXWORLDS_TEST_ARCHIVE_EXPORT_PATH)
+    const selected = testPath ? { filePath: testPath } : await dialog.showSaveDialog(windowForEvent(event), { title: '导出完整存档', defaultPath: '六面世界.swarchive', filters: [{ name: '六面世界完整存档', extensions: ['swarchive'] }] })
+    if (!selected.filePath) return { ok: false, canceled: true }
+    archivesFor().exportFile(payload.id, selected.filePath)
+    return { ok: true }
+  } catch (error) { return { ok: false, error: error.message } }
+})
+ipcMain.handle('archives:import', async (event, payload) => {
+  try {
+    const testPath = process.env.SIXWORLDS_TEST === '1' && (payload?.__testPath || process.env.SIXWORLDS_TEST_ARCHIVE_IMPORT_PATH)
+    const selected = testPath ? { filePaths: [testPath] } : await dialog.showOpenDialog(windowForEvent(event), { title: '导入完整存档', properties: ['openFile'], filters: [{ name: '六面世界完整存档', extensions: ['swarchive'] }] })
+    if (!selected.filePaths?.[0]) return { ok: false, canceled: true }
+    return { ok: true, archive: archivesFor().importFile(selected.filePaths[0]) }
+  } catch (error) { return { ok: false, error: error.message } }
+})
+ipcMain.handle('archives:delete', (_event, payload) => queueSessionOperation(async () => { archivesFor().remove(payload.id); return { ok: true } }))
 
 ipcMain.handle('image:readDataUrl', (_evt, source) => {
   try {
@@ -797,17 +940,18 @@ function validateEnginePayload(channel, payload) {
     if (payload[key] != null && Buffer.byteLength(String(payload[key])) > MAX_CHAT_RESPONSE_BYTES) throw new Error(key + ' 过大')
   }
 }
-const safeHandle = (ch, fn) => ipcMain.handle(ch, async (_e, payload) => {
+const safeHandle = (ch, fn, { flat = false } = {}) => ipcMain.handle(ch, async (_e, payload) => {
   try {
     const value = payload || {}
-    validateEnginePayload(ch, value)
-    return { ok: true, data: await fn(value) }
+    if (ch.startsWith('engine:')) validateEnginePayload(ch, value)
+    const data = await fn(value)
+    return flat ? data : { ok: true, data }
   }
   catch (e) { return { ok: false, error: String((e && e.message) || e) } }
 })
 safeHandle('engine:ensure', (p) => {
   const r = engineFor().ensureStory(p)
-  return { story_id: p.storyId, created: r.created, kernel_version: r.kernel_version, kernel_match: r.kernel_match, turn: r.story.counters.turn }
+  return { story_id: p.storyId, created: r.created, kernel_version: r.kernel_version, kernel_match: r.kernel_match, kernel_text: r.kernel_text, turn: r.story.counters.turn }
 })
 safeHandle('engine:context', (p) => {
   // 条款 6/7/8：玩家 IPC 路径强制 PLAYER 级别 —— 渲染层传入的 includeSecrets/accessLevel 一律不授予秘密。
@@ -824,7 +968,7 @@ safeHandle('engine:commit', (p) => {
     retrievedIds: p.retrievedIds, contextSize: p.contextSize
   })
   // 条款 15/18/19/28：未正式提交且非显式 NO_STATE_CHANGE → 落 Pending Commit（重启可恢复）
-  if (r.committed) {
+  if (r.ok && (r.committed || r.patch_status === 'NO_STATE_CHANGE')) {
     if (p.pendingId) { try { eng.discardPending({ storyId: p.storyId, pendingId: p.pendingId }); r.pending_resolved = true } catch {} }
     return r
   }
@@ -855,9 +999,14 @@ safeHandle('engine:pendings', (p) => engineFor().listPendings(p.storyId))
 safeHandle('engine:resolvePending', (p) => engineFor().resolvePending({ storyId: p.storyId, pendingId: p.pendingId, raw: p.raw }))
 safeHandle('engine:discardPending', (p) => engineFor().discardPending({ storyId: p.storyId, pendingId: p.pendingId }))
 safeHandle('engine:deleteStory', (p) => { engineFor().deleteStory(p.storyId); return { deleted: true } })
-safeHandle('engine:cloneStory', (p) => engineFor().cloneStory({ storyId: p.storyId, targetId: p.targetId, title: p.title })) // IF 分歧线继承母线状态（R85） // 删除会话级联清理引擎数据（R85：防孤儿累积）
+safeHandle('engine:cloneStory', (p) => engineFor().cloneStory({ storyId: p.storyId, targetId: p.targetId, title: p.title, snapshotId: p.snapshotId }))
 safeHandle('engine:overview', (p) => engineFor().overview(p.storyId))
-safeHandle('engine:snapshot', (p) => engineFor().snapshot(p.storyId, p.label))
+safeHandle('engine:memory', (p) => require('./engine/player-memory').readMemory(engineFor().getStory(p.storyId)))
+safeHandle('engine:correctMemory', (p) => {
+  if (desktopBusy) throw new Error('请等待当前回合与记忆保存完成')
+  return require('./engine/player-memory').correctMemory(engineFor(), p)
+})
+safeHandle('engine:snapshot', (p) => engineFor().snapshot(p.storyId, p.label, p.automatic))
 safeHandle('engine:snapshots', (p) => engineFor().listSnapshots(p.storyId))
 safeHandle('engine:restore', (p) => {
   engineFor().restoreSnapshot(p.storyId, p.snapshotId)
@@ -948,7 +1097,7 @@ const KERNEL_SLUG_RE = /^[\w\u4e00-\u9fa5-]+$/
 const kernelSlug = (s) => String(s || '').trim().toLowerCase()
   .replace(/[\\/:*?"<>|\s]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60)
 
-ipcMain.handle('kernels:list', async () => {
+function listKernelLibrary() {
   const out = []
   for (const b of BUILTIN_KERNELS) {
     try {
@@ -968,9 +1117,11 @@ ipcMain.handle('kernels:list', async () => {
   } catch { /* 目录读取失败忽略 */ }
   out.sort((a, b) => (b.mtime || 0) - (a.mtime || 0))
   return { ok: true, kernels: out }
-})
+}
 
-ipcMain.handle('kernels:read', async (_evt, id) => {
+ipcMain.handle('kernels:list', async () => listKernelLibrary())
+
+function readKernelLibrary(id) {
   try {
     const s = String(id || '')
     if (s.startsWith('builtin:')) {
@@ -989,7 +1140,62 @@ ipcMain.handle('kernels:read', async (_evt, id) => {
   } catch (e) {
     return { ok: false, error: String((e && e.message) || e) }
   }
+}
+
+ipcMain.handle('kernels:read', async (_evt, id) => readKernelLibrary(id))
+
+// 正式产品工具：全部复用隔离的 userData；作者沙盒和工作台不调用玩家 engineFor()。
+require('./engine/author-tools.cjs').register({
+  ipcMain,
+  dataRoot: app.getPath('userData'),
+  queue: queueSessionOperation,
+  kernelSource: { list: listKernelLibrary, read: readKernelLibrary }
 })
+// 主进程是调用账本唯一写入方；UI 只接收快照和提交报价，不回写全量账目。
+const runtimeService = require('./engine/runtime-service.cjs').register({
+  ipcMain, dataRoot: app.getPath('userData'), appInfo: { version: app.getVersion() },
+  dialog, windowForEvent,
+  onChanged: (snapshot) => {
+    for (const window of BrowserWindow.getAllWindows()) {
+      if (!window.isDestroyed() && !window.webContents.isDestroyed()) {
+        try { window.webContents.send('runtime:ledger-changed', snapshot) } catch { /* 关闭中的窗口不影响记账 */ }
+      }
+    }
+  }
+})
+
+// 一次实际网络尝试对应一笔；补录、自动参数回退和图片重试都走同一归属。
+// 不传 messages、prompt、密钥、URL 或原始异常到服务；记账故障不能吞掉生成结果。
+async function runtimeAttempt(kind, meta, execute) {
+  const handle = kind === 'image' ? runtimeService.trackImage(meta) : runtimeService.trackChat(meta)
+  let result
+  try {
+    result = await execute()
+    return result
+  } catch (error) {
+    result = { ok: false, aborted: error?.name === 'AbortError', errorCode: 'request-failed' }
+    throw error
+  } finally {
+    if (kind === 'image') runtimeService.finishImage(handle, result)
+    else runtimeService.finishChat(handle, result)
+  }
+}
+
+const experienceTools = require('./engine/experience-tools.cjs')
+experienceTools.register({
+  ipcMain,
+  dataRoot: app.getPath('userData'),
+  version: app.getVersion(),
+  // 渲染层仅提交阶段枚举；模块白名单归一，不读取或导出模型配置与密钥。
+  stage: (payload) => payload && payload.stage,
+  queue: queueSessionOperation,
+  saveFile: experienceTools.createDialogSaver({ dialog, windowForEvent })
+})
+const kernelWorkbench = require('./engine/kernel-workbench.js').createKernelWorkbenchHandlers(app.getPath('userData'))
+for (const [channel, handler] of Object.entries(kernelWorkbench.ipcHandlers)) {
+  // 工作台自行校验参数并返回扁平 { ok, ... }；不能套用 engine 的 storyId 校验。
+  safeHandle(channel, (payload) => queueSessionOperation(() => handler(null, payload)), { flat: true })
+}
 
 ipcMain.handle('kernels:save', async (_evt, payload) => {
   try {
@@ -1080,18 +1286,24 @@ ipcMain.handle('chat:send', async (_evt, cfg) => {
       pendingDelta += piece
       if (!deltaTimer) deltaTimer = setTimeout(flushDelta, 50)
     }
-    // 单次完整请求（fetch + 流式/非流式解析）；抽出便于「思考参数不被支持时」自动降级重试
+    // 单次完整请求（fetch + 流式/非流式解析）；抽出便于「思考参数不被支持时」自动降级重试。
+    // 请求体过大在触网前拦截，不能误记为模型调用；自动降级重试会重新序列化更新后的 payload。
     const runOnce = async () => {
-      // 注意：controller/reqId 必须声明在 try 之外 —— 外层 finally 要引用它们
-      const controller = new AbortController()
-      const reqId = String(cfg.reqId || '')
-      if (reqId) pendingChats.set(reqId, controller)
-      const timeout = setTimeout(() => controller.abort(), 240000)
-      try {
-      let res
       const requestBody = JSON.stringify(payload)
       if (Buffer.byteLength(requestBody) > MAX_CHAT_RESPONSE_BYTES) return { ok: false, error: '请求上下文过大（上限 16MB）' }
-      res = await fetch(endpoint, {
+      return runtimeAttempt('chat', {
+        model,
+        reqId: String(cfg.reqId || ''),
+        label: isSilentRetry ? 'state-patch-retry' : 'story'
+      }, async () => {
+        // 注意：controller/reqId 必须声明在 try 之外 —— 外层 finally 要引用它们
+        const controller = new AbortController()
+        const reqId = String(cfg.reqId || '')
+        if (reqId) pendingChats.set(reqId, controller)
+        const timeout = setTimeout(() => controller.abort(), 240000)
+        try {
+        let res
+        res = await fetch(endpoint, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -1110,30 +1322,54 @@ ipcMain.handle('chat:send', async (_evt, cfg) => {
         try { data = JSON.parse(body) } catch {
           return { ok: false, error: '非 JSON 响应 (' + res.status + '): ' + body.slice(0, 400) }
         }
-        if (!res.ok) {
-          return { ok: false, error: friendlyError(JSON.stringify(data && data.error ? data.error : (res.status + ' ' + body.slice(0, 400)))) }
-        }
-        const content = data && data.choices && data.choices[0] && data.choices[0].message
-          ? data.choices[0].message.content : ''
-        if (typeof content !== 'string') return { ok: false, error: '响应缺少文本内容' }
         const usage = data && data.usage && typeof data.usage === 'object' ? data.usage : null
-        return { ok: true, content, usage }
+        const cost = data?.cost ?? usage?.cost ?? null
+        if (!res.ok || data?.error) {
+          return { ok: false, usage, cost, error: friendlyError(JSON.stringify(data && data.error ? data.error : (res.status + ' ' + body.slice(0, 400)))) }
+        }
+        const content = data?.choices?.[0]?.message?.content
+        if (typeof content !== 'string' || !content) return { ok: false, usage, cost, error: '响应缺少文本内容' }
+        return { ok: true, content, usage, cost }
       }
 
       // 流式响应：逐行解析 SSE
       if (!res.ok) {
         const body = (await readResponseBufferLimited(res, 1024 * 1024, '错误响应')).toString('utf8')
         let errPayload = res.status + ' ' + body.slice(0, 400)
-        try { const j = JSON.parse(body); if (j && j.error) errPayload = JSON.stringify(j.error) } catch { /* 非 JSON 错误体，原样 */ }
-        // P1 错误归因：流式路径与非流式同等待遇（此前裸 HTTP 状态码直透渲染层）
-        return { ok: false, error: friendlyError(errPayload) }
+        let usage = null, cost = null
+        try {
+          const j = JSON.parse(body)
+          if (j && j.error) errPayload = JSON.stringify(j.error)
+          if (j?.usage && typeof j.usage === 'object') usage = j.usage
+          cost = j?.cost ?? usage?.cost ?? null
+        } catch { /* 非 JSON 错误体，原样 */ }
+        // HTTP 失败仍保留服务端实际计量，不把未知值写成零。
+        return { ok: false, usage, cost, error: friendlyError(errPayload) }
       }
       let full = ''
-      let usage = null
+      let usage = null, cost = null
+      let completed = false, streamError = false, malformed = false
       const reader = res.body.getReader()
       const decoder = new TextDecoder()
       let buf = ''
       let receivedBytes = 0
+      const consumeLine = (line) => {
+        const s = line.trim()
+        if (!s.startsWith('data:')) return
+        const chunk = s.slice(5).trim()
+        if (!chunk) return
+        if (chunk === '[DONE]') { completed = true; return }
+        let j
+        try { j = JSON.parse(chunk) } catch { malformed = true; return }
+        const choice = j?.choices?.[0]
+        const piece = typeof choice?.delta?.content === 'string' ? choice.delta.content : ''
+        if (piece) { full += piece; emit(piece) }
+        if (j?.usage && typeof j.usage === 'object') usage = j.usage
+        if ((j?.cost ?? j?.usage?.cost) != null) cost = j.cost ?? j.usage.cost
+        // 兼容以 finish_reason 明确完成的端点；单有正文/usage 并不代表流已完成。
+        if (choice?.finish_reason) completed = true
+        if (j?.error) streamError = true
+      }
       try {
         while (true) {
           const { done, value } = await reader.read()
@@ -1147,30 +1383,19 @@ ipcMain.handle('chat:send', async (_evt, cfg) => {
           if (buf.length > 2 * 1024 * 1024 && !buf.includes('\n')) throw new Error('流式响应单行过大')
           const lines = buf.split('\n')
           buf = lines.pop() // 末行可能不完整，留待下一块
-          for (const line of lines) {
-            const s = line.trim()
-            if (!s.startsWith('data:')) continue
-            const chunk = s.slice(5).trim()
-            if (!chunk || chunk === '[DONE]') continue
-            try {
-              const j = JSON.parse(chunk)
-              const delta = j && j.choices && j.choices[0] && j.choices[0].delta
-              const piece = delta && typeof delta.content === 'string' ? delta.content : ''
-              if (piece) { full += piece; emit(piece) }
-              // 末块常带 usage（choices 为空数组或省略）
-              if (j && j.usage && typeof j.usage === 'object') usage = j.usage
-            } catch { /* 跳过坏块 */ }
-          }
+          for (const line of lines) consumeLine(line)
         }
+        // 最后一个 SSE 行可能没有换行符，仍需解析完成标记/用量。
+        buf += decoder.decode()
+        if (buf.trim()) consumeLine(buf)
       } catch (e) {
-        // 中途取消（AbortController）→ 返回已累积的部分文本，标记 aborted
-        if (controller.signal.aborted) return { ok: true, aborted: true, content: full, usage }
-        // 网络中断但已有部分文本 → 保留（半段叙事总比全丢好），标记 aborted 让渲染层提示
-        if (full) return { ok: true, aborted: true, content: full, usage, partial: true }
-        throw e
+        if (controller.signal.aborted) return { ok: true, aborted: true, content: full, usage, cost }
+        // 断网仍保留已收到的正文和计量；空正文不意味着没有发生计费。
+        return { ok: !!full, aborted: !!full, partial: !!full, content: full, usage, cost, errorCode: 'stream-interrupted', error: '流式连接中断' }
       }
-      if (!full) return { ok: false, error: '流式响应中没有收到文本内容' }
-      return { ok: true, content: full, usage }
+      if (!full) return { ok: false, usage, cost, error: '流式响应中没有收到文本内容' }
+      if (!completed || streamError || malformed) return { ok: true, aborted: true, partial: true, content: full, usage, cost, errorCode: 'stream-incomplete', error: '流式响应未完整结束，已保留收到的内容' }
+      return { ok: true, content: full, usage, cost }
       } finally {
         clearTimeout(timeout)
         // 冲刷残余增量（保证最后一截文字在返回前送达渲染层），再清理 reqId
@@ -1178,6 +1403,7 @@ ipcMain.handle('chat:send', async (_evt, cfg) => {
         // 整个请求（含 SSE 流消费完毕或中断）结束后才清理，流式期间「停止生成」始终可命中
         if (reqId) pendingChats.delete(reqId)
       }
+    })
     }
 
     let result = await runOnce()
@@ -1262,63 +1488,90 @@ ipcMain.handle('image:generate', async (_evt, cfg) => {
     if (cfg.background === 'transparent' || cfg.background === 'opaque' || cfg.background === 'auto') payload.background = cfg.background
     // 额外参数（response_format 等），按需透传
     if (cfg.extra && typeof cfg.extra === 'object') Object.assign(payload, cfg.extra)
-    const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort(), 300000)
-    let res
-    let body
-    try {
-      res = await fetch(endpoint, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer ' + apiKey
-        },
-        body: JSON.stringify(payload),
-        signal: controller.signal
-      })
-      body = (await readResponseBufferLimited(res, MAX_IMAGE_BYTES * 2, '图像接口响应')).toString('utf8')
-    } finally {
-      clearTimeout(timeout)
-    }
-    let data
-    try { data = JSON.parse(body) } catch {
-      return { ok: false, error: '非 JSON 响应 (' + res.status + '): ' + body.slice(0, 400) }
-    }
-    if (!res.ok) {
-      return { ok: false, error: JSON.stringify(data && data.error ? data.error : (res.status + ' ' + body.slice(0, 400))) }
-    }
-    const item = data && data.data && data.data[0]
-    if (!item) return { ok: false, error: '响应中没有图像数据' }
-    // 计费信息（部分端点在响应里返回 usage.cost / cost，透传给渲染层展示）
-    const usage = data.usage && typeof data.usage === 'object' ? data.usage : null
-    const cost = (data.cost != null) ? data.cost : ((usage && usage.cost != null) ? usage.cost : null)
-    const billing = {}
-    if (usage) billing.usage = usage
-    if (cost != null) billing.cost = cost
-    // gpt-image 系列会内部改写提示词，revised_prompt 即模型实际作画依据——回传给调用方展示（排查「图与提示词不符」）
-    if (typeof item.revised_prompt === 'string' && item.revised_prompt.trim()) billing.revisedPrompt = item.revised_prompt.trim().slice(0, 2000)
-    if (item.b64_json) {
-      let mime = 'image/png'
-      if (model.includes('jpeg') || model.includes('Kolors')) mime = 'image/jpeg'
-      const img = dataUrlImage('data:' + mime + ';base64,' + item.b64_json)
-      return Object.assign({ ok: true, dataUrl: 'data:' + img.mime + ';base64,' + img.buffer.toString('base64') }, billing)
-    }
-    if (item.url) {
-      // 拉取远程图片转为 data URL
-      const remoteUrl = new URL(String(item.url))
-      if (!['http:', 'https:'].includes(remoteUrl.protocol)) return { ok: false, error: '图像地址协议不受支持' }
-      const imageController = new AbortController()
-      const imageTimeout = setTimeout(() => imageController.abort(), 60000)
+    // 账本只包裹真正会触网的请求：配置校验失败不会伪造一条调用记录；每个前端重试都会再次进入本 handler。
+    return runtimeAttempt('image', { model, label: 'image' }, async () => {
+      const controller = new AbortController()
+      const timeout = setTimeout(() => controller.abort(), 300000)
+      let res
+      let body
       try {
-        const imgRes = await fetch(remoteUrl, { signal: imageController.signal })
-        if (!imgRes.ok) return { ok: false, error: '拉取图像失败: ' + imgRes.status }
-        const mime = String(imgRes.headers.get('content-type') || 'image/png').split(';')[0].toLowerCase()
-        if (!/^image\/(?:png|jpeg|jpg|webp)$/.test(mime)) return { ok: false, error: '远程地址返回的不是受支持图像' }
-        const buf = await readResponseBufferLimited(imgRes, MAX_IMAGE_BYTES, '远程图像')
-        return Object.assign({ ok: true, dataUrl: 'data:' + mime + ';base64,' + buf.toString('base64') }, billing)
-      } finally { clearTimeout(imageTimeout) }
-    }
-    return { ok: false, error: '响应格式不支持（缺少 b64_json / url）' }
+        res = await fetch(endpoint, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer ' + apiKey
+          },
+          body: JSON.stringify(payload),
+          signal: controller.signal
+        })
+        // 每张原图限制 25MB；多图 JSON 的上限按实际请求数量放大，避免 n>1 被首张时代的 50MB 上限误拒。
+        body = (await readResponseBufferLimited(res, Math.ceil(MAX_IMAGE_BYTES * payload.n * 1.4) + 1024 * 1024, '图像接口响应')).toString('utf8')
+      } finally {
+        clearTimeout(timeout)
+      }
+      let data
+      try { data = JSON.parse(body) } catch {
+        return { ok: false, error: '非 JSON 响应 (' + res.status + '): ' + body.slice(0, 400) }
+      }
+      // 计费信息来自一次服务端请求：即使 HTTP 失败或没有图像条目也要透传 usage/cost——
+      // 部分服务商在 4xx/5xx 正文里照常返回计费，丢掉会让账本把「已扣费」记成「未知」。
+      // 数量只认真实返回：这里没有可用图，不设 imageCount（未知），绝不按请求 n 猜。
+      const usage = data.usage && typeof data.usage === 'object' ? data.usage : null
+      const cost = (data.cost != null) ? data.cost : ((usage && usage.cost != null) ? usage.cost : null)
+      const billing = {}
+      if (usage) billing.usage = usage
+      if (cost != null) billing.cost = cost
+      if (!res.ok) {
+        return Object.assign({
+          ok: false,
+          error: JSON.stringify(data && data.error ? data.error : (res.status + ' ' + body.slice(0, 400))),
+          ...(data && data.errorCode !== undefined ? { errorCode: data.errorCode } : {})
+        }, billing)
+      }
+      const items = Array.isArray(data && data.data) ? data.data.filter((item) => item && typeof item === 'object') : []
+      if (!items.length) return Object.assign({ ok: false, error: '响应中没有图像数据' }, billing)
+      // billing 已在上方统一提取（usage/cost 来自一次服务端请求，不能按 UI 展示数另行相加）。
+      const dataUrls = []
+      let imageErrors = 0
+      for (const item of items) {
+        try {
+          // gpt-image 系列会内部改写提示词；取第一条有效改写，限制长度以免把未知自由文本带进存档。
+          if (!billing.revisedPrompt && typeof item.revised_prompt === 'string' && item.revised_prompt.trim()) billing.revisedPrompt = item.revised_prompt.trim().slice(0, 2000)
+          if (item.b64_json) {
+            let mime = 'image/png'
+            if (model.includes('jpeg') || model.includes('Kolors')) mime = 'image/jpeg'
+            const img = dataUrlImage('data:' + mime + ';base64,' + item.b64_json)
+            dataUrls.push('data:' + img.mime + ';base64,' + img.buffer.toString('base64'))
+            continue
+          }
+          if (!item.url) { imageErrors++; continue }
+          // 远程地址逐张拉取并转 data URL。某张失败不丢弃已经有效的其它服务端结果。
+          const remoteUrl = new URL(String(item.url))
+          if (!['http:', 'https:'].includes(remoteUrl.protocol)) { imageErrors++; continue }
+          const imageController = new AbortController()
+          const imageTimeout = setTimeout(() => imageController.abort(), 60000)
+          try {
+            const imgRes = await fetch(remoteUrl, { signal: imageController.signal })
+            if (!imgRes.ok) { imageErrors++; continue }
+            const mime = String(imgRes.headers.get('content-type') || 'image/png').split(';')[0].toLowerCase()
+            if (!/^image\/(?:png|jpeg|jpg|webp)$/.test(mime)) { imageErrors++; continue }
+            const buf = await readResponseBufferLimited(imgRes, MAX_IMAGE_BYTES, '远程图像')
+            dataUrls.push('data:' + mime + ';base64,' + buf.toString('base64'))
+          } finally { clearTimeout(imageTimeout) }
+        } catch { imageErrors++ }
+      }
+      if (!dataUrls.length) return Object.assign({ ok: false, error: '服务端没有返回可用图像', imageCount: 0, imageErrors }, billing)
+      // 部分失败但至少一张成功：仍 ok:true（调用方不该整条丢弃），但带 partial 标记——
+      // 账本据此记 partial（费用标 provisional），UI 不得谎报「全部成功」。
+      const partial = imageErrors > 0
+      return Object.assign({
+        ok: true,
+        // 兼容既有单图调用方；新调用方必须优先使用 dataUrls 与 imageCount。
+        dataUrl: dataUrls[0], dataUrls, imageCount: dataUrls.length,
+        ...(imageErrors ? { imageErrors } : {}),
+        ...(partial ? { partial: true } : {})
+      }, billing)
+    })
   } catch (e) {
     return { ok: false, error: String((e && e.message) || e) }
   }
@@ -1660,8 +1913,15 @@ const PET_AGENT_FAKE_PLANS = {
   comic: {
     cast: [{ name: '主角', look: 'young man with brown hair, mage robe' }],
     panels: [
-      { turn: 1, title: '开场', narration: '故事从清晨的村庄开始。', participants: ['主角'], sceneLine: '【甲龙历407.03.01｜清晨｜布耶纳村】' },
-      { turn: 2, title: '启程', narration: '主角踏上了旅途。', participants: ['主角'], sceneLine: '【甲龙历407.03.01｜上午｜村口】' }
+      {
+        fullPage: true, turn: 2, title: '清晨启程', narration: '主角从清晨的村庄踏上旅途。',
+        participants: ['主角'], sceneLine: '【甲龙历407.03.01｜清晨至上午｜布耶纳村】',
+        composition: '一张完整融合漫画页：晨光村景大格衔接斜向出发动作格，人物跨框叠压，视线从村庄引向道路；图像模型在同一张图内绘制全部分格、中文对白与气泡。',
+        beats: [
+          { turn: 1, description: '晨光笼罩村庄，主角推开门望向远方。', size: 'hero', dialogue: [{ speaker: '主角', line: '又是新的一天。', tone: 'normal' }] },
+          { turn: 2, description: '主角迈出村口，披风在风中扬起。', size: 'wide', dialogue: [{ speaker: '主角', line: '出发吧！', tone: 'shout' }] }
+        ]
+      }
     ]
   },
   card: {
@@ -1752,10 +2012,10 @@ function petAgentSpec(task, p) {
     }
   }
   if (task === 'comic') {
-    const target = Number(p && p.panelCount) || 16
+    const target = Number(p && p.pageCount) || Number(p && p.panelCount) || 16
     return {
-      system: base + '\n任务：你是漫画分镜师。通读剧情素材，挑出最有戏剧性、最能串起故事的关键幕，并为每位主要角色生成英文外貌描述（发型发色/瞳色/体型/标志性服装），保证跨幕一致。输出字段：{"cast":[{"name":"角色名","look":"英文外貌描述"}],"panels":[{"turn":回合号,"title":"幕标题(≤12字)","narration":"该幕旁白/对白摘录(≤80字)","participants":["在场角色名"],"sceneLine":"【历法｜时段｜地点】"}]}。panels 数量必须接近 ' + target + ' 幕、按 turn 升序、turn 必须取自素材中出现过的回合号；look 为 40 词内英文；不要出现人名拼写的废字符。',
-      user: '【角色档案（cast 素材）】\n' + String((p && p.castText) || '').slice(0, 6000) + '\n\n【按回合分组的剧情素材】\n' + story + '\n\n请按目标 ' + target + ' 幕完成分镜规划。'
+      system: base + '\n任务：你是漫画整页导演。通读剧情素材，把故事编排成完整融合漫画页。每页只生成一张图片：图像模型在同一张图内绘制全部分格、人物、背景、所有中文对白、气泡与旁白文字。禁止为每格单独生成图片，禁止用 CSS 或前端气泡拼装漫画页。为兼容存储保留顶层 {cast,panels}，但 panels 的每个条目是一整页，不是单格；每个条目必须 fullPage:true（布尔值）。每页围绕一个连贯的戏剧节拍组织铺垫、推进与落点，beats 格数可变，优先每页 2~6 个，不要固定四宫格；单格整页仅用于高潮或揭晓，最后一页也要有完整的叙事落点。composition 是整页美术构图指令：明确写出本页准确格数，必须与 beats.length 完全一致；布局逐格对应 beats 的阅读顺序、主次格大小与叙事重点，不添加额外分格、重复人物瞬间或新剧情。按素材的情绪与节奏选择布局：安静对话、观察或沉思可用平稳镜头、留白和规整分格，不强迫斜向分格、动作姿势或夸张透视；只有剧情确有运动或冲突时才采用斜向分格、人物跨框叠压等手法，无框融合背景与戏剧性大画面也须服务已有 beats。保证文字清晰、气泡指向明确而不遮挡面部，避免独立插图拼贴。cast.look 是每位主要角色约 60~90 个英文单词、且不超过 900 字符的角色视觉设定（character bible），不是泛化标签或画质词堆砌：以给定角色档案和剧情为依据，写已知年龄或年龄阶段、可区分的脸部特征、发型发色、身体轮廓与比例、服装剪裁和材质，以及 2~3 个可跨页重复的稳定视觉锚点（优先取自素材已有特征）。不得凭角色名或模型记忆编造原作设定，不得更改已知年龄、族裔、种族、性别或其他身份与外貌事实，不得把儿童画成成人；未知年龄不猜具体岁数。只对素材未说明的视觉细节作符合世界观的克制合理设计，不将补足当作原作事实，不为凑字数虚构伤疤、徽记、武器等标志物。若提供已绘角色设定，复用其固定外貌和稳定锚点，不重新设计；剧情明确的换装、受伤或年龄变化只在对应 beat 中准确体现。beats.description 必须用英文描述一个可直接画出的瞬间：明确镜头景别和视角、人物左右与前后站位及朝向（blocking）、一个正在发生的动作或静止姿态、细微表情与视线、可见环境和符合场景的光源与明暗。不要在一格中串联先后多个动作，不用抽象心理或剧情总结代替可见画面；通过素材中的人物关系、距离、手势、表情与光影呈现有依据的戏剧张力，不凭空添加打斗、奔跑、魔法或夸张动作，安静场景保持安静。输出字段：{"cast":[{"name":"角色名","look":"英文外貌描述"}],"panels":[{"fullPage":true,"turn":本页覆盖的最后回合号,"title":"页标题(≤12字)","sceneLine":"【历法｜时段｜地点】","narration":"本页剧情梗概(≤160字，不是需要印在画面上的旁白)","participants":["本页在场角色名"],"composition":"整页布局与融合美术指令(≤1200字)","beats":[{"turn":该格对应回合号,"description":"英文单一瞬间画面描述：镜头、站位、动作或姿态、表情、环境与光照(≤600字符)","size":"从 hero(页内重点大格)/wide(宽扁格)/tall(竖长格)/square(标准方格) 中选，按节奏变化","dialogue":[{"speaker":"说话人名","line":"台词(≤20字,口语化、贴角色)","tone":"从 normal(平叙)/shout(怒喝,锯齿气泡)/thought(内心独白,云朵气泡)/whisper(低语,虚线气泡) 中选"}],"caption":"可选，实际印在这一格的简短旁白(≤160字)"}]}]}。每格 dialogue 给 0~3 条（无对话给空数组）；所有 dialogue.line 与可选 caption 必须由图像模型直接画进该页唯一图片，不能交给 CSS 叠加。台词必须是素材中出现过或从情节自然推出的；caption 与 dialogue 不重复。panels 数量必须接近 ' + target + ' 页、按 turn 升序；beats 按故事时间顺序，turn 必须取自素材中出现过的回合号，页 turn 等于本页 beats 的最大 turn（最后覆盖回合），不能填页码；look 与 description 使用英文，dialogue.line 与 caption 保持中文；不要出现人名拼写的废字符。',
+      user: '【角色档案（cast 素材）】\n' + String((p && p.castText) || '').slice(0, 6000) + '\n\n【按回合分组的剧情素材】\n' + story + '\n\n请按目标 ' + target + ' 页完成整页规划，每页一张融合漫画图片，包含全部分格与对白。'
     }
   }
   if (task === 'card') {
@@ -1806,15 +2066,55 @@ function petAgentExtractPlan(task, text, p) {
   if (task === 'comic') {
     const cast = (Array.isArray(plan.cast) ? plan.cast : []).map((c) => ({
       name: String((c && c.name) || '').slice(0, 60),
-      look: String((c && c.look) || '').slice(0, 300)
+      look: String((c && c.look) || '').slice(0, 900)
     })).filter((c) => c.name && c.look)
-    const panels = (Array.isArray(plan.panels) ? plan.panels : []).map((q) => ({
-      turn: Number(q && q.turn) || 0,
-      title: String((q && q.title) || '').slice(0, 40),
-      narration: String((q && q.narration) || '').slice(0, 160),
-      participants: (Array.isArray(q && q.participants) ? q.participants : []).map(String).slice(0, 8),
-      sceneLine: String((q && q.sceneLine) || '').slice(0, 80)
-    })).filter((q) => q.turn > 0 && q.narration)
+    const SIZES = ['hero', 'square', 'wide', 'tall']
+    const TONES = ['normal', 'shout', 'thought', 'whisper']
+    const cleanText = (value, max) => typeof value === 'string' ? value.trim().slice(0, max) : ''
+    const panels = (Array.isArray(plan.panels) ? plan.panels : []).map((q) => {
+      if (q && q.fullPage === true) {
+        const beats = (Array.isArray(q.beats) ? q.beats : []).map((b) => ({
+          turn: typeof (b && b.turn) === 'number' || typeof (b && b.turn) === 'string' ? Number(b.turn) : 0,
+          description: cleanText(b && b.description, 600),
+          size: SIZES.includes(b && b.size) ? b.size : 'square',
+          dialogue: (Array.isArray(b && b.dialogue) ? b.dialogue : []).map((d) => ({
+            speaker: cleanText(d && d.speaker, 30),
+            line: cleanText(d && d.line, 80),
+            tone: TONES.includes(d && d.tone) ? d.tone : 'normal'
+          })).filter((d) => d.speaker && d.line).slice(0, 4),
+          ...(cleanText(b && b.caption, 160) ? { caption: cleanText(b.caption, 160) } : {})
+        })).filter((b) => Number.isSafeInteger(b.turn) && b.turn > 0 && b.description)
+        // Never downgrade a malformed full-page plan to a legacy single-panel image.
+        if (!beats.length) return null
+        return {
+          fullPage: true,
+          turn: beats.reduce((last, b) => Math.max(last, b.turn), 0),
+          title: cleanText(q.title, 40),
+          sceneLine: cleanText(q.sceneLine, 80),
+          narration: cleanText(q.narration, 160),
+          participants: (Array.isArray(q.participants) ? q.participants : [])
+            .map((name) => cleanText(name, 60)).filter(Boolean).slice(0, 8),
+          composition: cleanText(q.composition, 1200),
+          beats
+        }
+      }
+      // Legacy extraction remains unchanged; truthy non-boolean markers do not opt in.
+      return {
+        turn: Number(q && q.turn) || 0,
+        title: String((q && q.title) || '').slice(0, 40),
+        narration: String((q && q.narration) || '').slice(0, 160),
+        participants: (Array.isArray(q && q.participants) ? q.participants : []).map(String).slice(0, 8),
+        sceneLine: String((q && q.sceneLine) || '').slice(0, 80),
+        size: SIZES.includes(q && q.size) ? q.size : 'square',
+        // Preserve explicit page boundaries; legacy/malformed hints remain absent.
+        ...(typeof (q && q.pageBreak) === 'boolean' ? { pageBreak: q.pageBreak } : {}),
+        dialogue: (Array.isArray(q && q.dialogue) ? q.dialogue : []).map((d) => ({
+          speaker: String((d && d.speaker) || '').slice(0, 30),
+          line: String((d && d.line) || '').slice(0, 80),
+          tone: TONES.includes(d && d.tone) ? d.tone : 'normal'
+        })).filter((d) => d.speaker && d.line).slice(0, 4)
+      }
+    }).filter((q) => q && q.turn > 0 && q.narration)
     if (!panels.length || !cast.length) return null
     panels.sort((a, b) => a.turn - b.turn)
     return { cast: cast.slice(0, 24), panels: panels.slice(0, 40) }
@@ -1949,36 +2249,62 @@ ipcMain.handle('dialog:openFile', async (evt, opts) => {
   }
 })
 
-// ---- 批量保存插图：让用户选一个文件夹，按「会话名-序号」写入全部图片 ----
-ipcMain.handle('image:saveAll', async (evt, opts) => {
+// ---- 批量保存插图：先选一次目录，再由 preload 按 100 张分批提交 ----
+const imageSaveBatches = new Map()
+ipcMain.handle('image:saveAllBegin', async (evt, opts) => {
   try {
-    const items = Array.isArray(opts && opts.items) ? opts.items : []
-    if (!items.length) return { ok: false, error: '没有可保存的插图' }
-    if (items.length > MAX_IMAGE_BATCH) return { ok: false, error: '单次最多保存 100 张插图' }
-    const res = await dialog.showOpenDialog(windowForEvent(evt), {
+    const testDir = process.env.SIXWORLDS_TEST === '1' && (typeof opts?.__testDirectory === 'string' ? opts.__testDirectory : process.env.SIXWORLDS_TEST_IMAGE_EXPORT_DIR)
+    const res = testDir ? { canceled: false, filePaths: [testDir] } : await dialog.showOpenDialog(windowForEvent(evt), {
       title: '选择保存文件夹',
       properties: ['openDirectory', 'createDirectory']
     })
     if (res.canceled || !res.filePaths || !res.filePaths[0]) return { ok: false }
-    const dir = res.filePaths[0]
-    const base = String((opts && opts.nameBase) || 'illust').replace(/[\\/:*?"<>|]/g, '_').slice(0, 60)
+    const token = crypto.randomBytes(24).toString('hex')
+    const batch = { owner: evt.sender.id, dir: path.resolve(res.filePaths[0]), base: String((opts && opts.nameBase) || 'illust').replace(/[\\/:*?"<>|]/g, '_').slice(0, 60), nextIndex: 0, timer: null }
+    batch.timer = setTimeout(() => imageSaveBatches.delete(token), 10 * 60 * 1000)
+    if (batch.timer.unref) batch.timer.unref()
+    imageSaveBatches.set(token, batch)
+    return { ok: true, token }
+  } catch (e) {
+    return { ok: false, error: String((e && e.message) || e) }
+  }
+})
+ipcMain.handle('image:saveAllChunk', async (evt, opts) => {
+  try {
+    const token = String(opts?.token || '')
+    const batch = imageSaveBatches.get(token)
+    if (!batch || batch.owner !== evt.sender.id) return { ok: false, error: '批量保存会话已失效，请重试' }
+    const items = Array.isArray(opts?.items) ? opts.items : []
+    if (!items.length || items.length > MAX_IMAGE_BATCH) return { ok: false, error: '每批需包含 1 至 100 张插图' }
+    if (batch.timer) clearTimeout(batch.timer)
     let saved = 0
     const failed = []
     items.forEach((it, i) => {
       try {
         const img = imageSource(it && (it.dataUrl || it.source))
-        const ext = img.ext
-        const name = base + '-' + String(i + 1).padStart(2, '0') + '.' + ext
-        fs.writeFileSync(path.join(dir, name), img.buffer)
+        const name = batch.base + '-' + String(batch.nextIndex + i + 1).padStart(2, '0') + '.' + img.ext
+        fs.writeFileSync(path.join(batch.dir, name), img.buffer)
         saved++
       } catch (e) {
         failed.push(String((e && e.message) || e))
       }
     })
-    return { ok: saved > 0, path: dir, saved, failed }
+    batch.nextIndex += items.length
+    batch.timer = setTimeout(() => imageSaveBatches.delete(token), 10 * 60 * 1000)
+    if (batch.timer.unref) batch.timer.unref()
+    return { ok: true, path: batch.dir, saved, failed }
   } catch (e) {
     return { ok: false, error: String((e && e.message) || e) }
   }
+})
+ipcMain.handle('image:saveAllFinish', (evt, value) => {
+  const token = String(value || '')
+  const batch = imageSaveBatches.get(token)
+  if (batch && batch.owner === evt.sender.id) {
+    if (batch.timer) clearTimeout(batch.timer)
+    imageSaveBatches.delete(token)
+  }
+  return { ok: true }
 })
 
 // ---- 自动更新（electron-updater，仅 NSIS 安装版；便携版无自更新，README 已注明）----
@@ -2173,123 +2499,179 @@ ipcMain.handle('progress:export', async (evt, payload) => {
   }
 })
 
-// ---- 进度包导入（移动端导出的包 → 桌面接续；与移动端 EngineImportPolicy 同一防线）----
-const IMPORT_MAX_FILE_BYTES = 8 * 1024 * 1024
-const IMPORT_MAX_TOTAL_BYTES = 128 * 1024 * 1024
-const IMPORT_MAX_FILES = 5000
-const IMPORT_ALLOWED_ROOTS = new Set(['stories', 'snapshots', 'pendings', 'logs'])
-const IMPORT_SAFE_SEG = /^[A-Za-z0-9_.-]{1,180}$/
+// ---- 进度包导入（移动端导出的包 → 桌面接续；纯规划器统一校验、映射与冲突语义）----
+const { LIMITS: IMPORT_LIMITS, validateBundle, planProgress, validateRelativePath, fileOwner } = require('./engine/progress-import.cjs')
 
-/* 引擎文件路径防线（与移动端 EngineImportPolicy 逐条对应）：
- * 限额（单文件 8MB / 总量 128MB / 件数 5000）+ 路径白名单（仅 stories/snapshots/pendings/logs，
- * 拒绝 tmp/绝对路径/../非法片段）+ 越界校验（resolve 后必须仍位于引擎目录内）。 */
-function resolveImportTarget(engineDir, rel) {
-  if (typeof rel !== 'string' || !rel || rel.length > 512 || rel.includes('\u0000')) throw new Error('进度包路径为空或过长')
-  const norm = rel.replace(/\\/g, '/')
-  if (norm.startsWith('/') || /^[A-Za-z]:/.test(norm)) throw new Error('不允许绝对路径')
-  const segs = norm.split('/')
-  if (segs.length < 2 || segs.length > 3) throw new Error('引擎文件目录层级不正确')
-  if (segs.some((s) => !s || s === '.' || s === '..' || !IMPORT_SAFE_SEG.test(s))) throw new Error('引擎文件路径包含非法片段')
-  if (!IMPORT_ALLOWED_ROOTS.has(segs[0])) throw new Error('不支持的引擎文件目录')
-  if (segs[segs.length - 1].slice(-5) !== '.json') throw new Error('不支持的引擎文件类型')
-  const target = path.resolve(engineDir, ...segs)
+function resolveImportTarget(engineDir, relative) {
+  const rel = validateRelativePath(relative).rel
+  const target = path.resolve(engineDir, ...rel.split('/'))
   if (!target.startsWith(path.resolve(engineDir) + path.sep)) throw new Error('引擎文件路径越界')
   return target
 }
 
-ipcMain.handle('progress:import', async (evt) => {
+/* 会话记录可能已经被手工清理，但 story-engine 下的快照、待补录或日志仍存在。
+ * 这些孤儿也属于本机世界线：replace/add 时必须一并重置，不能让导入聊天继承旧记忆。 */
+function scanLocalEngineOwners(engineDir) {
+  const owners = new Set()
+  const walk = (dir) => {
+    if (!fs.existsSync(dir)) return
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name)
+      if (entry.isSymbolicLink()) continue
+      if (entry.isDirectory()) { walk(full); continue }
+      if (!entry.isFile() || !entry.name.endsWith('.json')) continue
+      const relative = path.relative(engineDir, full).split(path.sep).join('/')
+      try { owners.add(fileOwner(relative)) } catch { /* 旧版或非白名单遗留文件不参与导入覆盖决策 */ }
+    }
+  }
+  for (const root of ['stories', 'snapshots', 'pendings', 'logs']) walk(path.join(engineDir, root))
+  return [...owners]
+}
+const pendingImports = new Map()
+const flushRequests = new Map()
+ipcMain.on('sessions:flushed', (event, payload) => {
+  const pending = flushRequests.get(payload?.id)
+  if (pending && event.sender === pending.sender) pending.resolve(payload.result)
+})
+async function freezeRenderer() {
+  if (!win || win.isDestroyed()) throw new Error('主窗口未就绪，请重试')
+  const sender = win.webContents, id = crypto.randomBytes(16).toString('hex')
+  let timer
+  let released = false
+  const release = () => {
+    if (released) return
+    released = true
+    clearTimeout(timer)
+    flushRequests.delete(id)
+    if (!sender.isDestroyed()) sender.send('sessions:release', { id })
+  }
   try {
-    /* 测试接缝：SIXWORLDS_TEST 下用注入路径替代原生打开对话框（自动化无法驱动）。
-     * 仅测试态生效——progress:import 本无渲染层参数，注入走全局 env 不引入生产面。 */
+    const result = await new Promise((resolve, reject) => {
+      flushRequests.set(id, { sender, resolve })
+      timer = setTimeout(() => reject(new Error('主窗口保存超时，未进行导入')), 10000)
+      sender.send('sessions:flush', { id })
+    })
+    clearTimeout(timer)
+    if (!result?.ok) throw new Error(result?.error || '主窗口保存失败，未进行导入')
+    return release
+  } catch (error) { release(); throw error }
+}
+ipcMain.handle('progress:import', async (evt, options = {}) => {
+  let release = null
+  try {
+    if (desktopBusy) throw new Error('请等待当前生成与记忆保存后导入')
     const testIn = process.env.SIXWORLDS_TEST === '1' && process.env.SIXWORLDS_TEST_IMPORT_PATH ? process.env.SIXWORLDS_TEST_IMPORT_PATH : null
     let raw = null
-    if (testIn && fs.existsSync(testIn)) {
+    let prepared = null
+    if (options.token) {
+      prepared = pendingImports.get(options.token)
+      if (!prepared || Date.now() - prepared.at > 15 * 60000) throw new Error('导入预览已过期，请重新选择进度包')
+      raw = Buffer.from(prepared.raw)
+    } else if (testIn && fs.existsSync(testIn)) {
       raw = fs.readFileSync(testIn)
     } else {
       const res = await dialog.showOpenDialog(windowForEvent(evt), {
         title: '导入进度包',
         properties: ['openFile'],
-        filters: [{ name: '六面世界进度包', extensions: ['json'] }],
+        filters: [{ name: '六面世界进度包', extensions: ['json'] }]
       })
       if (res.canceled || !res.filePaths || !res.filePaths[0]) return { ok: false, canceled: true }
       raw = fs.readFileSync(res.filePaths[0])
     }
-    if (raw.length > IMPORT_MAX_TOTAL_BYTES) throw new Error('导入文件过大（上限 128MB）')
+    if (raw.length > IMPORT_LIMITS.maxTotalBytes) throw new Error('导入文件过大（上限 128MB）')
     const bundle = JSON.parse(raw.toString('utf8'))
-    if (!bundle || bundle.type !== 'sixworlds-progress') throw new Error('不是有效的进度包（type 不符）')
-    if (bundle.v !== 1) throw new Error('进度包版本不支持（v=' + bundle.v + '，需要 v1）')
-    if (!Array.isArray(bundle.workspaces)) throw new Error('进度包工作区数据不正确')
-    // 会话在渲染层合并（页面持有内存态）；主进程只校验形状
-    if (bundle.sessions != null && !Array.isArray(bundle.sessions)) throw new Error('进度包世界线数据不正确')
-    const sessions = Array.isArray(bundle.sessions) ? bundle.sessions : []
-    if (sessions.length > MAX_SESSIONS) throw new Error('进度包世界线数量超过上限（50）')
-    /* 导入侧会话清洗（安全评审 S5，与导出侧 progressSessions 对称；移动端 SessionStore 同防线）：
-     * ① 剥离 illust/illustAsset——导出侧本就剥离，导入透传会把任意 data URL 塞进渲染层 img.src 消耗内存；
-     * ② 单条消息 2MB / 全量 64MB 上限，攻击包无法借消息字段塞入超大数据。 */
-    const IMPORT_MAX_MESSAGE_BYTES = 2 * 1024 * 1024
-    const IMPORT_MAX_SESSIONS_BYTES = 64 * 1024 * 1024
-    let sessionsTotal = 0
-    for (const s of sessions) {
-      if (!s || typeof s !== 'object' || !Array.isArray(s.messages)) throw new Error('进度包会话数据不完整')
-      for (const m of s.messages) {
-        if (!m) continue
-        delete m.illust
-        delete m.illustAsset
-      }
-      const bytes = Buffer.byteLength(JSON.stringify(s), 'utf8')
-      if (bytes > IMPORT_MAX_MESSAGE_BYTES) throw new Error('进度包中的单个世界线数据过大')
-      sessionsTotal += bytes
-      if (sessionsTotal > IMPORT_MAX_SESSIONS_BYTES) throw new Error('进度包世界线数据总量过大')
+
+    // 主窗口先保存并进入不可操作状态；预览、确认、失败、超时和异常全部走 finally 释放。
+    release = await freezeRenderer()
+    await sessionSaveQueue.catch(() => {})
+    if (desktopBusy) throw new Error('请等待当前生成与记忆保存后导入')
+    await maybeDelayProgressImport()
+
+    const validated = validateBundle(bundle, { limits: IMPORT_LIMITS, preview: !!options.preview })
+    const db = sessionsDbFor()
+    const diskDoc = db.enabled ? db.load() : null
+    const currentDoc = diskDoc ? diskDoc.doc : (fs.existsSync(sessionsFile()) ? JSON.parse(readTextFileLimited(sessionsFile(), MAX_SESSIONS_JSON_BYTES, '会话文件')) : { v: 1, sessions: [] })
+    const currentSessions = Array.isArray(currentDoc) ? currentDoc : currentDoc.sessions
+    if (!Array.isArray(currentSessions)) throw new Error('当前会话存档无法读取，已取消导入')
+    const desktopContext = readDesktopContext()
+    const currentWorkspaces = Array.isArray(desktopContext.workspaces) ? desktopContext.workspaces : []
+    const previousContext = {
+      workspaces: JSON.parse(JSON.stringify(currentWorkspaces)),
+      current: JSON.parse(JSON.stringify(desktopContext.current || {}))
     }
-    // 引擎状态：先全部校验并收集，全部通过后一次性落盘（不留半写状态）
+    const localVersion = hashText(JSON.stringify({ sessions: currentSessions, workspaces: currentWorkspaces, current: previousContext.current }))
+    if (prepared && prepared.localVersion !== localVersion) throw new Error('本地世界线或工作区已改变，请重新预览后导入')
+
     const engineDir = path.join(app.getPath('userData'), 'story-engine')
-    const files = (bundle.engine && bundle.engine.files) || {}
-    const keys = Object.keys(files)
-    if (keys.length > IMPORT_MAX_FILES) throw new Error('进度包中的引擎文件数量过多')
-    const pending = []
-    let totalBytes = 0
-    for (const rel of keys) {
-      const content = files[rel]
-      if (typeof content !== 'string') throw new Error('进度包中的引擎文件内容必须是文本')
-      /* 旧版包兼容：早期导出会把派生索引 memory.db* 一并打进包（按 utf8 读已损坏、且可由正本重建）——
-       * 明确跳过这三个键，其余任何白名单外路径仍硬拒绝（旧包可导入，攻击面不放松）。 */
-      if (/^memory\.db(-wal|-shm)?$/.test(rel)) continue
-      const bytes = Buffer.byteLength(content, 'utf8')
-      if (bytes > IMPORT_MAX_FILE_BYTES) throw new Error('进度包中的引擎文件过大')
-      totalBytes += bytes
-      if (totalBytes > IMPORT_MAX_TOTAL_BYTES) throw new Error('进度包中的引擎数据总量过大')
-      pending.push([resolveImportTarget(engineDir, rel), content])
+    const plan = planProgress({
+      validated,
+      currentSessions,
+      currentWorkspaces,
+      current: previousContext.current,
+      choices: options.choices,
+      localEngineOwners: scanLocalEngineOwners(engineDir),
+      hasKernel: (id) => typeof id === 'string' && (BUILTIN_KERNELS.some((k) => k.id === id) || (id.startsWith('user:') && KERNEL_SLUG_RE.test(id.slice(5)) && fs.existsSync(path.join(KERNELS_DIR(), id.slice(5) + '.md'))))
+    })
+    const merged = plan.sessions
+    const pending = plan.writes.map((entry) => [resolveImportTarget(engineDir, entry.relative), entry.content])
+    if (options.preview) {
+      pendingImports.clear()
+      const token = crypto.randomBytes(20).toString('hex')
+      pendingImports.set(token, { raw: raw.toString('utf8'), at: Date.now(), localVersion })
+      return { ok: true, preview: true, token, rows: plan.rows, warnings: plan.warnings, files: pending.length, workspaces: plan.workspaces, current: plan.current, stats: plan.stats }
     }
-    /* 引擎句柄重建：文件级替换后，内存缓存/检索槽/语义索引全部指向旧状态——
-     * 直接弃旧引擎（关句柄），下一次使用时按新文件重建（派生索引随 flushStory/检索兜底自动同步）。 */
-    if (storyEngine) { try { storyEngine.close() } catch {} ; storyEngine = null }
-    for (const [target, content] of pending) {
-      fs.mkdirSync(path.dirname(target), { recursive: true })
-      atomicWriteFile(target, content)
+
+    const rollback = archiveCurrent('导入进度前', 'before-import')
+    const writeSessions = (list) => {
+      const doc = { v: 1, sessions: list }
+      if (db.enabled) db.importDoc(doc)
+      maybeFailProgressImport('sessions-db')
+      atomicWriteFile(sessionsFile(), JSON.stringify(doc))
+      maybeFailProgressImport('sessions-file')
     }
-    /* 会话合并（按 id 保留较新 updatedAt，上限 50）：主进程单一实现——
-     * 主窗口在内存持有会话权威副本，若由设置窗口直接写 localStorage，主窗口的下一次防抖
-     * 保存会整包覆盖导入数据。落库后广播 progressImported，主窗口重载内存态并重新渲染。 */
-    const merged = (() => {
-      try {
-        const db = sessionsDbFor()
-        const cur = db.enabled ? db.load() : null
-        const curDoc = cur ? cur.doc : null
-        const curArr = Array.isArray(curDoc) ? curDoc : (curDoc && curDoc.sessions) || []
-        const byId = new Map(curArr.filter((s) => s && s.id).map((s) => [s.id, s]))
-        for (const s of sessions) {
-          const old = byId.get(s.id)
-          if (!old || Number(s.updatedAt || 0) >= Number(old.updatedAt || 0)) byId.set(s.id, s)
+    try {
+      if (storyEngine) { storyEngine.close(); storyEngine = null }
+      // replace/add 线若本机存在会话或孤儿引擎，先清掉整条旧状态，避免继承未来记忆。
+      for (const id of plan.resetIds) {
+        for (const relative of ['stories/' + id + '.json', 'stories/' + id + '.meta.json', 'snapshots/' + id, 'logs/' + id]) {
+          fs.rmSync(path.join(engineDir, relative), { recursive: true, force: true })
         }
-        const out = [...byId.values()].sort((a, b) => Number(b.updatedAt || 0) - Number(a.updatedAt || 0)).slice(0, MAX_SESSIONS)
-        if (db.enabled) db.importDoc({ v: 1, sessions: out })
-        atomicWriteFile(sessionsFile(), JSON.stringify({ v: 1, sessions: out }))
-        return out
-      } catch (e) { throw new Error('会话合并失败：' + String((e && e.message) || e)) }
-    })()
-    if (win && !win.isDestroyed()) win.webContents.send('cfg:updated', { progressImported: true })
-    return { ok: true, count: merged.length, files: pending.length, engineFiles: pending.length, workspaces: bundle.workspaces, sessions: merged, world: bundle.world || null }
+        const pendings = path.join(engineDir, 'pendings')
+        if (fs.existsSync(pendings)) for (const name of fs.readdirSync(pendings)) if (name.startsWith(id + '.')) fs.rmSync(path.join(pendings, name), { force: true })
+      }
+      for (const [target, content] of pending) {
+        fs.mkdirSync(path.dirname(target), { recursive: true })
+        atomicWriteFile(target, content)
+      }
+      maybeFailProgressImport('engine-files')
+      writeSessions(merged)
+      writeDesktopContext({ workspaces: plan.workspaces, current: plan.current })
+      maybeFailProgressImport('desktop-context')
+    } catch (error) {
+      let rollbackError = null
+      try {
+        archivesFor().restore(rollback.id, {
+          sessions: currentSessions,
+          workspaces: previousContext.workspaces,
+          current: previousContext.current
+        }, (doc) => {
+          const restoredSessions = Array.isArray(doc.sessions) ? doc.sessions : []
+          if (db.enabled) db.importDoc({ v: 1, sessions: restoredSessions })
+          atomicWriteFile(sessionsFile(), JSON.stringify({ v: 1, sessions: restoredSessions }))
+          writeDesktopContext(doc)
+        }, () => { if (storyEngine) { storyEngine.close(); storyEngine = null } })
+      } catch (restoreError) { rollbackError = restoreError }
+      if (rollbackError) throw new Error('导入失败，原存档回滚失败：' + error.message + '；' + rollbackError.message)
+      throw new Error('导入失败，已恢复原存档：' + error.message)
+    }
+    if (options.token) pendingImports.delete(options.token)
+    const resultSessions = hydrateSessions(JSON.parse(JSON.stringify(merged)))
+    const result = { progressImported: true, workspaces: plan.workspaces, current: plan.current, sessions: resultSessions }
+    if (win && !win.isDestroyed()) win.webContents.send('cfg:updated', result)
+    return { ok: true, count: merged.length, files: pending.length, engineFiles: pending.length, workspaces: plan.workspaces, current: plan.current, sessions: resultSessions, world: bundle.world || null }
   } catch (e) {
     return { ok: false, error: String((e && e.message) || e) }
+  } finally {
+    if (release) release()
   }
 })

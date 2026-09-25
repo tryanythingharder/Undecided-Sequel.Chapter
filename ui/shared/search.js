@@ -87,6 +87,7 @@
 
     // 跳到当前命中：把对应 mark 标 active 并滚入视野（按绝对消息下标定位；不在窗口内则先扩窗加载）
     function scrollToActiveMatch() {
+      msgEl.querySelectorAll('mark.active').forEach((mark) => mark.classList.remove('active'))
       if (searchActive < 0) return
       let target = searchActive
       const s = ctx.curSession()

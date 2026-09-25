@@ -293,11 +293,22 @@ function createVectorStore(dataDir, opts) {
     return /corrupt|malformed|not a database|database disk image/i.test(String((err && err.message) || err))
   }
 
+  /* 释放数据库句柄。开库之后的任何失败路径都必须调用：
+   * 否则 memory.db / -wal / -shm 的句柄被泄漏，Windows 上目录 rmSync 会报 EPERM
+   * （沙箱、世界线目录删不掉），而 disabled 桩的 close() 是空操作，救不回来。 */
+  function closeDb() {
+    try { db && db.close() } catch { /* 句柄已释放或库已坏：不阻断降级 */ }
+    db = null
+  }
+
   function initDb() {
     const { DatabaseSync } = require('node:sqlite')
+    /* 先解析扩展路径再开库：扩展不可用时（未安装 sqlite-vec / 原生库缺失）
+     * 根本不创建也不打开 memory.db，避免留下无人关闭的句柄与空库文件。 */
+    const ext = extensionPath()
     fs.mkdirSync(dataDir, { recursive: true })
     db = new DatabaseSync(path.join(dataDir, 'memory.db'), { allowExtension: true })
-    db.loadExtension(extensionPath())
+    db.loadExtension(ext)
     db.exec(`
       PRAGMA journal_mode = WAL;
       CREATE TABLE IF NOT EXISTS chunks (
@@ -359,8 +370,7 @@ function createVectorStore(dataDir, opts) {
   /* 损坏自愈：索引是正本的派生层，删库重建零风险（下次检索自动重新同步） */
   function rebuildAfterCorruption(err) {
     if (!isCorruption(err)) return false
-    try { db && db.close() } catch {}
-    db = null
+    closeDb()
     wipeDbFiles()
     try {
       initDb()
@@ -368,7 +378,7 @@ function createVectorStore(dataDir, opts) {
       return true
     } catch (e2) {
       __softWarn('[vector-store] 已停用（重建失败：' + String((e2 && e2.message) || e2).slice(0, 120) + '）')
-      db = null
+      closeDb()
       return false
     }
   }
@@ -381,6 +391,7 @@ function createVectorStore(dataDir, opts) {
       if (!rebuildAfterCorruption(e1)) throw e1
     }
   } catch (e) {
+    closeDb()
     __softWarn('[vector-store] 已停用（' + String((e && e.message) || e).slice(0, 120) + '）；检索回退为纯词面+实体信号')
     return disabled
   }

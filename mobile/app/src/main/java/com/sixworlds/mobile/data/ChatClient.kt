@@ -61,7 +61,6 @@ class ChatClient {
             val req = Request.Builder().url("$baseUrl/models")
                 .header("Authorization", "Bearer $apiKey").build()
             val call = client.newCall(req)
-            currentCall = call
             call.execute().use { resp ->
                 val body = resp.body.string()
                 if (!resp.isSuccessful) {
@@ -95,7 +94,7 @@ class ChatClient {
                 .header("Authorization", "Bearer $apiKey")
                 .post(payload.toString().toRequestBody("application/json; charset=utf-8".toMediaType()))
                 .build()
-            val call = client.newCall(req); currentCall = call
+            val call = client.newCall(req)
             call.execute().use { resp ->
                 val body = resp.body.string()
                 if (!resp.isSuccessful) return@withContext Pair(null, friendlyError("HTTP ${resp.code} ${body.take(300)}"))
@@ -133,7 +132,6 @@ class ChatClient {
             val req = Request.Builder().url("$baseUrl/models")
                 .header("Authorization", "Bearer $apiKey").build()
             val call = client.newCall(req)
-            currentCall = call
             call.execute().use { resp ->
                 val body = resp.body.string()
                 if (!resp.isSuccessful) {

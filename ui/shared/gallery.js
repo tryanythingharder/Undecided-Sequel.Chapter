@@ -12,6 +12,9 @@
   function createGallery(ctx) {
     const $ = ctx.$
 
+    // 单条消息的全部图（旧存档只有 illust 时回落 [illust]）——画廊把每张图当一张卡
+    const illustsOf = (m) => (ctx.illustsOf ? ctx.illustsOf(m) : (m && m.illust ? [m.illust] : []))
+
     function openGallery() {
       buildGallerySessionSelect()
       renderGallery()
@@ -38,7 +41,7 @@
       for (const s of wsS) {
         const opt = document.createElement('option')
         opt.value = s.id
-        const cnt = s.messages.filter((m) => m.illust).length
+        const cnt = s.messages.reduce((n, m) => n + illustsOf(m).length, 0)
         opt.textContent = s.title + '（' + cnt + ' 张）'
         sel.appendChild(opt)
       }
@@ -51,7 +54,8 @@
       const body = $('gallery-body')
       const keepScroll = body.scrollTop // 全量重建前记下滚动位置，重建后还原（删除一张不再跳回顶部）
       body.innerHTML = ''
-      const imgs = s ? s.messages.map((m, i) => ({ m, i })).filter((x) => x.m.illust) : []
+      // 多图：一条消息的每张图各占一张卡（旧存档单图 = 一张卡，行为不变）
+      const imgs = s ? s.messages.flatMap((m, i) => illustsOf(m).map((dataUrl, k) => ({ m, i, dataUrl, k }))) : []
       $('gallery-count').textContent = s ? (s.title + ' · ' + imgs.length + ' 张插图') : '无会话'
       if (!imgs.length) {
         const e = document.createElement('div')
@@ -74,9 +78,9 @@
         body.scrollTop = 0
         return
       }
-      // 大图查看器的图集：提到循环外算一次（原来每张卡都重建整个数组，O(n²)）
-      const allIllusts = imgs.map((x) => x.m.illust)
-      imgs.forEach(({ m, i }) => {
+      // 大图查看器的图集：提到循环外算一次（原来每张卡都重建整个数组，O(n²)）；含每消息多图
+      const allIllusts = imgs.map((x) => x.dataUrl)
+      imgs.forEach(({ m, i, dataUrl }) => {
         const card = document.createElement('div')
         card.className = 'gallery-card'
         const media = document.createElement('div')
@@ -85,7 +89,7 @@
           ? new Date(m.illustAt).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
           : ('第' + (i + 1) + '条')
         const img = document.createElement('img')
-        img.src = m.illust
+        img.src = dataUrl
         img.alt = '插图 · ' + time
         img.title = '点击查看大图'
         // 骨架屏：加载前显示占位动画，加载完成后淡入；异步解码避免大图卡住主线程（R81）
@@ -126,8 +130,8 @@
           media.appendChild(err)
         }
         img.addEventListener('error', showError)
-        // 传入画廊全部插图，Lightbox 中可 ← → 切换
-        img.addEventListener('click', () => ctx.viewIllust(m.illust, allIllusts))
+        // 传入画廊全部插图（含每消息多图），Lightbox 中可 ← → 切换
+        img.addEventListener('click', () => ctx.viewIllust(dataUrl, allIllusts))
         // R33b 键盘可达：Enter/Space 打开大图
         img.tabIndex = 0
         img.setAttribute('role', 'button')
@@ -159,7 +163,7 @@
         sb.title = '保存这张插图到本地'
         sb.setAttribute('aria-label', '保存这张插图到本地')
         sb.addEventListener('click', () => {
-          ctx.downloadIllust(m.illust, i)
+          ctx.downloadIllust(dataUrl, i)
         })
         const db = document.createElement('button')
         db.textContent = '×'
@@ -167,16 +171,27 @@
         db.title = '删除这张插图（不影响对话文字）'
         db.setAttribute('aria-label', '删除这张插图')
         db.addEventListener('click', () => {
+          const multi = illustsOf(m).length > 1
           ctx.confirmDialog({
-            title: '删除这张插图？',
-            body: '将从画廊与对话中移除该插图，对话文字保留。',
+            title: multi ? '删除这张插图？' : '删除这张插图？',
+            body: multi
+              ? '这条消息还有其它插图，只移除当前这一张，其余保留；对话文字不受影响。'
+              : '将从画廊与对话中移除该插图，对话文字保留。',
             danger: true,
             okText: '删除'
           }).then((ok) => {
             if (!ok) return
-            m.illust = null
-            m.illustAt = null
-            m.illustError = null
+            // 多图：只摘掉被点的这一张，其余完整保留（顺序不变）；单图：与旧行为一致清空
+            const list = illustsOf(m).filter((u) => u !== dataUrl)
+            if (list.length) {
+              m.illusts = list
+              m.illust = list[0]
+            } else {
+              if (Array.isArray(m.illusts)) m.illusts = []
+              m.illust = null
+              m.illustAt = null
+              m.illustError = null
+            }
             ctx.saveSessions()
             renderGallery()
             if (s.id === ctx.currentId()) ctx.renderMessages()

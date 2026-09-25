@@ -5,34 +5,36 @@ const { _electron: electron } = require('playwright')
 
 async function main() {
   const root = path.join(__dirname, '..')
-  const executable = path.join(root, 'dist', 'win-unpacked', '六面世界.exe')
+  const packageDir = process.env.SIXWORLDS_PACKAGE_DIR ? path.resolve(process.env.SIXWORLDS_PACKAGE_DIR) : path.join(root, 'dist')
+  const executable = path.join(packageDir, 'win-unpacked', '六面世界.exe')
   if (!fs.existsSync(executable)) throw new Error('打包目录不存在，请先运行 npm run dist')
-  const resources = path.join(root, 'dist', 'win-unpacked', 'resources')
+  const resources = path.join(packageDir, 'win-unpacked', 'resources')
 
   // ---- 打包产物静态检查：原型方案已入 asar；sqlite-vec dll 已解包 ----
   // asar 头部是嵌套 JSON 键树（路径段各自成键），完整路径不会以连续子串出现在字节流里——
   // 必须解析头部后做结构化路径查找；对原始 buffer 的子串断言只会因文件内容碰巧含该串而"侥幸通过"。
   const asarBuf = fs.readFileSync(path.join(resources, 'app.asar'))
-  const asarJsonSize = asarBuf.readUInt32LE(12)
-  const asarHeader = JSON.parse(asarBuf.slice(16, 16 + asarJsonSize).toString('utf8'))
-  const asarPaths = (node, prefix) => {
-    const out = []
-    if (!node || !node.files) return out
-    for (const [k, v] of Object.entries(node.files)) {
-      const p = prefix ? prefix + '/' + k : k
-      if (v.files) out.push(...asarPaths(v, p))
-      else out.push(p)
+  // asar 头是嵌套 JSON 目录树（每段路径一个 key），不是扁平路径串——
+  // 裸 includes('a/b') 永远匹配不到目录项（只能碰巧命中文件内容），必须解析 ToC
+  const jsonLen = asarBuf.readUInt32LE(12)
+  const toc = JSON.parse(asarBuf.slice(16, 16 + jsonLen).toString('utf-8')).files || {}
+  const asarHas = (p) => {
+    let node = { files: toc }
+    for (const seg of p.split('/')) {
+      if (!node.files || !node.files[seg]) return false
+      node = node.files[seg]
     }
-    return out
+    return true
   }
-  const packedPaths = asarPaths(asarHeader, '')
-  const hasPacked = (suffix) => packedPaths.some((p) => p.endsWith(suffix) || p.endsWith(suffix.replace(/\//g, '\\')))
-  if (!hasPacked('ui/proto/index.html')) throw new Error('app.asar 缺少 ui/proto/index.html（原型方案未打包）')
-  if (!hasPacked('ui/shared/sessions-client.js')) throw new Error('app.asar 缺少 ui/shared/sessions-client.js（双方案共享会话数据层未打包——两侧启动即崩）')
-  if (!hasPacked('build/cat.png')) throw new Error('app.asar 缺少 build/cat.png（品牌图未打包）')
+  const uiRoot = toc.ui ? 'ui' : (toc.renderer ? 'renderer' : null)
+  const protoRoot = toc.ui ? 'ui/proto' : 'renderer-proto'
+  if (!asarHas(protoRoot)) throw new Error('app.asar 缺少 ' + protoRoot + '（原型方案未打包）')
+  if (!asarHas((uiRoot === 'ui' ? 'ui/shared' : 'shared') + '/sessions-client.js')) throw new Error('app.asar 缺少 shared/sessions-client.js（双方案共享会话数据层未打包——两侧启动即崩）')
+  if (!asarHas('build/cat.png')) throw new Error('app.asar 缺少 build/cat.png（品牌图未打包）')
   /* 全息查看器资产路径与 UI 方案目录无关地断言（renderer/holo 或 ui/holo 都应命中）：
    * 目录重组把打包清单改成 ui/**，而 holo 查看器不在 ui/ 下，曾整包丢失。 */
-  if (!hasPacked('holo/card.glb')) throw new Error('app.asar 缺少全息查看器资产 holo/card.glb（查看器打开即白屏）')
+  const holoRoot = (toc.renderer && toc.renderer.files && toc.renderer.files.holo) ? 'renderer/holo' : ((toc.ui && toc.ui.files && toc.ui.files.holo) ? 'ui/holo' : null)
+  if (!holoRoot || !asarHas(holoRoot + '/card.glb')) throw new Error('app.asar 缺少全息查看器资产 ' + (holoRoot ? holoRoot + '/card.glb' : 'holo 目录') + '（查看器打开即白屏）')
   const dll = path.join(resources, 'app.asar.unpacked', 'node_modules', 'sqlite-vec-windows-x64', 'vec0.dll')
   if (!fs.existsSync(dll)) throw new Error('sqlite-vec 的 vec0.dll 未解包到 app.asar.unpacked')
 
@@ -64,12 +66,27 @@ async function main() {
   if (!/owner:\s*tryanythingharder/.test(upd) || !/repo:\s*Undecided-Sequel\.Chapter/.test(upd)) throw new Error('app-update.yml 的 owner/repo 不符：\n' + upd)
   console.log('  自动更新元数据：app-update.yml（github provider）已打包 ✓')
   // NSIS 安装包产物也须带 latest.yml（electron-updater 检查更新拉取的清单），dist 根目录
-  if (!fs.existsSync(path.join(root, 'dist', 'latest.yml'))) throw new Error('dist/latest.yml 缺失（Release 上传后客户端无法检查更新）')
+  if (!fs.existsSync(path.join(packageDir, 'latest.yml'))) throw new Error('latest.yml 缺失（Release 上传后客户端无法检查更新）')
 
-  const app = await electron.launch({
-    executablePath: executable,
-    env: { ...process.env, ELECTRON_DISABLE_SECURITY_WARNINGS: 'true', SIXWORLDS_TEST: '1' }
-  })
+  const testRuns = path.join(root, 'output', 'test-runs')
+  fs.mkdirSync(testRuns, { recursive: true })
+  const testRoot = fs.mkdtempSync(path.join(testRuns, 'packaged-'))
+  const appData = path.join(testRoot, 'appdata')
+  const temp = path.join(testRoot, 'tmp')
+  const profile = path.join(testRoot, 'profile')
+  for (const dir of [appData, temp, profile]) fs.mkdirSync(dir, { recursive: true })
+  const env = {
+    ...process.env,
+    ELECTRON_DISABLE_SECURITY_WARNINGS: 'true',
+    SIXWORLDS_TEST: '1',
+    SIXWORLDS_TEST_USER_DATA: profile,
+    APPDATA: appData,
+    TEMP: temp,
+    TMP: temp,
+    TMPDIR: temp
+  }
+  delete env.ELECTRON_RUN_AS_NODE
+  const app = await electron.launch({ executablePath: executable, env })
   let win = null
   try {
     win = await app.firstWindow()

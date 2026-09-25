@@ -5,6 +5,8 @@
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: sixworlds-asset:;">
   <title>设置 · 六面世界</title>
   <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="../shared/theme-system.css" />
+  <link rel="stylesheet" href="../shared/product-tools.css" />
 </head>
 <body class="settings-win">
   <!-- 标题栏（.modal-head 为窗口拖动区，右侧为窗口控制按钮） -->
@@ -212,6 +214,7 @@
         <option value="standard">标准（720px）</option>
         <option value="wide">宽（860px · 一屏更多）</option>
         <option value="xwide">超宽（980px）</option>
+        <option value="custom">自定义（阅读列边缘拖拽手柄调整）</option>
       </select>
       <h3>启动</h3>
       <label class="row-inline"><input id="set-skip-splash" type="checkbox" /> 跳过开场动画（下次启动直接进入主界面）</label>
@@ -222,8 +225,8 @@
       <h3>上下文与记忆</h3>
       <label>上下文：发送最近多少条消息</label>
       <input id="set-ctx" type="number" min="2" max="64" step="1" value="24" />
-      <label>本地最多保留多少条消息</label>
-      <input id="set-keep" type="number" min="8" max="400" step="1" value="80" />
+      <label>本地故事记录</label>
+      <input id="set-keep" type="text" value="完整保留" readonly />
       <label>自动插图：仅叙事长度超过该字数时触发（避免短回复消耗配额）</label>
       <input id="set-illust-minlen" type="number" min="0" max="2000" step="10" value="80" />
       <label class="row-inline"><input id="set-illust-prompt-prefix-enable" type="checkbox" /> 提示词前缀：在自动提炼的画面内容前加固定语</label>
@@ -284,6 +287,7 @@
   </div>
 
   <script src="settings.js"></script>
+  <script src="../shared/a11y.js"></script>
   <script src="export-progress.js"></script>
   <script src="import-progress.js"></script>
 </body>

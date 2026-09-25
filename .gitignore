@@ -18,6 +18,9 @@ scripts-dev/*.png
 # 测试/截图产物（生成物不入库）
 output/
 
+# 本地调试运行时数据（SQLite 库 / 日志 / 生成的故事，非源码）
+scripts-dev/dbg2/
+
 # Playwright CLI 本地调试快照（生成物）
 .playwright-cli/
 

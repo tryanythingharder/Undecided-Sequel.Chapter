@@ -447,6 +447,11 @@ button { font-family: var(--sans); cursor: pointer; }
   position: relative;
 }
 .illust img { display: block; width: 100%; height: auto; cursor: zoom-in; }
+.illust-count {
+  position: absolute; right: 8px; bottom: 8px; z-index: 2;
+  background: rgba(0, 0, 0, .62); color: #fff; border-radius: 999px;
+  padding: 2px 10px; font-size: 11px; letter-spacing: .3px; pointer-events: none;
+}
 
 /* 大图查看（Codex 风格：暗背景 + 关闭按钮 + 保存按钮） */
 .lightbox {
@@ -1413,7 +1418,14 @@ body.sb-right .rail-hint { left: auto; right: 34px; }
 }
 @media (max-width: 480px) {
   .msg { max-width: 100%; }
+  .titlebar { padding-inline: 7px; gap: 4px; }
+  .titlebar-brand { min-width: 0; gap: 5px; }
   .titlebar-name { display: none; }
+  .area-switch { margin-left: 2px; flex: none; }
+  .area-switch-btn { padding-inline: 7px; }
+  .titlebar-actions { flex: none; gap: 0; }
+  .titlebar .tb-btn { padding-inline: 3px; }
+  .tb-sep { margin-inline: 2px; }
   .tb-btn { min-width: 26px; }
   .toast-wrap { left: 8px; right: 8px; transform: none; max-width: none; align-items: stretch; }
   .foot-select { max-width: 96px; }
@@ -1658,6 +1670,7 @@ body.layout-immersive .chat-header:hover { opacity: 1; }
 .theme-mode-row, .appearance-grid { display: grid; gap: 8px; }
 .theme-mode-row, .appearance-grid.cols-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .appearance-grid.cols-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.appearance-grid.cols-5 { grid-template-columns: repeat(5, minmax(0, 1fr)); }
 .appearance-grid.cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .appearance-tile {
   position: relative; min-width: 0; min-height: 66px; padding: 7px; border: 1px solid var(--border); border-radius: 8px;
@@ -1713,6 +1726,12 @@ body.layout-immersive .chat-header:hover { opacity: 1; }
 .width-tile:not(.narrow):not(.wide):not(.xwide) i { width: 60%; }
 .width-tile.wide i { width: 78%; }
 .width-tile.xwide i { width: 96%; }
+.size-tile strong { font-weight: 500; color: var(--text); line-height: 1; }
+.width-custom { border-style: dashed; pointer-events: none; opacity: .5; font-family: var(--mono); }
+.width-custom strong { font-size: 15px; color: var(--text-dim); line-height: 1; font-weight: 400; }
+.width-custom.on { opacity: 1; border-color: var(--accent); }
+.width-custom.on strong { color: var(--accent); }
+
 .theme-drawer-foot { min-height: 58px; display: flex; align-items: center; justify-content: flex-end; padding: 10px 20px; border-top: 1px solid var(--border); background: var(--surface-1); flex: none; }
 @media (max-width: 520px) {
   .theme-pop { width: 100vw; }
@@ -3538,8 +3557,9 @@ kbd {
 .kernel-recommended-preview { padding: 20px 18px 8px; }
 .kernel-section-heading { padding: 0 0 4px; }
 
-/* ============================================================================
-   方案D 主题兼容加固：全部皮肤色随 明暗×调色板 联动，消除深色假设
+/* =====================================================================
+
+方案D 主题兼容加固：全部皮肤色随 明暗×调色板 联动，消除深色假设
    ============================================================================ */
 /* --amber：方案D 引入的警示色（IF 徽标/待补存横幅），此前未定义、浅色下 #e0b45e 对比不足 */
 html { --amber: #e0b45e; }
@@ -3602,3 +3622,21 @@ html[data-theme="light"] { --amber: #a06a20; }
   box-shadow: 0 0 0 1px var(--accent);
 }
 .palette-sample { width: 100%; height: 40px; display: grid; grid-template-columns: 1.2fr .8fr; border: 1px solid rgba(127,127,127,.22); border-radius: 6px; overflow: hidden; }
+=======
+/* ---- 阅读栏宽度拖拽把手（shared/appearance.js 创建；三方案共享样式） ---- */
+.read-width-handle {
+  position: absolute; width: 16px; z-index: 8;
+  cursor: col-resize; touch-action: none; outline: none;
+}
+.read-width-handle::before {
+  content: ""; position: absolute; top: 50%; left: 6px; width: 3px; height: 42px;
+  transform: translateY(-50%); border-radius: 3px; background: var(--border-strong);
+  opacity: 0; transition: opacity .16s, height .16s;
+}
+.read-width-handle:hover::before, .read-width-handle:focus-visible::before, .read-width-handle.dragging::before {
+  opacity: 1; height: 76px; background: var(--accent-dim);
+}
+.read-width-handle.dragging::before { background: var(--accent); }
+body.read-width-resizing { cursor: col-resize; }
+body.read-width-resizing .messages { pointer-events: none; }
+@media (max-width: 760px) { .read-width-handle { display: none; } }

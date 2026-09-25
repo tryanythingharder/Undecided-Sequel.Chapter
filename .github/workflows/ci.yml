@@ -35,10 +35,11 @@ jobs:
           distribution: temurin
           java-version: 17
           cache: gradle
-      # setup-android（含 v4）内部仍请求已被 Google 下架的 tools 包，全局性失败；
-      # runner 预装完整 SDK，这里只需接受许可证即可
-      - name: Accept Android SDK licenses
-        run: yes | "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+      # packages 默认 'tools platform-tools'，但 Google 仓库已下架 legacy 'tools' 包
+      # （2026-09-15 起 sdkmanager 报 Failed to find package 'tools'）——只装 platform-tools
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
       - run: chmod +x mobile/gradlew
       - run: npm run test:android
       - run: mobile/gradlew -p mobile assembleDebug
